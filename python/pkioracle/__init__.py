@@ -65,37 +65,48 @@ class Oracle:
       for k in allKeys:
         self.certAuthorities[k].merge(aRemote[k])
 
-  # Mapping function
-  def processCert(self, aPsl, aCert):
-    akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
-    aki = akiext.value.key_identifier.hex()
+  def processCertMetadata(self, metaData):
+    with self.mutex:
+      oracle = None
+      if metaData["aki"] in self.certAuthorities:
+        oracle = self.certAuthorities[metaData["aki"]]
+      else:
+        oracle = CertAuthorityOracle()
+        oracle.organization = metaData["issuer"]
+        self.certAuthorities[metaData["aki"]] = oracle
 
+      fqdns = metaData["fqdns"].split(",")
+      regDoms = metaData["regdoms"].split(",")
+
+      oracle.logCert(fqdns, regDoms, metaData["issuedate"])
+      if set(["continent", "countrycode"]).issubset(metaData):
+        oracle.logGeo(metaData["continent"], metaData["countrycode"])
+
+  def getMetadataForCert(self, aPsl, aCert):
+    metaData={}
+
+    # Issuance date, organization, and AKI
+    metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
+    metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
+
+    akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
+    metaData["aki"] = akiext.value.key_identifier.hex()
+
+    # Get the FQDNs
     subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
     fqdns = set([subject.value])
 
-    try:
-      san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-      fqdns.update(san.value.get_values_for_type(x509.DNSName))
-    except:
-      return
+    san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    fqdns.update(san.value.get_values_for_type(x509.DNSName))
 
     # Filter out wildcards
-    fqdns = set(filter(lambda x: x.startswith("*.")==False, fqdns))
+    metaData["fqdns"] = ",".join(set(filter(lambda x: x.startswith("*.")==False, fqdns)))
 
+    # Get the registered domains
     regdoms = set()
     for fqdn in fqdns:
       regdoms.add(aPsl.suffix(fqdn) or fqdn)
-
-    issueDate = aCert.not_valid_before.date().isoformat()
-
-    with self.mutex:
-      if aki not in self.certAuthorities:
-        issuerOrg = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0]
-
-        self.certAuthorities[aki] = CertAuthorityOracle()
-        self.certAuthorities[aki].organization = issuerOrg.value
-
-      self.certAuthorities[aki].logCert(fqdns, regdoms, issueDate)
+    metaData["regdoms"] = ",".join(regdoms)
 
     # Get continent, country, city
     if self.geoDB:
@@ -107,10 +118,11 @@ class Oracle:
           pass
       if ipAddress:
         result = self.geoDB.city(ipAddress)
-        continent = result.continent.name
-        countryCode = result.country.iso_code
-        with self.mutex:
-          self.certAuthorities[aki].logGeo(continent, countryCode)
+        metaData["ipaddress"] = ipAddress
+        metaData["continent"] = result.continent.name
+        metaData["countrycode"] = result.country.iso_code
+
+    return metaData
 
   def serialize(self):
     return jsonpickle.encode(self.certAuthorities)

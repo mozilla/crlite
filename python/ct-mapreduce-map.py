@@ -1,5 +1,6 @@
 #!/usr/local/bin/python3
 
+from collections import Counter
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from publicsuffixlist import PublicSuffixList
@@ -35,6 +36,8 @@ s3 = boto3.resource('s3')
 if args.geoipDb:
   oracle.geoDB = geoip2.database.Reader(args.geoipDb)
 
+counter = Counter()
+
 def processDisk(path, errorFd):
   for root, _, files in os.walk(path):
     for file in files:
@@ -43,7 +46,8 @@ def processDisk(path, errorFd):
         with open(file_path, 'rb') as f:
           der_data = f.read()
           cert = x509.load_der_x509_certificate(der_data, default_backend())
-          oracle.processCert(psl, cert)
+          metaData = oracle.getMetadataForCert(psl, cert)
+          oracle.processCertMetadata(metaData)
       except ValueError as e:
         errorFd.write("{}\t{}\n".format(file_path, e))
 
@@ -60,28 +64,44 @@ def processS3(bucket, errorFd):
 
   for obj in s3.Bucket(bucket).objects.filter(Prefix="cert/"):
     # print(obj)
+    parts = obj.key.split("/")
+    year = int(parts[1])
+    dayOfYear = int(parts[2])
+
+    # Is this expired (check by looking the path so we don't have to continue
+    # to load)
+    now = time.gmtime()
+    if (year < now.tm_year) or (year == now.tm_year and dayOfYear < now.tm_yday):
+      counter["Expired"] += 1
+      continue
+
+    # OK, not expired yet!
+    # Grab the metadata, because let's assume we've already processed the cert
+    headObj = client.head_object(Bucket=obj.bucket_name, Key=obj.key)
     try:
-      parts = obj.key.split("/")
-      year = int(parts[1])
-      dayOfYear = int(parts[2])
+      # print("Trying {}".format(headObj))
+      oracle.processCertMetadata(headObj['Metadata'])
 
-      # Is this expired by the path?
-      now = time.gmtime()
-      if year < now.tm_year:
-        print("{} is < {}", year, now.tm_year)
-        continue
-      if year == now.tm_year and dayOfYear < now.tm_yday:
-        print("{} is < {}", dayOfYear, now.tm_yday)
-        continue
-
-      # OK, not expired yet, fetch the body
+      counter["Metadata Up-to-Date"] += 1
+    except KeyError as missingKey:
+      # I guess we haven't processed the cert yet, so let's process it.
       dlObj = obj.get()
-      # print(dlObj)
       der_data = dlObj['Body'].read()
-      cert = x509.load_der_x509_certificate(der_data, default_backend())
-      oracle.processCert(psl, cert)
-    except ValueError as e:
-      errorFd.write("{}\t{}\t{}\n".format(obj.key, obj, e))
+      try:
+        cert = x509.load_der_x509_certificate(der_data, default_backend())
+        metaData = oracle.getMetadataForCert(psl, cert)
+        # print("Updating metadata for {} to {}".format(obj.key, metaData))
+        # Save back that metadata
+        result = obj.copy_from(CopySource={'Bucket':obj.bucket_name, 'Key':obj.key},
+                               Metadata=metaData, MetadataDirective="REPLACE")
+
+        counter["Metadata Updated"] += 1
+      except ValueError as e:
+        # Problem parsing the certifiate
+        errorFd.write("{}\t{}\t{}\n".format(obj.key, obj, e))
+        counter["Certificate Parse Errors"] += 1
+
+    counter["Total Certificates Processed"] += 1
 
 # Main
 with open(args.problems, "w+") as problemFd:
@@ -105,3 +125,5 @@ else:
   import json
   parsed = json.loads(serializedOracle)
   print(json.dumps(parsed, indent=4))
+
+print("Done. Process results: {}".format(counter))
