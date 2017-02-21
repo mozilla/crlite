@@ -21,7 +21,7 @@ type CTConfig struct {
 	PollingDelay      *int
 	IssuerCNFilter    *string
 	LogExpiredEntries *bool
-	AWSS3Path         *string
+	AWSS3Bucket       *string
 }
 
 func NewCTConfig() *CTConfig {
@@ -37,7 +37,7 @@ func NewCTConfig() *CTConfig {
 		PollingDelay:      flag.Int("pollingDelay", 10, "Wait this many minutes between polls"),
 		IssuerCNFilter:    flag.String("issuerCNList", "", "Prefixes to match for CNs for permitted issuers, comma delimited"),
 		LogExpiredEntries: flag.Bool("logExpiredEntries", false, "Add expired entries to the database"),
-		AWSS3Path:         flag.String("awsS3Path", "", "AWS S3 Path"),
+		AWSS3Bucket:         flag.String("awsS3Bucket", "", "AWS S3 Path"),
 	}
 
 	iniflags.Parse()

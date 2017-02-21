@@ -60,9 +60,11 @@ func (db *S3Database) SaveLogState(aLogObj *CertificateLog) error {
 
 	log.Printf("Saving %s", logObjBytes)
 
+	key := fmt.Sprintf("state/%s", aLogObj.URL)
+
 	params := &s3.PutObjectInput{
 		Bucket:  aws.String(db.bucket),
-		Key:     aws.String(aLogObj.URL),
+		Key:     aws.String(key),
 		Body: 	 bytes.NewReader(logObjBytes),
 	}
 
@@ -77,10 +79,12 @@ func (db *S3Database) SaveLogState(aLogObj *CertificateLog) error {
 func (db *S3Database) GetLogState(aUrl string) (*CertificateLog, error) {
 	var certLogObj CertificateLog
 
+	key := fmt.Sprintf("state/%s", aUrl)
+
 	// Load an object with the key aUrl
 	r, err := db.service.GetObject(&s3.GetObjectInput{
 			Bucket: aws.String(db.bucket),
-			Key:    aws.String(aUrl),
+			Key:    aws.String(key),
 	})
 	if err != nil {
 		// Only error here is does-not-exist, so let's pass along a fresh obj
@@ -104,9 +108,11 @@ func (db *S3Database) Store(aCert *x509.Certificate) error {
 	akiString := base64.URLEncoding.EncodeToString(aCert.AuthorityKeyId)
 	skiString := base64.URLEncoding.EncodeToString(aCert.SubjectKeyId)
 
+	key := fmt.Sprintf("cert/%04d/%03d/%s/%s", aCert.NotAfter.Year(), aCert.NotAfter.YearDay(), akiString, skiString)
+
 	params := &s3.PutObjectInput{
 		Bucket:  aws.String(db.bucket), // Required
-		Key:     aws.String(skiString), // Required
+		Key:     aws.String(key), // Required
 		Body:    bytes.NewReader(aCert.Raw),
 		Expires: &aCert.NotAfter,
 		Metadata: map[string]*string{
