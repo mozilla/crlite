@@ -168,6 +168,8 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 // it until the function is complete, when it will be closed. The log entries
 // are provided to an output channel.
 func (ld *LogDownloader) downloadCTRangeToChannel(logID int, ctLog *client.LogClient, start, upTo uint64) (uint64, uint64, error) {
+	ctx := context.Background()
+
 	if ld.EntryChan == nil {
 		return start, 0, fmt.Errorf("No output channel provided")
 	}
@@ -188,7 +190,7 @@ func (ld *LogDownloader) downloadCTRangeToChannel(logID int, ctLog *client.LogCl
 		if max >= upTo {
 			max = upTo - 1
 		}
-		rawEnts, err := ctLog.GetEntries(int64(index), int64(max))
+		rawEnts, err := ctLog.GetEntries(ctx, int64(index), int64(max))
 		if err != nil {
 			return index, lastTime, err
 		}
@@ -229,7 +231,7 @@ func (ld *LogDownloader) insertCTWorker() {
 
 		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
 		case ct.X509LogEntryType:
-			cert, err = x509.ParseCertificate(ep.LogEntry.Leaf.TimestampedEntry.X509Entry)
+			cert, err = x509.ParseCertificate(ep.LogEntry.Leaf.TimestampedEntry.X509Entry.Data)
 		case ct.PrecertLogEntryType:
 			cert, err = x509.ParseTBSCertificate(ep.LogEntry.Leaf.TimestampedEntry.PrecertEntry.TBSCertificate)
 		}
