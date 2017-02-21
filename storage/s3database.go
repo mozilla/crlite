@@ -116,7 +116,13 @@ func (db *S3Database) Store(aCert *x509.Certificate) error {
 		Body:    bytes.NewReader(aCert.Raw),
 		Expires: &aCert.NotAfter,
 		Metadata: map[string]*string{
-			"AKI": aws.String(akiString),
+			"aki": aws.String(akiString),
+			// "issuer":
+			// "issuedate"
+			// "fqdns":
+			// "regdoms":
+			// "continent":
+			// "countrycode":
 		},
 	}
 
