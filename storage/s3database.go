@@ -126,7 +126,7 @@ func (db *S3Database) Store(aCert *x509.Certificate) error {
 		},
 	}
 
-	resp, err := db.service.PutObject(params)
+	_, err := db.service.PutObject(params)
 	if err != nil {
 	    // Print the error, cast err to awserr.Error to get the Code and
 	    // Message from an error.
@@ -134,7 +134,5 @@ func (db *S3Database) Store(aCert *x509.Certificate) error {
 	    return err
 	}
 
-	// Pretty-print the response data.
-	// log.Printf("Saved ski %s, got %s", skiString, resp)
 	return nil
 }
