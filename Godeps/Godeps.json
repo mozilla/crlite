@@ -42,7 +42,7 @@
 		},
 		{
 			"ImportPath": "github.com/google/certificate-transparency/go",
-			"Rev": "59647d288fd35bda8af7d18ca7a9be2feaa687e2"
+			"Rev": "1dae5b67a6e905bcb0073918769cb7238afceb63"
 		},
 		{
 			"ImportPath": "github.com/jcjones/ct-sql/utils",

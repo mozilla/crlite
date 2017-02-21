@@ -135,6 +135,6 @@ func (db *S3Database) Store(aCert *x509.Certificate) error {
 	}
 
 	// Pretty-print the response data.
-	log.Printf("Saved ski %s, got %s", skiString, resp)
+	// log.Printf("Saved ski %s, got %s", skiString, resp)
 	return nil
 }
