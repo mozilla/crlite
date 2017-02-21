@@ -1,21 +1,22 @@
 import argparse
+import json
 import jsonpickle
 import os
-import json
 import pkioracle
+import sys
 
 parser = argparse.ArgumentParser()
-parser.add_argument("input", nargs='*')
-parser.add_argument("--problems", default="problems")
-parser.add_argument("--output")
-
-def serializeOracle(oracle):
-  del oracle.mutex
-  return jsonpickle.encode(oracle)
+parser.add_argument("input", nargs='*', help="Input reports from ct-mapreduce-map.py")
+parser.add_argument("--problems", default="problems", help="File to record errors")
+parser.add_argument("--output", help="File to place the output report")
 
 # I/O
 args = parser.parse_args()
 oracle = pkioracle.Oracle()
+
+if len(args.input) == 0:
+  parser.print_usage()
+  sys.exit(0)
 
 with open(args.problems, "w") as problemFd:
   for inFile in args.input:
@@ -31,7 +32,7 @@ if args.output:
       summary = oracle.summarize()
       outFd.write(summary)
     else:
-      serializedOracle = serializeOracle(oracle)
+      serializedOracle = oracle.serialize()
       outFd.write(serializedOracle)
 
 else:
@@ -39,6 +40,6 @@ else:
     summary = oracle.summarize()
     print(json.dumps(summary, indent=4))
   else:
-    serializedOracle = serializeOracle(oracle)
+    serializedOracle = oracle.serialize()
     parsed = json.loads(serializedOracle)
     print(json.dumps(parsed, indent=4))

@@ -15,7 +15,6 @@ type CTConfig struct {
 	CertPath          *string
 	Offset            *uint64
 	Limit             *uint64
-	GeoipDbPath       *string
 	NumThreads        *int
 	RunForever        *bool
 	PollingDelay      *int
@@ -31,7 +30,6 @@ func NewCTConfig() *CTConfig {
 		CertPath:          flag.String("certPath", "", "Path under which to store full DER-encoded certificates"),
 		Offset:            flag.Uint64("offset", 0, "offset from the beginning"),
 		Limit:             flag.Uint64("limit", 0, "limit processing to this many entries"),
-		GeoipDbPath:       flag.String("geoipDbPath", "", "Path to GeoIP2-City.mmdb"),
 		NumThreads:        flag.Int("numThreads", 1, "Use this many threads per CPU"),
 		RunForever:        flag.Bool("forever", false, "Run forever"),
 		PollingDelay:      flag.Int("pollingDelay", 10, "Wait this many minutes between polls"),

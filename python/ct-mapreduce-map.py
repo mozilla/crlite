@@ -6,17 +6,19 @@ from publicsuffixlist import PublicSuffixList
 import argparse
 import boto3
 import datetime
-import jsonpickle
-import time
 import os
 import pkioracle
+import sys
+import time
+import geoip2.database
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--path")
-parser.add_argument("--s3bucket")
-parser.add_argument("--psl")
-parser.add_argument("--problems", default="problems")
-parser.add_argument("--output")
+parser.add_argument("--path", help="Path to folder on disk to store certs")
+parser.add_argument("--s3bucket", help="S3 Bucket to store certs")
+parser.add_argument("--psl", help="Path to effective_tld_names.dat")
+parser.add_argument("--problems", default="problems", help="File to record errors")
+parser.add_argument("--output", help="File to place the output report")
+parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb")
 
 # I/O
 args = parser.parse_args()
@@ -29,6 +31,9 @@ if args.psl:
 oracle = pkioracle.Oracle()
 client = boto3.client('s3')
 s3 = boto3.resource('s3')
+
+if args.geoipDb:
+  oracle.geoDB = geoip2.database.Reader(args.geoipDb)
 
 def processDisk(path, errorFd):
   for root, _, files in os.walk(path):
@@ -86,11 +91,10 @@ with open(args.problems, "w+") as problemFd:
     processS3(args.s3bucket, problemFd)
   else:
     parser.print_usage()
-    raise Exception("You have to give either path or s3bucket")
+    sys.exit(0)
 
 # Clean up the oracle and serialize it
-del oracle.mutex
-serializedOracle = jsonpickle.encode(oracle)
+serializedOracle = oracle.serialize()
 
 # Either go to file, or to stdout
 if args.output:

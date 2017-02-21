@@ -2,7 +2,7 @@
 
 ## Installation
 
-1. Get the [Geo-Mind Lite City GeoIP database (binary)](http://dev.maxmind.com/geoip/geoip2/geolite2/)
+1. Get the [Geo-Mind Lite City GeoIP database (binary)](https://dev.maxmind.com/geoip/geoip2/geolite2/)
 1. Grab the most recent Public Suffix List: `wget https://publicsuffix.org/list/effective_tld_names.dat`
 1. Install the python dependencies: `pip install -r python/requirements.txt`
 1. Build the CT-to-S3 scraper: `go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch`

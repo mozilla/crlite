@@ -1,3 +1,4 @@
 boto3 >= 1.4
 publicsuffixlist >= 0.4
 jsonpickle >= 0.9
+geoip2 >= 2.4
