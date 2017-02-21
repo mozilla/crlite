@@ -1,0 +1,65 @@
+{
+	"ImportPath": "github.com/jcjones/ct-mapreduce",
+	"GoVersion": "go1.6.2",
+	"Packages": [
+		"cmd/ct-fetch/main.go"
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/aws",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/private/protocol",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/private/waiter",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/service/s3",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/service/sts",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/vendor/github.com/go-ini/ini",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/aws/aws-sdk-go/vendor/github.com/jmespath/go-jmespath",
+			"Comment": "v1.6.10-1-g8649d278",
+			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+		},
+		{
+			"ImportPath": "github.com/google/certificate-transparency/go",
+			"Rev": "59647d288fd35bda8af7d18ca7a9be2feaa687e2"
+		},
+		{
+			"ImportPath": "github.com/jcjones/ct-sql/utils",
+			"Rev": "a1a22e4a3ef6b5ffba9293106a957383a43c28f7"
+		},
+		{
+			"ImportPath": "github.com/jpillora/backoff",
+			"Rev": "2ff7c4694083b5dbd71b21fd7cb7577477a74b31"
+		},
+		{
+			"ImportPath": "github.com/vharitonsky/iniflags",
+			"Comment": "v.1.0-30-g743d690",
+			"Rev": "743d6901e7ca8ab61ac533a8c49939ac8b560e72"
+		},
+		{
+			"ImportPath": "golang.org/x/net/context",
+			"Rev": "4971afdc2f162e82d185353533d3cf16188a9f4e"
+		}
+	]
+}
