@@ -263,11 +263,11 @@ func main() {
 		}
 	}
 
-	if ctconfig.AWSS3Path != nil {
-		log.Printf("Saving to S3 at %s", *ctconfig.AWSS3Path)
-		storageDB, err = storage.NewS3Database(*ctconfig.AWSS3Path)
+	if ctconfig.AWSS3Bucket != nil && len(*ctconfig.AWSS3Bucket) > 0 {
+		log.Printf("Saving to S3 at %s", *ctconfig.AWSS3Bucket)
+		storageDB, err = storage.NewS3Database(*ctconfig.AWSS3Bucket)
 		if err != nil {
-			log.Fatalf("unable to open S3: %s: %s", *ctconfig.AWSS3Path, err)
+			log.Fatalf("unable to open S3: %s: %s", *ctconfig.AWSS3Bucket, err)
 		}
 	}
 
