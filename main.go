@@ -159,8 +159,12 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 		logObj.LastEntryTime = utils.Uint64ToTimestamp(finalTime)
 	}
 
-	log.Printf("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", ctLogUrl, logObj.MaxEntry, logObj.LastEntryTime)
-	ld.Database.SaveLogState(logObj)
+	err = ld.Database.SaveLogState(logObj)
+	if err == nil {
+		log.Printf("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
+	}	else {
+		log.Printf("[%s] Log state save failed, MaxEntry=%d, LastEntryTime=%s, Err=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime, err)
+	}
 }
 
 // DownloadRange downloads log entries from the given starting index till one
