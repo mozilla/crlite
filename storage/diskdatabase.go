@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -44,13 +45,40 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 }
 
 func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
-	// TODO
-	return nil
+	filename := base64.URLEncoding.EncodeToString([]byte(aLogObj.URL))
+	dirPath := filepath.Join(db.rootDir.Name(), "state")
+	filePath := filepath.Join(dirPath, filename)
+
+	data, err := json.Marshal(aLogObj)
+	if err != nil {
+		return err
+	}
+
+	if !isDirectory(dirPath) {
+		err := os.MkdirAll(dirPath, os.ModeDir|0777)
+		if err != nil {
+			return err
+		}
+	}
+
+	return ioutil.WriteFile(filePath, data, 0666)
 }
 
 func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
-	// TODO
+	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
+	filePath := filepath.Join(db.rootDir.Name(), "state", filename)
+
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		// Not an error to not have a state file, just prime one for us
+		return &CertificateLog{ URL: aUrl }, nil
+	}
+
 	var certLogObj CertificateLog
+	err = json.Unmarshal(data, &certLogObj)
+	if err != nil {
+		return nil, err
+	}
 	return &certLogObj, nil
 }
 
@@ -60,7 +88,8 @@ func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI [
 	dirPath := filepath.Join(db.rootDir.Name(), subdirName, issuerName)
 
 	subjectName := base64.URLEncoding.EncodeToString(aSKI)
-	filePath := filepath.Join(dirPath, subjectName)
+	fileName := fmt.Sprintf("%s.cer", subjectName)
+	filePath := filepath.Join(dirPath, fileName)
 	return dirPath, filePath
 }
 
