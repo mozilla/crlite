@@ -4,6 +4,7 @@ import jsonpickle
 import os
 import pkioracle
 import sys
+import threading
 from datetime import datetime
 from collections import Counter
 from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
@@ -27,6 +28,7 @@ def main():
   args = parser.parse_args()
   oracle = pkioracle.Oracle()
   stats = Counter()
+  mutex = threading.RLock()
 
   if not args.path and len(args.input) == 0:
     parser.print_usage()

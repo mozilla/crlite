@@ -81,7 +81,7 @@ class Oracle:
       for k in allKeys:
         self.certAuthorities[k].merge(aRemote[k])
 
-  def processCertMetadata(self, metaData):
+  def recordCertMetadata(self, metaData):
     if not set(["aki", "issuer", "fqdns", "regdoms"]).issubset(metaData):
       # Can't do anything with this non-BR-compliant cert
       return

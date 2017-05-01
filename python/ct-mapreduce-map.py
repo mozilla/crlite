@@ -4,23 +4,26 @@ from collections import Counter
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from publicsuffixlist import PublicSuffixList
+from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
+from datetime import datetime
 import argparse
 # import boto3
-from datetime import datetime
 import os
 import pkioracle
 import sys
 import time
+import threading
+import queue
 import geoip2.database
-from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
 # parser.add_argument("--s3bucket", help="S3 Bucket to store certs")
 parser.add_argument("--psl", help="Path to effective_tld_names.dat")
-parser.add_argument("--problems", default="problems", help="File to record errors")
-parser.add_argument("--output", help="File to place the output report")
 parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb")
+parser.add_argument("--problems", default="problems", help="File to record errors")
+parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
+parser.add_argument("--output", help="File to place the output report")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -39,17 +42,75 @@ if args.psl:
 # client = boto3.client('s3')
 # s3 = boto3.resource('s3')
 
+if args.problems:
+  problemFd = open(args.problems, "w+")
+
 geoDB = None
 if args.geoipDb:
   geoDB = geoip2.database.Reader(args.geoipDb)
 
 counter = Counter()
 
-def processDisk(path, errorFd):
+pbar_mutex = threading.RLock()
+pbar = ProgressBar(widgets=widgets)
+pbar.start()
+
+work_queue = queue.Queue()
+
+# Thread worker
+def worker():
+  while True:
+    # Get a work task, if any
+    dirty_folder = work_queue.get()
+    if dirty_folder is None:
+      break
+
+    oracle = pkioracle.Oracle()
+    if geoDB:
+      oracle.geoDB = geoDB
+    processFolder(oracle, dirty_folder)
+    # save state out
+    with open(os.path.join(dirty_folder, "oracle.out"), "w") as outFd:
+      outFd.write(oracle.serialize())
+
+    # clear the dirty flag
+    os.remove(os.path.join(dirty_folder, "dirty"))
+    # All done
+    work_queue.task_done()
+
+def processFolder(oracle, path):
+  if os.path.isdir(os.path.join(path, "state")):
+    raise Exception("Should be called on subfolders, not the primary folder")
+
+  file_queue = []
+
+  for root, _, files in os.walk(path):
+    for file in files:
+      file_queue.append(os.path.join(root, file))
+
+  with pbar_mutex:
+    pbar.maxval += len(file_queue)
+
+  for file_path in file_queue:
+    try:
+      with open(file_path, 'rb') as f:
+        der_data = f.read()
+        cert = x509.load_der_x509_certificate(der_data, default_backend())
+        # This call is likely to block
+        metaData = oracle.getMetadataForCert(psl, cert)
+        oracle.recordCertMetadata(metaData)
+        counter["Total Certificates Processed"] += 1
+    except ValueError as e:
+      problemFd.write("{}\t{}\n".format(file_path, e))
+      counter["Certificate Parse Errors"] += 1
+
+    with pbar_mutex:
+      pbar.update(pbar.currval + 1)
+
+
+def processDisk(path):
   if not os.path.isdir(os.path.join(path, "state")):
     raise Exception("This should be called on the primary folder")
-
-  folder_queue = []
 
   for item in os.listdir(path):
     # Skip the "state" folder
@@ -75,47 +136,9 @@ def processDisk(path, errorFd):
       continue
 
     # Folder is dirty, add to the queue
-    folder_queue.append(entry)
+    work_queue.put(entry)
 
-  # print(folder_queue)
-
-  pbar = ProgressBar(widgets=widgets, maxval=len(folder_queue))
-  pbar.start()
-
-  for idx, dirty_folder in enumerate(folder_queue):
-    oracle = pkioracle.Oracle()
-    if geoDB:
-      oracle.geoDB = geoDB
-    processFolder(oracle, dirty_folder, errorFd)
-    # save state out
-    with open(os.path.join(dirty_folder, "oracle.out"), "w") as outFd:
-      outFd.write(oracle.serialize())
-
-    # clear the dirty flag
-    os.remove(os.path.join(dirty_folder, "dirty"))
-    pbar.update(idx)
-
-  pbar.finish()
-
-def processFolder(oracle, path, errorFd):
-  if os.path.isdir(os.path.join(path, "state")):
-    raise Exception("Should be called on subfolders, not the primary folder")
-
-  for root, _, files in os.walk(path):
-    for file in files:
-      file_path = os.path.join(root, file)
-      try:
-        with open(file_path, 'rb') as f:
-          der_data = f.read()
-          cert = x509.load_der_x509_certificate(der_data, default_backend())
-          metaData = oracle.getMetadataForCert(psl, cert)
-          oracle.processCertMetadata(metaData)
-          counter["Total Certificates Processed"] += 1
-      except ValueError as e:
-        errorFd.write("{}\t{}\n".format(file_path, e))
-        counter["Certificate Parse Errors"] += 1
-
-def processS3(bucket, errorFd):
+def processS3(bucket):
   # response = client.list_objects_v2(
   #   Bucket=bucket,
   #   MaxKeys=1024,
@@ -162,33 +185,36 @@ def processS3(bucket, errorFd):
         counter["Metadata Updated"] += 1
       except ValueError as e:
         # Problem parsing the certifiate
-        errorFd.write("{}\t{}\t{}\n".format(obj.key, obj, e))
+        problemFd.write("{}\t{}\t{}\n".format(obj.key, obj, e))
         counter["Certificate Parse Errors"] += 1
 
     counter["Total Certificates Processed"] += 1
 
-# Main
-with open(args.problems, "w+") as problemFd:
-  if args.path:
-    processDisk(args.path, problemFd)
-  # currently disabled
-  # elif args.s3bucket:
-  #   processS3(args.s3bucket, problemFd)
-  else:
+def main():
+  if not args.path:
     parser.print_usage()
     sys.exit(0)
 
-# # Clean up the oracle and serialize it
-# serializedOracle = oracle.serialize()
+  threads = []
+  for i in range(args.threads):
+    t = threading.Thread(target=worker)
+    t.start()
+    threads.append(t)
 
-# # Either go to file, or to stdout
-# if args.output:
-#   with open(args.output, "w") as outFd:
-#     outFd.write(serializedOracle)
-# else:
-#   # Pretty print it. Cheat using json module
-#   import json
-#   parsed = json.loads(serializedOracle)
-#   print(json.dumps(parsed, indent=4))
+  processDisk(args.path)
 
-print("Done. Process results: {}".format(counter))
+  work_queue.join()
+  for i in range(args.threads):
+      work_queue.put(None)
+  for t in threads:
+      t.join()
+
+  pbar.finish()
+
+  if problemFd:
+    problemFd.close()
+
+  print("Done. Process results: {}".format(counter))
+
+if __name__ == "__main__":
+  main()
