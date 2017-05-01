@@ -4,6 +4,7 @@ import jsonpickle
 import os
 import pkioracle
 import sys
+from datetime import datetime
 from collections import Counter
 from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
 
@@ -19,6 +20,7 @@ parser.add_argument("--problems", default="problems", help="File to record error
 parser.add_argument("--output", help="File to place the output report")
 parser.add_argument("--path", help="Path to root folder on disk to store certs; if you specify this, don't specify specific input files")
 parser.add_argument('--summary', help="Produce a human-readable summary report", action="store_true")
+parser.add_argument("--expiredate", help="Expiration date to use (YYYY-MM-dd); if unset, will use the most recent UTC midnight")
 
 # I/O
 def main():
@@ -30,6 +32,10 @@ def main():
     parser.print_usage()
     sys.exit(0)
 
+  expiredate = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+  if args.expiredate:
+    expiredate = datetime.strptime(args.expiredate, "%Y-%m-%d")
+
   process_queue = args.input
 
   if args.path:
@@ -37,6 +43,14 @@ def main():
       raise Exception("Should be called the primary folder, not subfolders")
 
     for root, _, files in os.walk(args.path):
+      try:
+        dir_date = datetime.strptime(os.path.basename(root), "%Y-%m-%d")
+      except ValueError as e:
+        continue
+
+      if dir_date < expiredate:
+        stats["Expired Directories"] += 1
+        continue
       for file in files:
         if file == "oracle.out":
           process_queue.append(os.path.join(root, file))
@@ -49,7 +63,7 @@ def main():
       try:
         with open(inFile, 'r') as f:
           oracle.merge(jsonpickle.decode(f.read()))
-          stats["numFiles"] += 1
+          stats["Number of Files Processed"] += 1
           pbar.update(idx)
       except ValueError as e:
         problemFd.write("{}\t{}\n".format(inFile, e))
@@ -59,7 +73,7 @@ def main():
   if args.output:
     with open(args.output, "w") as outFd:
       if len(args.input) == 1:
-        summary = oracle.summarize()
+        summary = oracle.summarize(stats)
         outFd.write(summary)
       else:
         serializedOracle = oracle.serialize()
@@ -67,7 +81,7 @@ def main():
 
   else:
     if len(args.input) == 1:
-      summary = oracle.summarize()
+      summary = oracle.summarize(stats)
       print(json.dumps(summary, indent=4))
     else:
       serializedOracle = oracle.serialize()

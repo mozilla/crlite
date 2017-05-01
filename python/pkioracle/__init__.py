@@ -37,7 +37,8 @@ class CertAuthorityOracle:
       "organization": self.organization,
       "fqdns": len(self.fqdnSet),
       "regDoms": len(self.regDomSet),
-      "certsIssued": self.dailyIssuance,
+      "certsIssuedByIssuanceDay": self.dailyIssuance,
+      "certsTotal": sum(self.dailyIssuance.values()),
     }
     if len(self.continent) > 0:
       counts["continents"] = self.continent
@@ -52,11 +53,25 @@ class Oracle:
     self.mutex = threading.RLock()
     self.geoDB = None
 
-  def summarize(self):
+  def summarize(self, stats):
     data={}
     with self.mutex:
+      allFqdns = set()
+      allRegDoms = set()
+
       for k in self.certAuthorities:
         data[k] = self.certAuthorities[k].summarize()
+        if "certsTotal" in data[k]:
+          stats["Total Certificates"] += data[k]["certsTotal"]
+        stats["Total Certificate Authorities"] += 1
+        allFqdns = allFqdns | self.certAuthorities[k].fqdnSet
+        allRegDoms = allRegDoms | self.certAuthorities[k].regDomSet
+        # clear heavy memory area memory since statistics were gathered
+        self.certAuthorities[k].fqdnSet.clear()
+        self.certAuthorities[k].regDomSet.clear()
+
+      stats["Total Unique FQDNs Seen"] = len(allFqdns)
+      stats["Total Unique RegDoms Seen"] = len(allRegDoms)
 
     return data
 
