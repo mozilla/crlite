@@ -67,6 +67,8 @@ type LogDownloader struct {
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
 	Backoff             *backoff.Backoff
+	DateMutexes         map[string]sync.Mutex
+	DateMutexMutex      sync.Mutex
 }
 
 func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
@@ -76,6 +78,8 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 		Display:             utils.NewProgressDisplay(),
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
+		DateMutexes:         make(map[string]sync.Mutex),
+		DateMutexMutex:      sync.Mutex{},
 		Backoff: &backoff.Backoff{
 			Min:    10 * time.Millisecond,
 			Max:    1 * time.Second,
@@ -248,6 +252,21 @@ func (ld *LogDownloader) insertCTWorker() {
       continue
     }
 
+    mutexName := cert.NotAfter.Format("2006-01-02")
+    ld.DateMutexMutex.Lock()
+    _, ok := ld.DateMutexes[mutexName]
+    if !ok {
+    	ld.DateMutexes[mutexName] = sync.Mutex{}
+    }
+    mutex, ok := ld.DateMutexes[mutexName]
+    if !ok {
+    	log.Fatalf("New mutex failure for %s", mutexName)
+    }
+    ld.DateMutexMutex.Unlock()
+
+    mutex.Lock()
+    defer mutex.Unlock()
+
 		err = ld.Database.Store(cert)
 		if err != nil {
 			log.Printf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
@@ -263,7 +282,7 @@ func main() {
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
 		log.Printf("Saving to disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewDiskDatabase(*ctconfig.CertPath, 0444)
+		storageDB, err = storage.NewDiskDatabase(*ctconfig.CertPath, 0644)
 		if err != nil {
 			log.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
 		}
