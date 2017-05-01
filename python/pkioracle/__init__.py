@@ -146,11 +146,14 @@ class Oracle:
         except:
           pass
       if ipAddress:
-        if IP(ipAddress).iptype() != "PRIVATE":
-          result = self.geoDB.city(ipAddress)
-          metaData["ipaddress"] = ipAddress
-          metaData["continent"] = result.continent.name
-          metaData["countrycode"] = result.country.iso_code
+        try:
+          if IP(ipAddress).iptype() != "PRIVATE":
+            result = self.geoDB.city(ipAddress)
+            metaData["ipaddress"] = ipAddress
+            metaData["continent"] = result.continent.name
+            metaData["countrycode"] = result.country.iso_code
+        except:
+          pass
 
     return metaData
 

@@ -20,10 +20,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
 # parser.add_argument("--s3bucket", help="S3 Bucket to store certs")
 parser.add_argument("--psl", help="Path to effective_tld_names.dat")
-parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb")
+parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb, if you want DNS resolutions")
 parser.add_argument("--problems", default="problems", help="File to record errors")
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
-parser.add_argument("--output", help="File to place the output report")
+parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -70,7 +70,7 @@ def worker():
       oracle.geoDB = geoDB
     processFolder(oracle, dirty_folder)
     # save state out
-    with open(os.path.join(dirty_folder, "oracle.out"), "w") as outFd:
+    with open(os.path.join(dirty_folder, args.outname), "w") as outFd:
       outFd.write(oracle.serialize())
 
     # clear the dirty flag
@@ -107,6 +107,8 @@ def processFolder(oracle, path):
     with pbar_mutex:
       pbar.update(pbar.currval + 1)
 
+  counter["Folders Processed"] += 1
+
 
 def processDisk(path):
   if not os.path.isdir(os.path.join(path, "state")):
@@ -127,68 +129,16 @@ def processDisk(path):
     pathdate = datetime.strptime(item, "%Y-%m-%d").timetuple()
     now = time.gmtime()
     if (pathdate.tm_year < now.tm_year) or (pathdate.tm_year == now.tm_year and pathdate.tm_yday < now.tm_yday):
-      counter["Folder Expired"] += 1
+      counter["Folders Expired"] += 1
       continue
 
     # Does this folder have a dirty flag set?
     if not os.path.isfile(os.path.join(entry, "dirty")):
-      counter["Folder Up-to-date"] += 1
+      counter["Folders Up-to-date"] += 1
       continue
 
     # Folder is dirty, add to the queue
     work_queue.put(entry)
-
-def processS3(bucket):
-  # response = client.list_objects_v2(
-  #   Bucket=bucket,
-  #   MaxKeys=1024,
-  #   # StartAfter='string',
-  # )
-
-  # print(response)
-  # for obj in response['Contents']:
-  #   print(obj)
-
-  for obj in s3.Bucket(bucket).objects.filter(Prefix="cert/"):
-    # print(obj)
-    parts = obj.key.split("/")
-    year = int(parts[1])
-    dayOfYear = int(parts[2])
-
-    # Is this expired (check by looking the path so we don't have to continue
-    # to load)
-    now = time.gmtime()
-    if (year < now.tm_year) or (year == now.tm_year and dayOfYear < now.tm_yday):
-      counter["Expired"] += 1
-      continue
-
-    # OK, not expired yet!
-    # Grab the metadata, because let's assume we've already processed the cert
-    headObj = client.head_object(Bucket=obj.bucket_name, Key=obj.key)
-    try:
-      # print("Trying {}".format(headObj))
-      oracle.processCertMetadata(headObj['Metadata'])
-
-      counter["Metadata Up-to-Date"] += 1
-    except KeyError as missingKey:
-      # I guess we haven't processed the cert yet, so let's process it.
-      dlObj = obj.get()
-      der_data = dlObj['Body'].read()
-      try:
-        cert = x509.load_der_x509_certificate(der_data, default_backend())
-        metaData = oracle.getMetadataForCert(psl, cert)
-        # print("Updating metadata for {} to {}".format(obj.key, metaData))
-        # Save back that metadata
-        result = obj.copy_from(CopySource={'Bucket':obj.bucket_name, 'Key':obj.key},
-                               Metadata=metaData, MetadataDirective="REPLACE")
-
-        counter["Metadata Updated"] += 1
-      except ValueError as e:
-        # Problem parsing the certifiate
-        problemFd.write("{}\t{}\t{}\n".format(obj.key, obj, e))
-        counter["Certificate Parse Errors"] += 1
-
-    counter["Total Certificates Processed"] += 1
 
 def main():
   if not args.path:
