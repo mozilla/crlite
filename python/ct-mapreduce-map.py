@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
 parser.add_argument("--psl", help="Path to effective_tld_names.dat")
 parser.add_argument("--problems", default="problems", help="File to record errors")
+parser.add_argument("--limit", help="Number of folders to process", type=int)
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
 parser.add_argument('--assumedirty', help="Assume all folders are dirty", action="store_true")
@@ -107,6 +108,8 @@ def processDisk(path):
   if not os.path.isdir(os.path.join(path, "state")):
     raise Exception("This should be called on the primary folder")
 
+  count = 0
+
   for item in os.listdir(path):
     # Skip the "state" folder
     if item == "state":
@@ -129,6 +132,9 @@ def processDisk(path):
     if args.assumedirty or os.path.isfile(os.path.join(entry, "dirty")):
       # Folder is dirty, add to the queue
       work_queue.put(entry)
+      count += 1
+      if args.limit and args.limit <= count:
+        return
       continue
 
     counter["Folders Up-to-date"] += 1
