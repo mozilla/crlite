@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -84,11 +85,10 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 
 func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI []byte) (string, string) {
 	subdirName := aExpiration.Format("2006-01-02")
-	issuerName := base64.URLEncoding.EncodeToString(aAKI)
-	dirPath := filepath.Join(db.rootDir.Name(), subdirName, issuerName)
+	dirPath := filepath.Join(db.rootDir.Name(), subdirName)
 
-	subjectName := base64.URLEncoding.EncodeToString(aSKI)
-	fileName := fmt.Sprintf("%s.cer", subjectName)
+	issuerName := base64.URLEncoding.EncodeToString(aAKI)
+	fileName := fmt.Sprintf("%s.pem", issuerName)
 	filePath := filepath.Join(dirPath, fileName)
 	return dirPath, filePath
 }
@@ -113,16 +113,32 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate) error {
 			return err
 		}
 	}
-	_, err := os.Stat(filePath)
-	if err != nil && os.IsNotExist(err) {
-		// Mark the directory dirty
-		err = db.markDirty(&aCert.NotAfter)
-		if err != nil {
-			return err
-		}
 
-		return ioutil.WriteFile(filePath, aCert.Raw, db.permissions)
+	headers := make(map[string]string)
+	headers["Seen-in-log"] = ""
+
+	pemblock := pem.Block{
+		Type: "CERTIFICATE",
+		Headers: headers,
+		Bytes: aCert.Raw,
 	}
-	// Already exists, so skip
+
+	fd, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, db.permissions)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	err = pem.Encode(fd, &pemblock)
+	if err != nil {
+		return err
+	}
+
+	// Mark the directory dirty
+	err = db.markDirty(&aCert.NotAfter)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
