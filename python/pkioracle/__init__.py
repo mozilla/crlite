@@ -81,6 +81,16 @@ class Oracle:
       for k in allKeys:
         self.certAuthorities[k].merge(aRemote[k])
 
+  def recordGeodata(self, aki, geodata):
+    with self.mutex:
+      oracle = None
+      if aki not in self.certAuthorities:
+        raise Exception("How did we miss an AKI?")
+      oracle = self.certAuthorities[aki]
+      if not set(["continent", "countrycode"]).issubset(geodata):
+        raise Exception("Invalid geodata")
+      oracle.logGeo(geodata["continent"], geodata["countrycode"])
+
   def recordCertMetadata(self, metaData):
     if not set(["aki", "issuer", "fqdns", "regdoms"]).issubset(metaData):
       # Can't do anything with this non-BR-compliant cert
