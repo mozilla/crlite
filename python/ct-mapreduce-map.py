@@ -7,20 +7,16 @@ from publicsuffixlist import PublicSuffixList
 from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
 from datetime import datetime
 import argparse
-# import boto3
 import os
 import pkioracle
 import sys
 import time
 import threading
 import queue
-import geoip2.database
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
-# parser.add_argument("--s3bucket", help="S3 Bucket to store certs")
 parser.add_argument("--psl", help="Path to effective_tld_names.dat")
-parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb, if you want DNS resolutions")
 parser.add_argument("--problems", default="problems", help="File to record errors")
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
@@ -40,15 +36,8 @@ if args.psl:
   with open(args.psl, "rb") as f:
     psl = PublicSuffixList(f)
 
-# client = boto3.client('s3')
-# s3 = boto3.resource('s3')
-
 if args.problems:
   problemFd = open(args.problems, "w+")
-
-geoDB = None
-if args.geoipDb:
-  geoDB = geoip2.database.Reader(args.geoipDb)
 
 counter = Counter()
 
@@ -67,8 +56,6 @@ def worker():
       break
 
     oracle = pkioracle.Oracle()
-    if geoDB:
-      oracle.geoDB = geoDB
     processFolder(oracle, dirty_folder)
     # save state out
     with open(os.path.join(dirty_folder, args.outname), "w") as outFd:
@@ -91,7 +78,8 @@ def processFolder(oracle, path):
 
   for root, _, files in os.walk(path):
     for file in files:
-      file_queue.append(os.path.join(root, file))
+      if file.endswith("cer"):
+        file_queue.append(os.path.join(root, file))
 
   with pbar_mutex:
     pbar.maxval += len(file_queue)
