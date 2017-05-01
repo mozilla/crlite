@@ -6,7 +6,7 @@ from cryptography.hazmat.backends import default_backend
 from publicsuffixlist import PublicSuffixList
 import argparse
 # import boto3
-import datetime
+from datetime import datetime
 import os
 import pkioracle
 import sys
@@ -61,10 +61,21 @@ def processDisk(path, errorFd):
       # Not a folder, keep going
       continue
 
+    # Is this expired (check by looking the path so we don't have to continue
+    # to load)
+    pathdate = datetime.strptime(item, "%Y-%m-%d").timetuple()
+    now = time.gmtime()
+    if (pathdate.tm_year < now.tm_year) or (pathdate.tm_year == now.tm_year and pathdate.tm_yday < now.tm_yday):
+      counter["Folder Expired"] += 1
+      continue
+
     # Does this folder have a dirty flag set?
-    if os.path.isfile(os.path.join(entry, "dirty")):
-      # Folder is dirty, add to the queue
-      folder_queue.append(entry)
+    if not os.path.isfile(os.path.join(entry, "dirty")):
+      counter["Folder Up-to-date"] += 1
+      continue
+
+    # Folder is dirty, add to the queue
+    folder_queue.append(entry)
 
   # print(folder_queue)
 
@@ -99,8 +110,10 @@ def processFolder(oracle, path, errorFd):
           cert = x509.load_der_x509_certificate(der_data, default_backend())
           metaData = oracle.getMetadataForCert(psl, cert)
           oracle.processCertMetadata(metaData)
+          counter["Total Certificates Processed"] += 1
       except ValueError as e:
         errorFd.write("{}\t{}\n".format(file_path, e))
+        counter["Certificate Parse Errors"] += 1
 
 def processS3(bucket, errorFd):
   # response = client.list_objects_v2(
