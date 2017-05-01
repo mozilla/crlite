@@ -93,6 +93,18 @@ func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI [
 	return dirPath, filePath
 }
 
+func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
+	subdirName := aExpiration.Format("2006-01-02")
+	dirPath := filepath.Join(db.rootDir.Name(), subdirName)
+	filePath := filepath.Join(dirPath, "dirty")
+
+	_, err := os.Stat(filePath)
+	if err != nil && os.IsNotExist(err) {
+		return ioutil.WriteFile(filePath, []byte{}, 0666)
+	}
+	return nil
+}
+
 func (db *DiskDatabase) Store(aCert *x509.Certificate) error {
 	dirPath, filePath := db.getPathForID(&aCert.NotAfter, aCert.AuthorityKeyId, aCert.SubjectKeyId)
 	if !isDirectory(dirPath) {
@@ -103,6 +115,12 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate) error {
 	}
 	_, err := os.Stat(filePath)
 	if err != nil && os.IsNotExist(err) {
+		// Mark the directory dirty
+		err = db.markDirty(&aCert.NotAfter)
+		if err != nil {
+			return err
+		}
+
 		return ioutil.WriteFile(filePath, aCert.Raw, db.permissions)
 	}
 	// Already exists, so skip

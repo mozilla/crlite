@@ -1,5 +1,6 @@
 from cryptography import x509
 from collections import defaultdict, Counter
+from IPy import IP
 import jsonpickle
 import socket
 import threading
@@ -66,6 +67,10 @@ class Oracle:
         self.certAuthorities[k].merge(aRemote[k])
 
   def processCertMetadata(self, metaData):
+    if not set(["aki", "issuer", "fqdns", "regdoms"]).issubset(metaData):
+      # Can't do anything with this non-BR-compliant cert
+      return
+
     with self.mutex:
       oracle = None
       if metaData["aki"] in self.certAuthorities:
@@ -84,20 +89,29 @@ class Oracle:
 
   def getMetadataForCert(self, aPsl, aCert):
     metaData={}
+    fqdns=set()
 
-    # Issuance date, organization, and AKI
-    metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
-    metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
+    # Issuance date, organization, and AKI are all required
+    try:
+      metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
+      metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
 
-    akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
-    metaData["aki"] = akiext.value.key_identifier.hex()
+      akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
+      metaData["aki"] = akiext.value.key_identifier.hex()
 
-    # Get the FQDNs
-    subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
-    fqdns = set([subject.value])
+      # Get the FQDNs
+      subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
+      fqdns.add(subject.value)
 
-    san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-    fqdns.update(san.value.get_values_for_type(x509.DNSName))
+    except:
+      raise ValueError("BR-required information not in this certificate")
+
+    try:
+      san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+      fqdns.update(san.value.get_values_for_type(x509.DNSName))
+    except:
+      # SANs are optional, sorta.
+      pass
 
     # Filter out wildcards
     metaData["fqdns"] = ",".join(set(filter(lambda x: x.startswith("*.")==False, fqdns)))
@@ -117,10 +131,11 @@ class Oracle:
         except:
           pass
       if ipAddress:
-        result = self.geoDB.city(ipAddress)
-        metaData["ipaddress"] = ipAddress
-        metaData["continent"] = result.continent.name
-        metaData["countrycode"] = result.country.iso_code
+        if IP(ipAddress).iptype() != "PRIVATE":
+          result = self.geoDB.city(ipAddress)
+          metaData["ipaddress"] = ipAddress
+          metaData["continent"] = result.continent.name
+          metaData["countrycode"] = result.country.iso_code
 
     return metaData
 
