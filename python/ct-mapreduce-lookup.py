@@ -48,7 +48,7 @@ geoDB = geoip2.database.Reader(args.geoipDb)
 stats = Counter()
 
 pbar_mutex = threading.RLock()
-pbar = ProgressBar(widgets=widgets)
+pbar = ProgressBar(widgets=widgets, maxval=0)
 pbar.start()
 
 work_queue = queue.Queue()

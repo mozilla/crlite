@@ -53,7 +53,7 @@ if args.geoipDb:
 counter = Counter()
 
 pbar_mutex = threading.RLock()
-pbar = ProgressBar(widgets=widgets)
+pbar = ProgressBar(widgets=widgets, maxval=0)
 pbar.start()
 
 work_queue = queue.Queue()
@@ -159,17 +159,19 @@ def main():
   processDisk(args.path)
 
   work_queue.join()
+  pbar.finish()
+
+  print("Work queue completed.")
+
   for i in range(args.threads):
       work_queue.put(None)
   for t in threads:
       t.join()
 
-  pbar.finish()
-
   if problemFd:
     problemFd.close()
 
-  print("Done. Process results: {}".format(counter))
+  print("All done. Process results: {}".format(counter))
 
 if __name__ == "__main__":
   main()
