@@ -24,6 +24,7 @@ parser.add_argument("--geoipDb", help="Path to GeoIP2-City.mmdb, if you want DNS
 parser.add_argument("--problems", default="problems", help="File to record errors")
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
+parser.add_argument('--assumedirty', help="Assume all folders are dirty", action="store_true")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -74,7 +75,11 @@ def worker():
       outFd.write(oracle.serialize())
 
     # clear the dirty flag
-    os.remove(os.path.join(dirty_folder, "dirty"))
+    try:
+      os.remove(os.path.join(dirty_folder, "dirty"))
+    except:
+      pass
+
     # All done
     work_queue.task_done()
 
@@ -133,12 +138,12 @@ def processDisk(path):
       continue
 
     # Does this folder have a dirty flag set?
-    if not os.path.isfile(os.path.join(entry, "dirty")):
-      counter["Folders Up-to-date"] += 1
+    if args.assumedirty or os.path.isfile(os.path.join(entry, "dirty")):
+      # Folder is dirty, add to the queue
+      work_queue.put(entry)
       continue
 
-    # Folder is dirty, add to the queue
-    work_queue.put(entry)
+    counter["Folders Up-to-date"] += 1
 
 def main():
   if not args.path:
