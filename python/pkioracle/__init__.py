@@ -15,15 +15,20 @@ class CertAuthorityOracle:
   def __init__(self):
     self.fqdnSet = set()
     self.regDomSet = set()
+    self.spkis = set()
     self.dailyIssuance = Counter()
     self.continent = Counter()
     self.countryIso = Counter()
     self.organization = None
 
-  def logCert(self, fqdns, regdoms, date):
+  def logCert(self, spki, fqdns, regdoms, date):
+    self.spkis.add(spki)
     self.fqdnSet.update(fqdns)
     self.regDomSet.update(regdoms)
     self.dailyIssuance[date] += 1
+
+  def isLogged(self, spki):
+    return spki in self.spkis
 
   def logGeo(self, continent, countryIso):
     self.continent[continent] += 1
@@ -114,7 +119,10 @@ class Oracle:
       fqdns = metaData["fqdns"].split(",")
       regDoms = metaData["regdoms"].split(",")
 
-      oracle.logCert(fqdns, regDoms, metaData["issuedate"])
+      if oracle.isLogged(metaData["spki"]):
+        return
+
+      oracle.logCert(metaData["spki"], fqdns, regDoms, metaData["issuedate"])
       if set(["continent", "countrycode"]).issubset(metaData):
         oracle.logGeo(metaData["continent"], metaData["countrycode"])
 
@@ -129,6 +137,9 @@ class Oracle:
 
       akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
       metaData["aki"] = binascii.hexlify(akiext.value.key_identifier)
+
+      spki = aCert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+      metaData["spki"] = binascii.hexlify(spki.value.digest)
 
       # Get the FQDNs
       subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]

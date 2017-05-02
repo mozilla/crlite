@@ -3,16 +3,17 @@
 from collections import Counter
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from publicsuffixlist import PublicSuffixList
-from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
 from datetime import datetime
+from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
+from publicsuffixlist import PublicSuffixList
 import argparse
+import base64
 import os
 import pkioracle
-import sys
-import time
-import threading
 import queue
+import sys
+import threading
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
@@ -71,6 +72,60 @@ def worker():
     # All done
     work_queue.task_done()
 
+def processCer(oracle, path):
+  """
+  This method processes one single certificate, in DER-format
+  """
+  with open(file_path, 'rb') as f:
+    der_data = f.read()
+    cert = x509.load_der_x509_certificate(der_data, default_backend())
+    metaData = oracle.getMetadataForCert(psl, cert)
+    oracle.recordCertMetadata(metaData)
+    counter["Total Certificates Processed"] += 1
+
+def processPem(oracle, path):
+  """
+  This method processes a PEM file which may contain one or more PEM-formatted
+  certificates.
+  """
+  fileSize = os.path.getsize(path)
+
+  with pbar_mutex:
+    pbar.maxval += fileSize
+
+  with open(path, 'r') as pemFd:
+    pem_buffer = ""
+    buffer_len = 0
+
+    for line in pemFd:
+      # Record length always
+      buffer_len += len(line)
+
+      if line == "-----BEGIN CERTIFICATE-----\n":
+        continue
+      if line.startswith("LogID") or line.startswith("Recorded-at") or len(line)==0:
+        continue
+      if line.startswith("Seen-in-log"):
+        continue
+      if line == "-----END CERTIFICATE-----\n":
+        # process the PEM
+        der_data = base64.standard_b64decode(pem_buffer)
+        cert = x509.load_der_x509_certificate(der_data, default_backend())
+        metaData = oracle.getMetadataForCert(psl, cert)
+        oracle.recordCertMetadata(metaData)
+        counter["Total Certificates Processed"] += 1
+
+        with pbar_mutex:
+          pbar.update(pbar.currval + buffer_len)
+
+        # clear the buffer
+        pem_buffer = ""
+        buffer_len = 0
+        continue
+
+      # Just a normal part of the base64, so add it to the buffer
+      pem_buffer += line
+
 def processFolder(oracle, path):
   if os.path.isdir(os.path.join(path, "state")):
     raise Exception("Should be called on subfolders, not the primary folder")
@@ -79,7 +134,7 @@ def processFolder(oracle, path):
 
   for root, _, files in os.walk(path):
     for file in files:
-      if file.endswith("cer"):
+      if file.endswith("cer") or file.endswith("pem"):
         file_queue.append(os.path.join(root, file))
 
   with pbar_mutex:
@@ -87,13 +142,13 @@ def processFolder(oracle, path):
 
   for file_path in file_queue:
     try:
-      with open(file_path, 'rb') as f:
-        der_data = f.read()
-        cert = x509.load_der_x509_certificate(der_data, default_backend())
-        # This call is likely to block
-        metaData = oracle.getMetadataForCert(psl, cert)
-        oracle.recordCertMetadata(metaData)
-        counter["Total Certificates Processed"] += 1
+      if file_path.endswith("cer"):
+        processCer(oracle, file_path)
+      elif file_path.endswith("pem"):
+        processPem(oracle, file_path)
+      else:
+        raise Exception("Unknown type " + file_path)
+
     except ValueError as e:
       problemFd.write("{}\t{}\n".format(file_path, e))
       counter["Certificate Parse Errors"] += 1
