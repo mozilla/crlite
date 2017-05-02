@@ -4,6 +4,12 @@ from IPy import IP
 import jsonpickle
 import socket
 import threading
+import sys
+import binascii
+
+if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 1):
+   raise Exception("Must be using Python 3.1 or later")
+
 
 class CertAuthorityOracle:
   def __init__(self):
@@ -121,15 +127,17 @@ class Oracle:
       metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
       metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
 
+      print(metaData["issuer"])
+
       akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
-      metaData["aki"] = akiext.value.key_identifier.hex()
+      metaData["aki"] = binascii.hexlify(akiext.value.key_identifier)
 
       # Get the FQDNs
       subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
       fqdns.add(subject.value)
 
     except:
-      raise ValueError("BR-required information not in this certificate")
+      raise
 
     try:
       san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
