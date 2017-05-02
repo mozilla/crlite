@@ -127,8 +127,6 @@ class Oracle:
       metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
       metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
 
-      print(metaData["issuer"])
-
       akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
       metaData["aki"] = binascii.hexlify(akiext.value.key_identifier)
 
