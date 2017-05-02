@@ -105,7 +105,7 @@ func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
 	return nil
 }
 
-func (db *DiskDatabase) Store(aCert *x509.Certificate) error {
+func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 	dirPath, filePath := db.getPathForID(&aCert.NotAfter, aCert.SubjectKeyId, aCert.AuthorityKeyId)
 	if !isDirectory(dirPath) {
 		err := os.MkdirAll(dirPath, os.ModeDir|0777)
@@ -115,7 +115,8 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate) error {
 	}
 
 	headers := make(map[string]string)
-	headers["Seen-in-log"] = ""
+	headers["LogID"] = fmt.Sprintf("%d", aLogID)
+	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
 
 	pemblock := pem.Block{
 		Type: "CERTIFICATE",

@@ -104,7 +104,7 @@ func (db *S3Database) GetLogState(aUrl string) (*CertificateLog, error) {
 	return &certLogObj, nil
 }
 
-func (db *S3Database) Store(aCert *x509.Certificate) error {
+func (db *S3Database) Store(aCert *x509.Certificate, aLogID int) error {
 	akiString := base64.URLEncoding.EncodeToString(aCert.AuthorityKeyId)
 	skiString := base64.URLEncoding.EncodeToString(aCert.SubjectKeyId)
 

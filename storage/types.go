@@ -16,5 +16,5 @@ type CertificateLog struct {
 type CertDatabase interface {
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url string) (*CertificateLog, error)
-	Store(aCert *x509.Certificate) error
+	Store(aCert *x509.Certificate, aLogID int) error
 }
