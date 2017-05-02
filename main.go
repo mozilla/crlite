@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -67,8 +66,6 @@ type LogDownloader struct {
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
 	Backoff             *backoff.Backoff
-	DateMutexes         map[string]sync.Mutex
-	DateMutexMutex      sync.Mutex
 }
 
 func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
@@ -78,8 +75,6 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 		Display:             utils.NewProgressDisplay(),
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
-		DateMutexes:         make(map[string]sync.Mutex),
-		DateMutexMutex:      sync.Mutex{},
 		Backoff: &backoff.Backoff{
 			Min:    10 * time.Millisecond,
 			Max:    1 * time.Second,
@@ -89,10 +84,9 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 }
 
 func (ld *LogDownloader) StartThreads() {
-	numWorkers := *ctconfig.NumThreads * runtime.NumCPU()
-	for i := 0; i < numWorkers; i++ {
-		go ld.insertCTWorker()
-	}
+	// One thread right now, because there's no contention-protection
+	// in diskdatabase
+	go ld.insertCTWorker()
 }
 
 func (ld *LogDownloader) Stop() {
@@ -252,22 +246,7 @@ func (ld *LogDownloader) insertCTWorker() {
       continue
     }
 
-    mutexName := cert.NotAfter.Format("2006-01-02")
-    ld.DateMutexMutex.Lock()
-    _, ok := ld.DateMutexes[mutexName]
-    if !ok {
-    	ld.DateMutexes[mutexName] = sync.Mutex{}
-    }
-    mutex, ok := ld.DateMutexes[mutexName]
-    if !ok {
-    	log.Fatalf("New mutex failure for %s", mutexName)
-    }
-    ld.DateMutexMutex.Unlock()
-
-    mutex.Lock()
-    defer mutex.Unlock()
-
-		err = ld.Database.Store(cert)
+		err = ld.Database.Store(cert, ep.LogID)
 		if err != nil {
 			log.Printf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
