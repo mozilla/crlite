@@ -8,6 +8,7 @@ from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBa
 from publicsuffixlist import PublicSuffixList
 import argparse
 import base64
+import jsonpickle
 import os
 import pkioracle
 import queue
@@ -49,19 +50,45 @@ pbar.start()
 
 work_queue = queue.Queue()
 
+stop_threads = False
+
 # Thread worker
 def worker():
+  global stop_threads
+
   while True:
+    with pbar_mutex:
+      if stop_threads:
+        break
+
     # Get a work task, if any
     dirty_folder = work_queue.get()
     if dirty_folder is None:
       break
 
     oracle = pkioracle.Oracle()
+    state_file = os.path.join(dirty_folder, args.outname)
+    offsets_file = os.path.join(dirty_folder, "{}.offsets".format(args.outname))
+
+    try:
+      with open(offsets_file, 'r') as f:
+        oracle.setOffsets(jsonpickle.decode(f.read()))
+
+      # If that worked, try and read prior state
+      with open(state_file, 'r') as f:
+        oracle.merge(jsonpickle.decode(f.read()))
+    except:
+      # No worries, we'll start from scratch
+      pass
+
     processFolder(oracle, dirty_folder)
+
     # save state out
-    with open(os.path.join(dirty_folder, args.outname), "w") as outFd:
+    with open(state_file, "w") as outFd:
       outFd.write(oracle.serialize())
+
+    with open(offsets_file, "w") as outFd:
+      outFd.write(oracle.serializeOffsets())
 
     # clear the dirty flag
     try:
@@ -88,6 +115,8 @@ def processPem(oracle, path):
   This method processes a PEM file which may contain one or more PEM-formatted
   certificates.
   """
+  global stop_threads
+
   fileSize = os.path.getsize(path)
 
   with pbar_mutex:
@@ -97,7 +126,18 @@ def processPem(oracle, path):
     pem_buffer = ""
     buffer_len = 0
 
+    if path in oracle.offsets:
+      offset = oracle.offsets[path]
+      pemFd.seek(offset, 0)
+      with pbar_mutex:
+        pbar.update(pbar.currval + offset)
+      print("Moving forward in {} to {}".format(path, offset))
+
     for line in pemFd:
+      with pbar_mutex:
+        if stop_threads:
+          break
+
       # Record length always
       buffer_len += len(line)
 
@@ -126,7 +166,12 @@ def processPem(oracle, path):
       # Just a normal part of the base64, so add it to the buffer
       pem_buffer += line
 
+    # Save state on the way out
+    oracle.offsets[path] = pemFd.tell()
+
 def processFolder(oracle, path):
+  global stop_threads
+
   if os.path.isdir(os.path.join(path, "state")):
     raise Exception("Should be called on subfolders, not the primary folder")
 
@@ -154,7 +199,13 @@ def processFolder(oracle, path):
       counter["Certificate Parse Errors"] += 1
 
     with pbar_mutex:
-      pbar.update(pbar.currval + 1)
+      if stop_threads:
+        return
+      try:
+        pbar.update(pbar.currval + 1)
+      except ValueError:
+        # Shutting down
+        pass
 
   counter["Folders Processed"] += 1
 
@@ -205,11 +256,17 @@ def main():
     t.start()
     threads.append(t)
 
-  processDisk(args.path)
+  try:
+    processDisk(args.path)
 
-  work_queue.join()
-  pbar.finish()
+    work_queue.join()
+  except KeyboardInterrupt:
+    print("Stopping threads")
+    with pbar_mutex:
+      stop_threads = True
 
+  with pbar_mutex:
+    pbar.finish()
   print("Work queue completed.")
 
   for i in range(args.threads):

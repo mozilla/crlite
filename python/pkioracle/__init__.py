@@ -63,6 +63,7 @@ class Oracle:
     self.certAuthorities = defaultdict(CertAuthorityOracle)
     self.mutex = threading.RLock()
     self.geoDB = None
+    self.offsets = defaultdict(int)
 
   def summarize(self, stats):
     data={}
@@ -145,8 +146,8 @@ class Oracle:
       subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
       fqdns.add(subject.value)
 
-    except:
-      raise
+    except x509.extensions.ExtensionNotFound as e:
+      raise ValueError(e)
 
     try:
       san = aCert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
@@ -184,5 +185,11 @@ class Oracle:
 
     return metaData
 
+  def setOffsets(self, offsets):
+    self.offsets = offsets
+
   def serialize(self):
     return jsonpickle.encode(self.certAuthorities)
+
+  def serializeOffsets(self):
+    return jsonpickle.encode(self.offsets)

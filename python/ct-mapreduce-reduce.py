@@ -72,25 +72,45 @@ def main():
 
     pbar.finish()
 
-  if args.output:
-    with open(args.output, "w") as outFd:
-      if len(args.input) == 1:
-        summary = oracle.summarize(stats)
-        outFd.write(summary)
-      else:
-        serializedOracle = oracle.serialize()
-        outFd.write(serializedOracle)
-
+  if len(args.input) == 1:
+    summarize(args.output, oracle, stats)
   else:
-    if len(args.input) == 1:
-      summary = oracle.summarize(stats)
-      print(json.dumps(summary, indent=4))
-    else:
-      serializedOracle = oracle.serialize()
-      parsed = json.loads(serializedOracle)
-      print(json.dumps(parsed, indent=4))
+    serialize(args.output, oracle, stats)
 
   print(stats)
+
+def summarize(output, oracle, stats):
+  summary = oracle.summarize(stats)
+
+  orgMap = {}
+  for entry in summary.values():
+    name = entry["organization"]
+    if name not in orgMap:
+      orgMap[name] = Counter({
+        "certsIssuedByIssuanceDay": Counter(),
+      })
+
+    orgMap[name]["certsIssuedByIssuanceDay"] += entry["certsIssuedByIssuanceDay"]
+    orgMap[name]["fqdns"] += entry["fqdns"]
+    orgMap[name]["regDoms"] += entry["regDoms"]
+    orgMap[name]["certsTotal"] += entry["certsTotal"]
+
+  if output:
+    with open(output, "w") as outFd:
+      outFd.write(summary)
+  else:
+      print(json.dumps(summary, indent=4))
+      print(json.dumps(orgMap, indent=4))
+
+def serialize(output, oracle, stats):
+  serializedOracle = oracle.serialize()
+  if output:
+    with open(output, "w") as outFd:
+      outFd.write(serializedOracle)
+  else:
+    parsed = json.loads(serializedOracle)
+    print(json.dumps(parsed, indent=4))
+
 
 if __name__ == "__main__":
   main()
