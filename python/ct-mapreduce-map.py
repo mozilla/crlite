@@ -23,7 +23,6 @@ parser.add_argument("--problems", default="problems", help="File to record error
 parser.add_argument("--limit", help="Number of folders to process", type=int)
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
-parser.add_argument('--assumedirty', help="Assume all folders are dirty", action="store_true")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -90,7 +89,7 @@ def worker():
     with open(offsets_file, "w") as outFd:
       outFd.write(oracle.serializeOffsets())
 
-    # clear the dirty flag
+    # clear the dirty flag, if any (legacy)
     try:
       os.remove(os.path.join(dirty_folder, "dirty"))
     except:
@@ -165,7 +164,12 @@ def processPem(oracle, path, problemFd):
           counter["Certificate Parse Errors"] += 1
 
         with pbar_mutex:
-          pbar.update(pbar.currval + buffer_len)
+          try:
+            pbar.update(pbar.currval + buffer_len)
+          except ValueError as e:
+            # This is pretty safe.
+            problemFd.write("{}:{}\tFile changed underneath us. We'll exit here and let the next run fix this. c={} l={} max={}\n".format(path, offset, pbar.currval, buffer_len, pbar.maxval))
+            break
 
         # clear the buffer
         pem_buffer = ""
@@ -177,9 +181,13 @@ def processPem(oracle, path, problemFd):
       pem_buffer += line
 
     # Save state on the way out
-    if offset != pemFd.tell():
-      raise Error("Expected offset {} == tell {}".format(offset, pemFd.tell()))
-    oracle.offsets[path] = pemFd.tell()
+    oracle.offsets[path] = offset
+    try:
+      if offset != pemFd.tell():
+        problemFd.write("{}: Expected offset {} == tell {}\n".format(path, offset, pemFd.tell()))
+    except OSError as e:
+      problemFd.write("{}: Couldn't assert offset == fd.tell. Exiting safely with offset={}: {}\n".format(path, offset, e))
+
   # pemFd file closed
 
 def processFolder(oracle, path):
@@ -242,14 +250,10 @@ def processDisk(path):
       counter["Folders Expired"] += 1
       continue
 
-    # Does this folder have a dirty flag set?
-    if args.assumedirty or os.path.isfile(os.path.join(entry, "dirty")):
-      # Folder is dirty, add to the queue
-      work_queue.put(entry)
-      count += 1
-      if args.limit and args.limit <= count:
-        return
-      continue
+    work_queue.put(entry)
+    count += 1
+    if args.limit and args.limit <= count:
+      return
 
     counter["Folders Up-to-date"] += 1
 
