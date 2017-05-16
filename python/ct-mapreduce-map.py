@@ -137,7 +137,7 @@ def processPem(oracle, path, problemFd):
       pemFd.seek(offset, 0)
       with pbar_mutex:
         pbar.update(pbar.value + offset)
-      print("Moving forward in {} to {}\n".format(path, offset))
+      print("File {}: Seeking to {}".format(path, offset))
 
     for line in pemFd:
       with pbar_mutex:
@@ -200,6 +200,8 @@ def processFolder(oracle, problemFd, path):
 
   file_queue = []
 
+  print("Folder {} processing".format(path))
+
   for root, _, files in os.walk(path):
     for file in files:
       if file.endswith("cer") or file.endswith("pem"):
@@ -224,6 +226,8 @@ def processFolder(oracle, problemFd, path):
       except ValueError:
         # Shutting down
         pass
+
+  print("Folder {} complete".format(path))
 
   counter["Folders Processed"] += 1
 
