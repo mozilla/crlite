@@ -23,6 +23,7 @@ parser.add_argument("--problems", default="problems", help="File to record error
 parser.add_argument("--limit", help="Number of folders to process", type=int)
 parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
+parser.add_argument('--assumedirty', help="Assume all folders are dirty", action="store_true")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -250,10 +251,14 @@ def processDisk(path):
       counter["Folders Expired"] += 1
       continue
 
-    work_queue.put(entry)
-    count += 1
-    if args.limit and args.limit <= count:
-      return
+    # Does this folder have a dirty flag set?
+    if args.assumedirty or os.path.isfile(os.path.join(entry, "dirty")):
+      # Folder is dirty, add to the queue
+      work_queue.put(entry)
+      count += 1
+      if args.limit and args.limit <= count:
+        return
+      continue
 
     counter["Folders Up-to-date"] += 1
 
