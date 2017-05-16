@@ -64,7 +64,7 @@ def worker():
     # Get a work task, if any
     dirty_folder = work_queue.get()
     if dirty_folder is None:
-      break
+      return
 
     oracle = pkioracle.Oracle()
     state_file = os.path.join(dirty_folder, args.outname)
@@ -99,18 +99,22 @@ def worker():
     # All done
     work_queue.task_done()
 
-def processCer(oracle, path):
+def processCer(oracle, path, problemFd):
   """
   This method processes one single certificate, in DER-format
   """
-  with open(file_path, 'rb') as f:
-    der_data = f.read()
-    cert = x509.load_der_x509_certificate(der_data, default_backend())
-    metaData = oracle.getMetadataForCert(psl, cert)
-    oracle.recordCertMetadata(metaData)
-    counter["Total Certificates Processed"] += 1
+  try:
+    with open(file_path, 'rb') as f:
+      der_data = f.read()
+      cert = x509.load_der_x509_certificate(der_data, default_backend())
+      metaData = oracle.getMetadataForCert(psl, cert)
+      oracle.recordCertMetadata(metaData)
+      counter["Total Certificates Processed"] += 1
+  except ValueError as e:
+    problemFd.write("{}\t{}\n".format(file_path, e))
+    counter["Certificate Parse Errors"] += 1
 
-def processPem(oracle, path):
+def processPem(oracle, path, problemFd):
   """
   This method processes a PEM file which may contain one or more PEM-formatted
   certificates.
@@ -125,13 +129,14 @@ def processPem(oracle, path):
   with open(path, 'r') as pemFd:
     pem_buffer = ""
     buffer_len = 0
+    offset = 0
 
     if path in oracle.offsets:
       offset = oracle.offsets[path]
       pemFd.seek(offset, 0)
       with pbar_mutex:
         pbar.update(pbar.currval + offset)
-      print("Moving forward in {} to {}".format(path, offset))
+      print("Moving forward in {} to {}\n".format(path, offset))
 
     for line in pemFd:
       with pbar_mutex:
@@ -149,17 +154,22 @@ def processPem(oracle, path):
         continue
       if line == "-----END CERTIFICATE-----\n":
         # process the PEM
-        der_data = base64.standard_b64decode(pem_buffer)
-        cert = x509.load_der_x509_certificate(der_data, default_backend())
-        metaData = oracle.getMetadataForCert(psl, cert)
-        oracle.recordCertMetadata(metaData)
-        counter["Total Certificates Processed"] += 1
+        try:
+          der_data = base64.standard_b64decode(pem_buffer)
+          cert = x509.load_der_x509_certificate(der_data, default_backend())
+          metaData = oracle.getMetadataForCert(psl, cert)
+          oracle.recordCertMetadata(metaData)
+          counter["Total Certificates Processed"] += 1
+        except ValueError as e:
+          problemFd.write("{}:{}\t{}\n".format(path, offset, e))
+          counter["Certificate Parse Errors"] += 1
 
         with pbar_mutex:
           pbar.update(pbar.currval + buffer_len)
 
         # clear the buffer
         pem_buffer = ""
+        offset += buffer_len
         buffer_len = 0
         continue
 
@@ -167,7 +177,10 @@ def processPem(oracle, path):
       pem_buffer += line
 
     # Save state on the way out
+    if offset != pemFd.tell():
+      raise Error("Expected offset {} == tell {}".format(offset, pemFd.tell()))
     oracle.offsets[path] = pemFd.tell()
+  # pemFd file closed
 
 def processFolder(oracle, path):
   global stop_threads
@@ -186,17 +199,12 @@ def processFolder(oracle, path):
     pbar.maxval += len(file_queue)
 
   for file_path in file_queue:
-    try:
-      if file_path.endswith("cer"):
-        processCer(oracle, file_path)
-      elif file_path.endswith("pem"):
-        processPem(oracle, file_path)
-      else:
-        raise Exception("Unknown type " + file_path)
-
-    except ValueError as e:
-      problemFd.write("{}\t{}\n".format(file_path, e))
-      counter["Certificate Parse Errors"] += 1
+    if file_path.endswith("cer"):
+      processCer(oracle, file_path, problemFd)
+    elif file_path.endswith("pem"):
+      processPem(oracle, file_path, problemFd)
+    else:
+      raise Exception("Unknown type " + file_path)
 
     with pbar_mutex:
       if stop_threads:
