@@ -8,6 +8,7 @@ from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBa
 from publicsuffixlist import PublicSuffixList
 import argparse
 import base64
+import gc
 import jsonpickle
 import os
 import pkioracle
@@ -42,7 +43,7 @@ if args.psl:
 counter = Counter()
 
 pbar_mutex = threading.RLock()
-pbar = ProgressBar(widgets=widgets, maxval=0)
+pbar = ProgressBar(widgets=widgets, max_value=0, redirect_stdout=True)
 pbar.start()
 
 work_queue = queue.Queue()
@@ -93,6 +94,9 @@ def worker(problemFd=None):
     except:
       pass
 
+    del oracle
+    print("GC collected {} objects".format(gc.collect(generation=2)))
+
     # All done
     work_queue.task_done()
 
@@ -121,7 +125,7 @@ def processPem(oracle, path, problemFd):
   fileSize = os.path.getsize(path)
 
   with pbar_mutex:
-    pbar.maxval += fileSize
+    pbar.max_value += fileSize
 
   with open(path, 'r') as pemFd:
     pem_buffer = ""
@@ -132,7 +136,7 @@ def processPem(oracle, path, problemFd):
       offset = oracle.offsets[path]
       pemFd.seek(offset, 0)
       with pbar_mutex:
-        pbar.update(pbar.currval + offset)
+        pbar.update(pbar.value + offset)
       print("Moving forward in {} to {}\n".format(path, offset))
 
     for line in pemFd:
@@ -163,10 +167,10 @@ def processPem(oracle, path, problemFd):
 
         with pbar_mutex:
           try:
-            pbar.update(pbar.currval + buffer_len)
+            pbar.update(pbar.value + buffer_len)
           except ValueError as e:
             # This is pretty safe.
-            problemFd.write("{}:{}\tFile changed underneath us. We'll exit here and let the next run fix this. c={} l={} max={}\n".format(path, offset, pbar.currval, buffer_len, pbar.maxval))
+            problemFd.write("{}:{}\tFile changed underneath us. We'll exit here and let the next run fix this. c={} l={} max={}\n".format(path, offset, pbar.value, buffer_len, pbar.max_value))
             break
 
         # clear the buffer
@@ -202,7 +206,7 @@ def processFolder(oracle, problemFd, path):
         file_queue.append(os.path.join(root, file))
 
   with pbar_mutex:
-    pbar.maxval += len(file_queue)
+    pbar.max_value += len(file_queue)
 
   for file_path in file_queue:
     if file_path.endswith("cer"):
@@ -216,7 +220,7 @@ def processFolder(oracle, problemFd, path):
       if stop_threads:
         return
       try:
-        pbar.update(pbar.currval + 1)
+        pbar.update(pbar.value + 1)
       except ValueError:
         # Shutting down
         pass
