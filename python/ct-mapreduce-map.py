@@ -21,7 +21,7 @@ parser.add_argument("--path", help="Path to folder on disk to store certs")
 parser.add_argument("--psl", help="Path to effective_tld_names.dat")
 parser.add_argument("--problems", default="problems", help="File to record errors")
 parser.add_argument("--limit", help="Number of folders to process", type=int)
-parser.add_argument("--threads", help="Number of worker threads to use", default=4, type=int)
+parser.add_argument("--threads", help="Number of worker threads to use", default=1, type=int)
 parser.add_argument("--outname", help="Name of output report files", default="oracle.out")
 parser.add_argument('--assumedirty', help="Assume all folders are dirty", action="store_true")
 
@@ -39,9 +39,6 @@ if args.psl:
   with open(args.psl, "rb") as f:
     psl = PublicSuffixList(f)
 
-if args.problems:
-  problemFd = open(args.problems, "w+")
-
 counter = Counter()
 
 pbar_mutex = threading.RLock()
@@ -53,7 +50,7 @@ work_queue = queue.Queue()
 stop_threads = False
 
 # Thread worker
-def worker():
+def worker(problemFd=None):
   global stop_threads
 
   while True:
@@ -81,7 +78,7 @@ def worker():
       # No worries, we'll start from scratch
       pass
 
-    processFolder(oracle, dirty_folder)
+    processFolder(oracle, problemFd, dirty_folder)
 
     # save state out
     with open(state_file, "w") as outFd:
@@ -191,7 +188,7 @@ def processPem(oracle, path, problemFd):
 
   # pemFd file closed
 
-def processFolder(oracle, path):
+def processFolder(oracle, problemFd, path):
   global stop_threads
 
   if os.path.isdir(os.path.join(path, "state")):
@@ -263,36 +260,34 @@ def processDisk(path):
     counter["Folders Up-to-date"] += 1
 
 def main():
-  if not args.path:
+  if not args.path or not args.problems:
     parser.print_usage()
     sys.exit(0)
 
-  threads = []
-  for i in range(args.threads):
-    t = threading.Thread(target=worker)
-    t.start()
-    threads.append(t)
+  with open(args.problems, "w+") as problemFd:
+    threads = []
+    for i in range(args.threads):
+      t = threading.Thread(target=worker, kwargs={'problemFd': problemFd})
+      t.start()
+      threads.append(t)
 
-  try:
-    processDisk(args.path)
+    try:
+      processDisk(args.path)
 
-    work_queue.join()
-  except KeyboardInterrupt:
-    print("Stopping threads")
+      work_queue.join()
+    except KeyboardInterrupt:
+      print("Stopping threads")
+      with pbar_mutex:
+        stop_threads = True
+
     with pbar_mutex:
-      stop_threads = True
+      pbar.finish()
+    print("Work queue completed.")
 
-  with pbar_mutex:
-    pbar.finish()
-  print("Work queue completed.")
-
-  for i in range(args.threads):
-      work_queue.put(None)
-  for t in threads:
-      t.join()
-
-  if problemFd:
-    problemFd.close()
+    for i in range(args.threads):
+        work_queue.put(None)
+    for t in threads:
+        t.join()
 
   print("All done. Process results: {}".format(counter))
 
