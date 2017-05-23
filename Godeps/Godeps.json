@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/jcjones/ct-mapreduce",
-	"GoVersion": "go1.6.2",
+	"GoVersion": "go1.8.1",
 	"Packages": [
 		"cmd/ct-fetch/main.go"
 	],
@@ -41,8 +41,8 @@
 			"Rev": "8649d278323ebf6bd20c9cd56ecb152b1c617375"
 		},
 		{
-			"ImportPath": "github.com/google/certificate-transparency/go",
-			"Rev": "1dae5b67a6e905bcb0073918769cb7238afceb63"
+			"ImportPath": "github.com/google/certificate-transparency-go",
+			"Rev": "6cf242344fc0390c787107b31fb266393e6439c5"
 		},
 		{
 			"ImportPath": "github.com/jcjones/ct-sql/utils",
