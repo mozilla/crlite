@@ -58,10 +58,11 @@ def main():
           process_queue.append(os.path.join(root, file))
 
   with open(args.problems, "w") as problemFd:
-    pbar = ProgressBar(widgets=widgets, maxval=len(process_queue))
+    pbar = ProgressBar(widgets=widgets, maxval=len(process_queue), redirect_stderr=True)
     pbar.start()
 
     for idx, inFile in enumerate(process_queue):
+      print("Processing {}".format(inFile), file=sys.stderr)
       try:
         with open(inFile, 'r') as f:
           oracle.merge(jsonpickle.decode(f.read()))
@@ -70,14 +71,13 @@ def main():
       except ValueError as e:
         problemFd.write("{}\t{}\n".format(inFile, e))
 
+    if len(args.input) == 1:
+      summarize(args.output, oracle, stats)
+    else:
+      serialize(args.output, oracle, stats)
+
+    print(stats, file=sys.stderr)
     pbar.finish()
-
-  if len(args.input) == 1:
-    summarize(args.output, oracle, stats)
-  else:
-    serialize(args.output, oracle, stats)
-
-  print(stats)
 
 def summarize(output, oracle, stats):
   summary = oracle.summarize(stats)
