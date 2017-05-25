@@ -10,6 +10,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs")
+parser.add_argument("--noop", "-n", help="Don't actually delete, just print", action="store_true")
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -25,6 +26,9 @@ def main():
     sys.exit(0)
 
   dirlist = os.listdir(args.path)
+
+  if args.noop:
+    print("No-op mode, not deleting anything...")
 
   pbar = ProgressBar(widgets=widgets, max_value=len(dirlist), redirect_stdout=True)
   pbar.start()
@@ -47,7 +51,8 @@ def main():
     now = time.gmtime()
     if (pathdate.tm_year < now.tm_year) or (pathdate.tm_year == now.tm_year and pathdate.tm_yday < now.tm_yday):
       print("Deleting: {}".format(entry))
-      shutil.rmtree(entry)
+      if not args.noop:
+        shutil.rmtree(entry)
 
   pbar.finish()
   print("All done.")
