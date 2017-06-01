@@ -64,10 +64,9 @@ def main():
     for idx, inFile in enumerate(process_queue):
       print("Processing {}".format(inFile), file=sys.stderr)
       try:
-        with open(inFile, 'r') as f:
-          oracle.merge(jsonpickle.decode(f.read()))
-          stats["Number of Files Processed"] += 1
-          pbar.update(idx)
+        oracle.loadAndMerge(inFile)
+        stats["Number of Files Processed"] += 1
+        pbar.update(idx)
       except ValueError as e:
         problemFd.write("{}\t{}\n".format(inFile, e))
 
@@ -103,13 +102,11 @@ def summarize(output, oracle, stats):
       print(json.dumps(orgMap, indent=4))
 
 def serialize(output, oracle, stats):
-  serializedOracle = oracle.serialize()
   if output:
-    with open(output, "w") as outFd:
-      outFd.write(serializedOracle)
+    with open(output, "wb") as outFd:
+      oracle.serialize(outFd)
   else:
-    parsed = json.loads(serializedOracle)
-    print(json.dumps(parsed, indent=4))
+    oracle.serialize(sys.stdout, indent=4)
 
 
 if __name__ == "__main__":

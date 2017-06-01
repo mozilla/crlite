@@ -1,6 +1,7 @@
 from cryptography import x509
 from collections import defaultdict, Counter
 from IPy import IP
+import pickle
 import jsonpickle
 import socket
 import threading
@@ -87,11 +88,25 @@ class Oracle:
 
     return data
 
+  def loadAndMerge(self, path):
+    try:
+      with open(path, 'rb') as f:
+        self.merge(pickle.load(f))
+    except:
+      println("Couldn't load new-format, trying old")
+      with open(path, 'r') as f:
+        self.merge(jsonpickle.decode(f.read()))
+
   def merge(self, aRemote):
     with self.mutex:
       allKeys = set(self.certAuthorities.keys()).union(aRemote.keys())
       for k in allKeys:
-        self.certAuthorities[k].merge(aRemote[k])
+        # Compat change from jsonpickle to pickle
+        if isinstance(k, bytes):
+          left=k.decode('utf8')
+          self.certAuthorities[left].merge(aRemote[k])
+        else:
+          self.certAuthorities[k].merge(aRemote[k])
 
   def recordGeodata(self, aki, geodata):
     with self.mutex:
@@ -137,10 +152,10 @@ class Oracle:
       metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
 
       akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
-      metaData["aki"] = binascii.hexlify(akiext.value.key_identifier)
+      metaData["aki"] = binascii.hexlify(akiext.value.key_identifier).decode('utf8')
 
       spki = aCert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
-      metaData["spki"] = binascii.hexlify(spki.value.digest)
+      metaData["spki"] = binascii.hexlify(spki.value.digest).decode('utf8')
 
       # Get the FQDNs
       subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
@@ -188,8 +203,8 @@ class Oracle:
   def setOffsets(self, offsets):
     self.offsets = offsets
 
-  def serialize(self):
-    return jsonpickle.encode(self.certAuthorities)
+  def serialize(self, fp):
+    return pickle.dump(self.certAuthorities, fp)
 
   def serializeOffsets(self):
     return jsonpickle.encode(self.offsets)

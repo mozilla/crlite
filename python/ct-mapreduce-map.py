@@ -72,9 +72,7 @@ def worker(problemFd=None):
       with open(offsets_file, 'r') as f:
         oracle.setOffsets(jsonpickle.decode(f.read()))
 
-      # If that worked, try and read prior state
-      with open(state_file, 'r') as f:
-        oracle.merge(jsonpickle.decode(f.read()))
+      oracle.loadAndMerge(state_file)
     except:
       # No worries, we'll start from scratch
       pass
@@ -82,8 +80,8 @@ def worker(problemFd=None):
     processFolder(oracle, problemFd, dirty_folder)
 
     # save state out
-    with open(state_file, "w") as outFd:
-      outFd.write(oracle.serialize())
+    with open(state_file, "wb") as outFd:
+      oracle.serialize(outFd)
 
     with open(offsets_file, "w") as outFd:
       outFd.write(oracle.serializeOffsets())

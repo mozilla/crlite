@@ -21,8 +21,7 @@ def main():
   oracle = pkioracle.Oracle()
   stats = Counter()
 
-  with open(args.input, 'r') as f:
-    oracle.merge(jsonpickle.decode(f.read()))
+  oracle.loadAndMerge(args.input)
 
   for aki, data in oracle.summarize(stats).items():
     # print(aki)
