@@ -93,7 +93,7 @@ class Oracle:
       with open(path, 'rb') as f:
         self.merge(pickle.load(f))
     except:
-      println("Couldn't load new-format, trying old")
+      print("Couldn't load new-format, trying old")
       with open(path, 'r') as f:
         self.merge(jsonpickle.decode(f.read()))
 
