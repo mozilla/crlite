@@ -71,12 +71,15 @@ def main():
         problemFd.write("{}\t{}\n".format(inFile, e))
 
     if len(args.input) == 1:
+      print("Producing summary", file=sys.stderr)
       summarize(args.output, oracle, stats)
     else:
+      print("Serializing state", file=sys.stderr)
       serialize(args.output, oracle, stats)
 
     print(stats, file=sys.stderr)
     pbar.finish()
+    print("mapreduce-reduce completed", file=sys.stderr)
 
 def summarize(output, oracle, stats):
   summary = oracle.summarize(stats)
