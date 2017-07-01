@@ -106,7 +106,10 @@ class Oracle:
           left=k.decode('utf8')
           self.certAuthorities[left].merge(aRemote[k])
         else:
-          self.certAuthorities[k].merge(aRemote[k])
+          left = k
+          if k.startswith("b'") and k.endswith("'"):
+            left = k[2:-1]
+          self.certAuthorities[left].merge(aRemote[k])
 
   def recordGeodata(self, aki, geodata):
     with self.mutex:
