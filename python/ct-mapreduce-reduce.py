@@ -71,6 +71,10 @@ def main():
       except ValueError as e:
         problemFd.write("{}\t{}\n".format(inFile, e))
 
+    pbar.finish()
+
+    print("Procesing complete...", file=sys.stderr)
+
     try:
       if len(args.input) == 1:
         print("Producing summary", file=sys.stderr)
@@ -78,13 +82,14 @@ def main():
       else:
         print("Serializing state", file=sys.stderr)
         serialize(args.output, oracle, stats)
-    except Exception as e:
-      problemFd.write("Exception writing output\t{}\n".format(traceback.format_exec()))
-      print(traceback.format_exec(), file=sys.stderr)
+    except:
+      problemFd.write("Exception writing output\t{}\n".format(traceback.format_exc()))
+      print(traceback.format_exc(), file=sys.stderr)
+      sys.exit(1)
 
     print(stats, file=sys.stderr)
-    pbar.finish()
     print("mapreduce-reduce completed", file=sys.stderr)
+    sys.exit(0)
 
 def summarize(output, oracle, stats):
   summary = oracle.summarize(stats)
