@@ -92,10 +92,9 @@ def main():
 
   nowTime = datetime.now()
   for datestamp, point in telemetryHistogramData.items():
-    storage.updatePageloadTLS(datestamp=datestamp, countTLS=point.CountTLS,
+    formattedStamp = datetime.strptime(datestamp, "%Y%m%d").strftime("%Y-%m-%d")
+    storage.updatePageloadTLS(datestamp=formattedStamp, countTLS=point.CountTLS,
                               countPageloads=point.CountPageloads, timeAdded=nowTime)
 
 
 main()
-
-
