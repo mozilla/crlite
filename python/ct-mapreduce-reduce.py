@@ -6,7 +6,7 @@ import pkioracle
 import sys
 import threading
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBar
 
@@ -38,6 +38,7 @@ def main():
   expiredate = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
   if args.expiredate:
     expiredate = datetime.strptime(args.expiredate, "%Y-%m-%d")
+  latestdate = expiredate + timedelta(days=90)
 
   process_queue = args.input
 
@@ -53,6 +54,9 @@ def main():
 
       if dir_date < expiredate:
         stats["Expired Directories"] += 1
+        continue
+      if dir_date >= latestdate:
+        stats["Future Directories"] += 1
         continue
       for file in files:
         if file == "oracle.out":
