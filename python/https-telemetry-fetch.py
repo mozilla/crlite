@@ -9,6 +9,7 @@ from progressbar import Bar, SimpleProgress, AdaptiveETA, Percentage, ProgressBa
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--db", help="Database file")
+parser.add_argument("--window", help="Time window in days", type=int, default=30)
 
 # Progress Bar configuration
 widgets = [Percentage(),
@@ -60,7 +61,7 @@ def main():
 
   versionList = service.getVersions("release")
 
-  cutoff = datetime.now() - timedelta(days = 30)
+  cutoff = datetime.now() - timedelta(days = args.window)
   recentVersions = list(filter(lambda item: datetime.strptime(item['date'], "%Y%m%d") > cutoff, versionList))
 
   # Convert a list of {date, version} tuples to a map of {version: [dates...]}
