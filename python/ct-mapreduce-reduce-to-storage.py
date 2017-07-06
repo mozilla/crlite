@@ -30,17 +30,12 @@ def main():
     # print(issuerId)
 
     for datestamp, issueCount in data['certsIssuedByIssuanceDay'].items():
-      if args.today == datestamp:
-        storage.updateCertTimeline(issuerID=issuerId, datestamp=datestamp, certsIssued=issueCount,
-                                   certsActive=data['certsTotal'], fqdnsActive=data['fqdns'],
-                                   regDomainsActive=data['regDoms'])
-      else:
-        storage.updateCertTimeline(issuerID=issuerId, datestamp=datestamp, certsIssued=issueCount)
+      storage.updateCertTimeline(issuerID=issuerId, datestamp=datestamp, certsIssued=issueCount)
 
-# #"datestamp date primary key, countTLS integer not null, countPageloads integer not null,"
-# #                "timeAdded datetime not null)")
-# storage.updatePageloadTLS(datestamp="2017-01-01", countTLS=44, countPageloads=55,
-#                           timeAdded="2017-09-11 01:23:45")
+    if args.today:
+      storage.updateCertTimeline(issuerID=issuerId, datestamp=args.today, certsActive=data['certsTotal'],
+                                 fqdnsActive=data['fqdns'], regDomainsActive=data['regDoms'])
+
 
 if __name__ == "__main__":
   main()
