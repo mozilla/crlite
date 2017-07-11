@@ -15,8 +15,10 @@
 cat > ~/.ct-fetch.conf <<EOF
 # Be sure to replace this path to point to where you got this file
 geoipDbPath = /path/to/GeoLite2-City.mmdb
-# Update the CT log list as you like, comma-delimited
-logList = https://ct.googleapis.com/aviator,https://ct.googleapis.com/rocketeer
+# Only accept certificates for Let's Encrypt's intermediates or the ISRG roots
+issuerCNList = Let's Encrypt, ISRG
+# Update the CT log list as you like, comma-delimited. Not currently tested with more than one log.
+logList = https://ct.googleapis.com/icarus
 # A path with plenty of disk space
 certPath = /ct
 # Choose if this should complete when it catches up to the CT logs, or be a daemon
