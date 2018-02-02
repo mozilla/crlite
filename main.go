@@ -242,9 +242,9 @@ func (ld *LogDownloader) insertCTWorker() {
 			continue
 		}
 
-    if certIsFilteredOut(cert) {
-      continue
-    }
+		if certIsFilteredOut(cert) {
+			continue
+		}
 
 		err = ld.Database.Store(cert, ep.LogID)
 		if err != nil {
