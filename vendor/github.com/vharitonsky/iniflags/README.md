@@ -41,6 +41,12 @@ dev.ini
     ...
     [section]
     flagN = 4  # comment3
+
+    multilineFlag{,} = line1
+    multilineFlag{,} = line2
+    multilineFlag{|} = line3
+    multilineFlag{} = line4
+    # Now the multilineFlag equals to "line1,line2|line3line4"
 ```
 
 ```bash
@@ -70,7 +76,7 @@ flag2 = value2
 
 dev.ini
 ```ini
-#import "base.ini"
+# import "base.ini"
 # Now flag1="value1", flag2="value2"
 
 flag2 = foobar
@@ -87,7 +93,7 @@ or https links:
 config.ini
 ```ini
 # The following line will import configs from the given http link.
-#import "http://google.com/path/to/config.ini"
+# import "http://google.com/path/to/config.ini"
 ```
 
 All flags defined in the app can be dumped into stdout with ini-compatible sytax

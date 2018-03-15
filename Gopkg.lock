@@ -20,17 +20,20 @@
     "aws/request",
     "aws/session",
     "aws/signer/v4",
+    "internal/sdkio",
+    "internal/sdkrand",
+    "internal/shareddefaults",
     "private/protocol",
     "private/protocol/query",
     "private/protocol/query/queryutil",
     "private/protocol/rest",
     "private/protocol/restxml",
     "private/protocol/xml/xmlutil",
-    "private/waiter",
     "service/s3",
     "service/sts"
   ]
-  revision = "8649d278323ebf6bd20c9cd56ecb152b1c617375"
+  revision = "28d0127967e59b0c41cede1e8d548ed85374bbbc"
+  version = "v1.13.14"
 
 [[projects]]
   name = "github.com/go-ini/ini"
@@ -39,17 +42,31 @@
   version = "v1.33.0"
 
 [[projects]]
+  name = "github.com/golang/protobuf"
+  packages = [
+    "proto",
+    "ptypes",
+    "ptypes/any",
+    "ptypes/duration",
+    "ptypes/timestamp"
+  ]
+  revision = "925541529c1fa6821df4e44ce2723319eb2be768"
+  version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
   name = "github.com/google/certificate-transparency-go"
   packages = [
     ".",
     "asn1",
     "client",
+    "client/configpb",
     "jsonclient",
     "tls",
     "x509",
     "x509/pkix"
   ]
-  revision = "6cf242344fc0390c787107b31fb266393e6439c5"
+  revision = "74c06c95e0b304a050a1c33764c8a01d653a16e3"
 
 [[projects]]
   branch = "master"
@@ -60,26 +77,37 @@
 [[projects]]
   name = "github.com/jmespath/go-jmespath"
   packages = ["."]
-  revision = "3433f3ea46d9f8019119e7dd41274e112a2359a9"
-  version = "0.2.2"
+  revision = "0b12d6b5"
 
 [[projects]]
   name = "github.com/jpillora/backoff"
   packages = ["."]
-  revision = "2ff7c4694083b5dbd71b21fd7cb7577477a74b31"
+  revision = "8eab2debe79d12b7bd3d10653910df25fa9552ba"
+  version = "1.0.0"
 
 [[projects]]
+  branch = "master"
   name = "github.com/vharitonsky/iniflags"
   packages = ["."]
-  revision = "743d6901e7ca8ab61ac533a8c49939ac8b560e72"
+  revision = "e2b4a6da96d46d6660e977fe22eda5ea0f2b35d2"
 
 [[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = [
+    "cryptobyte",
+    "cryptobyte/asn1"
+  ]
+  revision = "21652f85b0fdddb6c2b6b77a5beca5c5a908174a"
+
+[[projects]]
+  branch = "master"
   name = "golang.org/x/net"
   packages = [
     "context",
     "context/ctxhttp"
   ]
-  revision = "4971afdc2f162e82d185353533d3cf16188a9f4e"
+  revision = "e0c57d8f86c17f0724497efcb3bc617e82834821"
 
 [solve-meta]
   analyzer-name = "dep"
