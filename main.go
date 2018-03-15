@@ -33,25 +33,25 @@ var (
 )
 
 func certIsFilteredOut(aCert *x509.Certificate) bool {
-  // Skip unimportant entries, if configured
+	// Skip unimportant entries, if configured
 
-  if aCert.NotAfter.Before(time.Now()) && ! *ctconfig.LogExpiredEntries {
-    return true
-  }
+	if aCert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+		return true
+	}
 
-  skip := (len(*ctconfig.IssuerCNFilter) != 0)
-  for _, filter := range strings.Split(*ctconfig.IssuerCNFilter, ",") {
-    if strings.HasPrefix(aCert.Issuer.CommonName, filter) {
-      skip = false
-      break
-    }
-  }
+	skip := (len(*ctconfig.IssuerCNFilter) != 0)
+	for _, filter := range strings.Split(*ctconfig.IssuerCNFilter, ",") {
+		if strings.HasPrefix(aCert.Issuer.CommonName, filter) {
+			skip = false
+			break
+		}
+	}
 
-  // if skip && edb.Verbose {
-  //  fmt.Printf("Skipping inserting cert issued by %s\n", cert.Issuer.CommonName)
-  // }
+	// if skip && edb.Verbose {
+	//  fmt.Printf("Skipping inserting cert issued by %s\n", cert.Issuer.CommonName)
+	// }
 
-  return skip
+	return skip
 }
 
 type CtLogEntry struct {
@@ -160,7 +160,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 	err = ld.Database.SaveLogState(logObj)
 	if err == nil {
 		log.Printf("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
-	}	else {
+	} else {
 		log.Printf("[%s] Log state save failed, MaxEntry=%d, LastEntryTime=%s, Err=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime, err)
 	}
 }
@@ -192,25 +192,27 @@ func (ld *LogDownloader) downloadCTRangeToChannel(logID int, ctLog *client.LogCl
 		if max >= upTo {
 			max = upTo - 1
 		}
-		rawEnts, err := ctLog.GetEntries(ctx, int64(index), int64(max))
+
+		resp, err := ctLog.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
 			return index, lastTime, err
 		}
 
-		for arrayOffset := 0; arrayOffset < len(rawEnts); {
-			ent := rawEnts[arrayOffset]
+		for _, entry := range resp.Entries {
+			index++
+			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
+			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
+				fmt.Printf("Erroneous certificate: %v\n", err)
+				continue
+			}
+
 			// Are there waiting signals?
 			select {
 			case sig := <-sigChan:
 				return index, lastTime, fmt.Errorf("Signal caught: %s", sig)
-			case ld.EntryChan <- CtLogEntry{&ent, logID}:
-				lastTime = ent.Leaf.TimestampedEntry.Timestamp
-				if uint64(ent.Index) != index {
-					return index, lastTime, fmt.Errorf("Index mismatch, local: %v, remote: %v", index, ent.Index)
-				}
+			case ld.EntryChan <- CtLogEntry{logEntry, logID}:
+				lastTime = logEntry.Leaf.TimestampedEntry.Timestamp
 
-				index++
-				arrayOffset++
 				ld.Backoff.Reset()
 			case <-progressTicker.C:
 				ld.Display.UpdateProgress(fmt.Sprintf("%d", logID), start, index, upTo)
