@@ -235,10 +235,11 @@ func (ld *LogDownloader) insertCTWorker() {
 
 		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
 		case ct.X509LogEntryType:
-			cert, err = x509.ParseCertificate(ep.LogEntry.Leaf.TimestampedEntry.X509Entry.Data)
+			cert = ep.LogEntry.X509Cert
 		case ct.PrecertLogEntryType:
-			cert, err = x509.ParseTBSCertificate(ep.LogEntry.Leaf.TimestampedEntry.PrecertEntry.TBSCertificate)
+			cert, err = x509.ParseCertificate(ep.LogEntry.Precert.Submitted.Data)
 		}
+
 		if err != nil {
 			log.Printf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
 			continue
