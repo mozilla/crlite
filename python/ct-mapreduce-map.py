@@ -147,7 +147,7 @@ def processPem(oracle, path, problemFd):
 
       if line == "-----BEGIN CERTIFICATE-----\n":
         continue
-      if line.startswith("LogID") or line.startswith("Recorded-at") or len(line)==0:
+      if line.startswith("LogID") or line.startswith("Recorded-at") or len(line)<3:
         continue
       if line.startswith("Seen-in-log"):
         continue
