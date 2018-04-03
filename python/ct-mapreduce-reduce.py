@@ -23,6 +23,8 @@ parser.add_argument("--output", help="File to place the output report")
 parser.add_argument("--path", help="Path to root folder on disk to store certs; if you specify this, don't specify specific input files")
 parser.add_argument('--summary', help="Produce a human-readable summary report", action="store_true")
 parser.add_argument("--expiredate", help="Expiration date to use (YYYY-MM-dd); if unset, will use the most recent UTC midnight")
+parser.add_argument("--futuredays", help="Number of future days to process", type=int, default=90)
+
 
 # I/O
 def main():
@@ -38,7 +40,7 @@ def main():
   expiredate = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
   if args.expiredate:
     expiredate = datetime.strptime(args.expiredate, "%Y-%m-%d")
-  latestdate = expiredate + timedelta(days=90)
+  latestdate = expiredate + timedelta(days=args.futuredays)
 
   process_queue = args.input
 
@@ -109,6 +111,7 @@ def summarize(output, oracle, stats):
     orgMap[name]["certsIssuedByIssuanceDay"] += entry["certsIssuedByIssuanceDay"]
     orgMap[name]["fqdns"] += entry["fqdns"]
     orgMap[name]["regDoms"] += entry["regDoms"]
+    orgMap[name]["wildcards"] += entry["wildcards"]
     orgMap[name]["certsTotal"] += entry["certsTotal"]
 
   if output:

@@ -5,7 +5,7 @@ import pickle
 import jsonpickle
 import socket
 import threading
-import sys
+import sys, traceback
 import binascii
 
 if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 1):
@@ -16,16 +16,18 @@ class CertAuthorityOracle:
   def __init__(self):
     self.fqdnSet = set()
     self.regDomSet = set()
+    self.wildcardSet = set()
     self.spkis = set()
     self.dailyIssuance = Counter()
     self.continent = Counter()
     self.countryIso = Counter()
     self.organization = None
 
-  def logCert(self, spki, fqdns, regdoms, date):
+  def logCert(self, spki, fqdns, regdoms, wildcards, date):
     self.spkis.add(spki)
     self.fqdnSet.update(fqdns)
     self.regDomSet.update(regdoms)
+    self.wildcardSet.update(wildcards)
     self.dailyIssuance[date] += 1
 
   def isLogged(self, spki):
@@ -38,6 +40,7 @@ class CertAuthorityOracle:
   def merge(self, aRemote):
     self.fqdnSet.update(aRemote.fqdnSet)
     self.regDomSet.update(aRemote.regDomSet)
+    self.wildcardSet.update(aRemote.wildcardSet)
     self.dailyIssuance.update(aRemote.dailyIssuance)
     self.continent.update(aRemote.continent)
     self.countryIso.update(aRemote.countryIso)
@@ -49,6 +52,7 @@ class CertAuthorityOracle:
       "organization": self.organization,
       "fqdns": len(self.fqdnSet),
       "regDoms": len(self.regDomSet),
+      "wildcards": len(self.wildcardSet),
       "certsIssuedByIssuanceDay": self.dailyIssuance,
       "certsTotal": sum(self.dailyIssuance.values()),
     }
@@ -71,6 +75,7 @@ class Oracle:
     with self.mutex:
       allFqdns = set()
       allRegDoms = set()
+      allWildcards = set()
 
       for k in self.certAuthorities:
         data[k] = self.certAuthorities[k].summarize()
@@ -79,12 +84,15 @@ class Oracle:
         stats["Total Certificate Authorities"] += 1
         allFqdns = allFqdns | self.certAuthorities[k].fqdnSet
         allRegDoms = allRegDoms | self.certAuthorities[k].regDomSet
+        allWildcards = allWildcards | self.certAuthorities[k].wildcardSet
         # clear heavy memory area memory since statistics were gathered
         self.certAuthorities[k].fqdnSet.clear()
         self.certAuthorities[k].regDomSet.clear()
+        self.certAuthorities[k].wildcardSet.clear()
 
       stats["Total Unique FQDNs Seen"] = len(allFqdns)
       stats["Total Unique RegDoms Seen"] = len(allRegDoms)
+      stats["Total Unique Wildcards Seen"] = len(allWildcards)
 
     return data
 
@@ -93,9 +101,10 @@ class Oracle:
       with open(path, 'rb') as f:
         self.merge(pickle.load(f))
     except:
-      print("Couldn't load new-format, trying old")
-      with open(path, 'r') as f:
-        self.merge(jsonpickle.decode(f.read()))
+      t,v,s = sys.exc_info()
+      print("Failed to open file on disk: {} {}".format(t, v))
+      traceback.print_exception(t,v,s, file=sys.stdout)
+      raise
 
   def merge(self, aRemote):
     with self.mutex:
@@ -122,9 +131,10 @@ class Oracle:
       oracle.logGeo(geodata["continent"], geodata["countrycode"])
 
   def recordCertMetadata(self, metaData):
-    if not set(["aki", "issuer", "fqdns", "regdoms"]).issubset(metaData):
+    mandatorySet = set(["aki", "issuer", "fqdns", "regdoms", "wildcards"])
+    if not mandatorySet.issubset(metaData):
       # Can't do anything with this non-BR-compliant cert
-      return
+      raise ValueError("Can't handle non-BR-compliant cert (missing field {}): {}".format(mandatorySet.difference(metaData), metaData))
 
     with self.mutex:
       oracle = None
@@ -137,13 +147,21 @@ class Oracle:
 
       fqdns = metaData["fqdns"].split(",")
       regDoms = metaData["regdoms"].split(",")
+      wildcards = metaData["wildcards"].split(",")
 
       if oracle.isLogged(metaData["spki"]):
         return
 
-      oracle.logCert(metaData["spki"], fqdns, regDoms, metaData["issuedate"])
+      oracle.logCert(metaData["spki"], fqdns, regDoms, wildcards, metaData["issuedate"])
       if set(["continent", "countrycode"]).issubset(metaData):
         oracle.logGeo(metaData["continent"], metaData["countrycode"])
+
+  @staticmethod
+  def getFirstAttibute(attributeObj, oid):
+    result = attributeObj.get_attributes_for_oid(oid)
+    if len(result) == 0:
+      raise ValueError("empty set of resulting attributes for {}: {}".format(oid, result))
+    return result[0].value
 
   def getMetadataForCert(self, aPsl, aCert):
     metaData={}
@@ -152,7 +170,7 @@ class Oracle:
     # Issuance date, organization, and AKI are all required
     try:
       metaData["issuedate"] = aCert.not_valid_before.date().isoformat()
-      metaData["issuer"] = aCert.issuer.get_attributes_for_oid(x509.oid.NameOID. ORGANIZATION_NAME)[0].value
+      metaData["issuer"] = self.getFirstAttibute(aCert.issuer, x509.oid.NameOID.ORGANIZATION_NAME)
 
       akiext = aCert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
       metaData["aki"] = binascii.hexlify(akiext.value.key_identifier).decode('utf8')
@@ -161,8 +179,7 @@ class Oracle:
       metaData["spki"] = binascii.hexlify(spki.value.digest).decode('utf8')
 
       # Get the FQDNs
-      subject = aCert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0]
-      fqdns.add(subject.value)
+      fqdns.add(self.getFirstAttibute(aCert.subject, x509.oid.NameOID.COMMON_NAME))
 
     except x509.extensions.ExtensionNotFound as e:
       raise ValueError(e)
@@ -174,14 +191,17 @@ class Oracle:
       # SANs are optional, sorta.
       pass
 
-    # Filter out wildcards
-    metaData["fqdns"] = ",".join(set(filter(lambda x: x.startswith("*.")==False, fqdns)))
+    # Filter wildcards
+    metaData["wildcards"] = ",".join(set(filter(lambda x: x.startswith("*.")==True, fqdns)))
 
     # Get the registered domains
     regdoms = set()
     for fqdn in fqdns:
       regdoms.add(aPsl.suffix(fqdn) or fqdn)
     metaData["regdoms"] = ",".join(regdoms)
+
+    # All FQDNs, including wildcards
+    metaData["fqdns"] = ",".join(fqdns)
 
     # Get continent, country, city
     if self.geoDB:

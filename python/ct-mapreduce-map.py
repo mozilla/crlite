@@ -286,16 +286,17 @@ def main():
       with pbar_mutex:
         stop_threads = True
 
+    print("Work queue completed.")
+    print("All done. Process results: {}".format(counter))
+
     with pbar_mutex:
       pbar.finish()
-    print("Work queue completed.")
 
     for i in range(args.threads):
         work_queue.put(None)
     for t in threads:
         t.join()
 
-  print("All done. Process results: {}".format(counter))
 
 if __name__ == "__main__":
   main()
