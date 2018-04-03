@@ -17,7 +17,7 @@ class StatisticStorage:
                 "issuerID integer not null REFERENCES issuers (issuerID),"
                 "datestamp date not null, certsIssued integer not null,"
                 "certsActive integer null, fqdnsActive integer null,"
-                "regDomainsActive integer null,"
+                "regDomainsActive integer null, wildcardsActive integer null"
                 "CONSTRAINT 'issuerdatestamp' UNIQUE (issuerID, datestamp))")
     c.execute("CREATE TABLE IF NOT EXISTS issuers ("
                 "issuerID integer primary key, aki string not null, name string not null,"

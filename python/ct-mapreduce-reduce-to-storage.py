@@ -34,7 +34,8 @@ def main():
 
     if args.today:
       storage.updateCertTimeline(issuerID=issuerId, datestamp=args.today, certsActive=data['certsTotal'],
-                                 fqdnsActive=data['fqdns'], regDomainsActive=data['regDoms'])
+                                 fqdnsActive=data['fqdns'], regDomainsActive=data['regDoms'],
+                                 wildcardsActive=data['wildcards'])
 
 
 if __name__ == "__main__":
