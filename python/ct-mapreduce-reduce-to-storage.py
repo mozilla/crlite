@@ -32,10 +32,13 @@ def main():
     for datestamp, issueCount in data['certsIssuedByIssuanceDay'].items():
       storage.updateCertTimeline(issuerID=issuerId, datestamp=datestamp, certsIssued=issueCount)
 
+    print("Completed issuance count update. Today = {}".format(args.today))
     if args.today:
       storage.updateCertTimeline(issuerID=issuerId, datestamp=args.today, certsActive=data['certsTotal'],
                                  fqdnsActive=data['fqdns'], regDomainsActive=data['regDoms'],
                                  wildcardsActive=data['wildcards'])
+      print("Updated cert timeline: {} {} {} {} {}".format(data['certsTotal'], data['fqdns'],
+            data['regDoms'], len(data['certsIssuedByIssuanceDay']), len(data['wildcards'])))
 
 
 if __name__ == "__main__":
