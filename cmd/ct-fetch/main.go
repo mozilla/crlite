@@ -71,7 +71,7 @@ type LogDownloader struct {
 func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 	return &LogDownloader{
 		Database:            db,
-		EntryChan:           make(chan CtLogEntry),
+		EntryChan:           make(chan CtLogEntry, 1024),
 		Display:             utils.NewProgressDisplay(),
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
