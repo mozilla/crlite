@@ -40,7 +40,10 @@ class CertAuthorityOracle:
   def merge(self, aRemote):
     self.fqdnSet.update(aRemote.fqdnSet)
     self.regDomSet.update(aRemote.regDomSet)
-    self.wildcardSet.update(aRemote.wildcardSet)
+    try:
+      self.wildcardSet.update(aRemote.wildcardSet)
+    except AttributeError as ae:
+      pass # This was newly added
     self.dailyIssuance.update(aRemote.dailyIssuance)
     self.continent.update(aRemote.continent)
     self.countryIso.update(aRemote.countryIso)
