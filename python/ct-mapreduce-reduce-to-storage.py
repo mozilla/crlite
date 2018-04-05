@@ -38,8 +38,9 @@ def main():
                                  fqdnsActive=data['fqdns'], regDomainsActive=data['regDoms'],
                                  wildcardsActive=data['wildcards'])
       print("Updated cert timeline: {} {} {} {} {}".format(data['certsTotal'], data['fqdns'],
-            data['regDoms'], len(data['certsIssuedByIssuanceDay']), len(data['wildcards'])))
+            data['regDoms'], len(data['certsIssuedByIssuanceDay']), data['wildcards']))
 
 
 if __name__ == "__main__":
   main()
+
