@@ -34,8 +34,8 @@ below creates an output that feeds into the next step.
 6. `python build_megaCRL.py` combines all the CRLs in `all_CRLs/` into a
    single:
    * `megaCRL.json`
-7. `python build_CRL_revoked.py` parses `certs_using_crl.json` and puts any
-   cert found in `megaCRL.json` into
+7. `python build_CRL_revoked.py` parses `certs_using_crl.json` and `megaCRL.json`
+   into:
    * `final_CRL_revoked.json` file
    * `final_CRL_nonrevoked.json` file
 
@@ -43,15 +43,12 @@ below creates an output that feeds into the next step.
 
 8. `cd ../create_filter_cascade`
 9. `python certs_to_crlite.py` uses the `final_CRL_*` `json` files to create:
-   * `moz-crlite-mlbf-YYYYMMDDHHMM` multi-level bloom filter file
-
-See https://github.com/mozilla-services/shavar-list-creation/pull/53
+   * `moz-crlite-mlbf-YYYYMMDD` multi-level bloom filter file
 
 
 ## Credits
 
-* Benton Case for [the original
-  code-base](https://github.com/casebenton/certificate-revocation-analysis)
+* Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis)
 * JC Jones for [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
 * Mark Goodwin for original
   [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py)
