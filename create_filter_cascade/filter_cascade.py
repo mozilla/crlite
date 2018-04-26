@@ -84,11 +84,9 @@ class FilterCascade:
         by calling tofile for each layer of the Filter Cascade.
         """
         # print("Writing salt: %s" % self.salt)
-        salt_bytes = bytes(self.salt, 'utf-8')
-        f.write(pack("I%ds" % (len(salt_bytes),), len(salt_bytes), salt_bytes))
+        f.write(pack('s', bytes(self.salt, 'utf-8')))
         # print("Writing filter: %s" % self.filter.__dict__)
-        hashfn_bytes = bytes(self.hashfn_name, 'utf-8')
-        f.write(pack("I%ds" % (len(hashfn_bytes),), len(hashfn_bytes), hashfn_bytes))
+        f.write(pack('s', bytes(self.filter.hashfn.__name__, 'utf-8')))
         self.filter.tofile(f)
         if self.childLayer is None:
             print("we're at the bottom of the cascade!\n"

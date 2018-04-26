@@ -1,13 +1,12 @@
 # Python Standard Library
 from datetime import datetime
 import json
-from struct import pack
 
 # Local modules
 from filter_cascade import FilterCascade
 
 
-mlbf_file_version = datetime.utcnow().strftime('%Y%m%d%H%M')
+mlbf_file_version = datetime.utcnow().strftime('%Y%m%d')
 MLBF_FILENAME = 'moz-crlite-mlbf-%s' % mlbf_file_version
 MLBF_FILE_FORMAT_VERSION = 1
 NONREVOKED_CERTS_FILENAME = 'final_crl_nonrevoked.json'
@@ -58,6 +57,6 @@ print("This filter cascade uses %d layers and %d bits" % (
 )
 print("Writing to file %s" % MLBF_FILENAME)
 
-mlbf_file = open(MLBF_FILENAME, 'w')
+mlbf_file = open(MLBF_FILENAME, 'wb')
 
 cascade.tofile(mlbf_file)
