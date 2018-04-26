@@ -1,0 +1,7 @@
+CT_FETCH_DATA_DIR = '/Users/lcrouch/ct'
+CRL_SERVERS_FILENAME = 'CRL_servers.txt'
+CERTS_OUTFILE = 'certs_using_CRL.json'
+ALL_CRLS_DIR = 'all_CRLs'
+COMBINED_CRL_OUTFILE = 'mega_CRL.json'
+FINAL_REVOKED_CERTS_FILE = 'final_crl_revoked.json'
+FINAL_NONREVOKED_CERTS_FILE = 'final_crl_nonrevoked.json'
