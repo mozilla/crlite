@@ -44,8 +44,9 @@ def buildDict():
 
 
 if __name__ == '__main__':
-    print('Using %s and %s to create %s...' % (
-        CERTS_OUTFILE, COMBINED_CRL_OUTFILE, FINAL_REVOKED_CERTS_FILE
+    print('Using %s and %s to create %s and %s ...' % (
+        CERTS_OUTFILE, COMBINED_CRL_OUTFILE,
+        FINAL_NONREVOKED_CERTS_FILE, FINAL_REVOKED_CERTS_FILE
     ))
     megaCRL_CN, megaCRL_org = buildDict()
 

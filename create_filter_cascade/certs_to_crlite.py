@@ -9,8 +9,8 @@ from filter_cascade import FilterCascade
 mlbf_file_version = datetime.utcnow().strftime('%Y%m%d')
 MLBF_FILENAME = 'moz-crlite-mlbf-%s' % mlbf_file_version
 MLBF_FILE_FORMAT_VERSION = 1
-NONREVOKED_CERTS_FILENAME = 'final_crl_nonrevoked.json'
-REVOKED_CERTS_FILENAME = 'final_crl_revoked.json'
+NONREVOKED_CERTS_FILENAME = '../get_CRL_revocations/final_crl_nonrevoked.json'
+REVOKED_CERTS_FILENAME = '../get_CRL_revocations/final_crl_revoked.json'
 
 
 def bufcount(filename):
