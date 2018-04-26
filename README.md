@@ -25,6 +25,11 @@ The data pipeline for transforming CT log data into 2 final sets of "revoked"
 and "non-revoked" certs is broken up into a number of processes. Each step
 below creates an output that feeds into the next step.
 
+Note: You can pass `--limit NNNN` to `extract_crls` to limit the number of
+certs it will process. The rest of the steps will work the same - the resulting
+data files will just be smaller. This is a good way to develop, test, and
+debug.
+
 4. `python extract_crls.py` loops over the `ct-fetch` data and outputs 2 files:
    * `certs_using_CRL.json` - all certificates which have listed CRLs
    * `CRL_servers.txt` - all CRL distribution points
