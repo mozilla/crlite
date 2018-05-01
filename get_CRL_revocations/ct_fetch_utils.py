@@ -18,6 +18,7 @@ CRLS_INDICATOR = 1000
 counter = Counter()
 CRL_distribution_points = []
 certs_list = []
+counter["Total Certificates Processed"] = 0
 
 
 """
@@ -28,7 +29,10 @@ https://github.com/jcjones/ct-mapreduce/blob/ed586b1dc5e3a2263c09c611b1733a83fc1
 
 def checkCertCount():
     counter["Total Certificates Processed"] += 1
-    if counter["Total Certificates Processed"] >= counter["Certs Limit"]:
+    if (
+        counter["Certs Limit"] > 0 and
+        counter["Total Certificates Processed"] >= counter["Certs Limit"]
+    ):
         print("Processing results: {}".format(counter))
         exit(0)
     if not(
@@ -41,6 +45,9 @@ def processDerData(der_data, crl_outfile, certs_outfile):
     cert = x509.load_der_x509_certificate(
         der_data, default_backend()
     )
+    # TODO: pyOpenSSL X509StoreContext.verify_certificate() with NSS roots
+    # https://pyopenssl.readthedocs.io/en/latest/api/crypto.html?highlight=x509storecontext#OpenSSL.crypto.X509StoreContext.verify_certificate
+
     # get the issuing org for CRL checking
     try:
         org = cert.issuer.get_attributes_for_oid(
@@ -98,27 +105,31 @@ def processDerData(der_data, crl_outfile, certs_outfile):
         crl_points = cert.extensions.get_extension_for_class(
             x509.CRLDistributionPoints
         )
-        for point in crl_points.value:
-            if point.full_name:
-                for name in point.full_name:
-                    if type(name) == x509.general_name.UniformResourceIdentifier:
-                        uri_str = str(name.value)
-                        if uri_str not in CRL_distribution_points:
-                            CRL_distribution_points.append(uri_str)
-                            crl_outfile.write(uri_str + '\n')
-                            counter["CRLs written"] += 1
-                    counter["Total CRLs Processed"] += 1
-            if point.crl_issuer:
-                for issuer in point.crl_issuer:
-                    if type(issuer) == x509.general_name.UniformResourceIdentifier:
-                        uri_str = str(issuer.value)
-                        if uri_str not in CRL_distribution_points:
-                            CRL_distribution_points.append(uri_str)
-                            crl_outfile.write(uri_str + '\n')
-                            counter["CRLs written"] += 1
-                    counter["Total CRLs Processed"] += 1
+        processCRLPoints(crl_points, crl_outfile)
     except x509.extensions.ExtensionNotFound as e:
         counter["Certificates without CRL"] += 1
+
+
+def processCRLPoints(crl_points, crl_outfile):
+    for point in crl_points.value:
+        if point.full_name:
+            for name in point.full_name:
+                if type(name) == x509.general_name.UniformResourceIdentifier:
+                    uri_str = str(name.value)
+                    if uri_str not in CRL_distribution_points:
+                        CRL_distribution_points.append(uri_str)
+                        crl_outfile.write(uri_str + '\n')
+                        counter["CRLs written"] += 1
+                counter["Total CRLs Processed"] += 1
+        if point.crl_issuer:
+            for issuer in point.crl_issuer:
+                if type(issuer) == x509.general_name.UniformResourceIdentifier:
+                    uri_str = str(issuer.value)
+                    if uri_str not in CRL_distribution_points:
+                        CRL_distribution_points.append(uri_str)
+                        crl_outfile.write(uri_str + '\n')
+                        counter["CRLs written"] += 1
+                counter["Total CRLs Processed"] += 1
 
 
 def processCer(file_path, crl_outfile, certs_outfile):

@@ -7,7 +7,8 @@ from settings import CT_FETCH_DATA_DIR, CRL_SERVERS_FILENAME, CERTS_OUTFILE
 parser = argparse.ArgumentParser(
     description='Extract certs and CRL distribution endpoints from CT log data'
 )
-parser.add_argument('--limit', help="Number of certs to process", type=int)
+parser.add_argument(
+    '--limit', help="Number of certs to process", type=int, default=0)
 args = parser.parse_args()
 
 crl_outfile = open(CRL_SERVERS_FILENAME, "w", 1)
