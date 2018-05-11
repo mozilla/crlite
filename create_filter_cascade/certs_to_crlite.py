@@ -47,14 +47,17 @@ for line in revoked_certs_file:
     revoked_certs.append(cert['issuer']['organization'] + str(cert['serial_number']))
 
 
-cascade = FilterCascade(10000, 1.3, 0.77, 1)
-cascade.initialize(nonrevoked_certs, revoked_certs)
-cascade.check(nonrevoked_certs, revoked_certs)
+cascade = FilterCascade(120000, 1.3, 0.20, 1)
+cascade.initialize(revoked_certs, nonrevoked_certs)
+cascade.check(revoked_certs, nonrevoked_certs)
+
+print("Filter Cascade:\n%s" % cascade)
 
 print("This filter cascade uses %d layers and %d bits" % (
     cascade.layerCount(),
     cascade.bitCount())
 )
+
 print("Writing to file %s" % MLBF_FILENAME)
 
 mlbf_file = open(MLBF_FILENAME, 'wb')
