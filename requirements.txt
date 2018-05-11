@@ -1,3 +1,5 @@
 cryptography==2.2.2
+kinto-http==9.1.2
 pyOpenSSL==17.5.0
 pybloom-live==2.3.2
+python-decouple==3.1
