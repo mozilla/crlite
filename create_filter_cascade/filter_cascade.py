@@ -18,6 +18,9 @@ class FilterCascade:
         self.salt = None
 
     def initialize(self, entries, exclusions):
+        # remove duplicates for this layer
+        exclusions = list(set(exclusions))
+        entries = list(set(entries))
         # set the "salt" for this layer
         print("Initializing the %s-depth layer." % self.depth)
         entries_length = len(entries)
@@ -88,8 +91,17 @@ class FilterCascade:
         # print("Writing filter: %s" % self.filter.__dict__)
         f.write(pack('s', bytes(self.filter.hashfn.__name__, 'utf-8')))
         self.filter.tofile(f)
-        if self.childLayer is None:
-            print("we're at the bottom of the cascade!\n"
-                  "No need to write any more")
-        else:
+        if self.childLayer is not None:
             self.childLayer.tofile(f)
+
+    def __str__(self):
+        returnStr = (
+            "FilterCascade Depth: %s:, Capacity: %s, Error Rate: %s, "
+            "Hash function: %s, Salt: %s\n" % (
+                self.depth, self.capacity, self.error_rate,
+                self.filter.hashfn.__name__, self.salt
+            )
+        )
+        if self.childLayer is not None:
+            returnStr += str(self.childLayer)
+        return returnStr
