@@ -24,7 +24,7 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/jcjones/ct-sql/utils"
+	"github.com/jcjones/go-progressdisplay"
 	"github.com/jpillora/backoff"
 )
 
@@ -52,6 +52,10 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 	// }
 
 	return skip
+}
+
+func uint64ToTimestamp(timestamp uint64) time.Time {
+  return time.Unix(int64(timestamp/1000), int64(timestamp%1000))
 }
 
 type CtLogEntry struct {
@@ -134,7 +138,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 		}
 	}
 
-	log.Printf("[%s] %d total entries at %s\n", ctLogUrl, sth.TreeSize, utils.Uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
+	log.Printf("[%s] %d total entries at %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 	if origCount == sth.TreeSize {
 		log.Printf("[%s] Nothing to do\n", ctLogUrl)
 		return
@@ -154,7 +158,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 
 	logObj.MaxEntry = finalIndex
 	if finalTime != 0 {
-		logObj.LastEntryTime = utils.Uint64ToTimestamp(finalTime)
+		logObj.LastEntryTime = uint64ToTimestamp(finalTime)
 	}
 
 	err = ld.Database.SaveLogState(logObj)
