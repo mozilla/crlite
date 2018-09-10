@@ -13,10 +13,20 @@
 
 ```
 cat > ~/.ct-fetch.conf <<EOF
-# Be sure to replace this path to point to where you got this file
-geoipDbPath = /path/to/GeoLite2-City.mmdb
+# Available directives:
+#
+# certPath = Path under which to store full DER-encoded certificates
+# issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited
+# runForever = Run forever, pausing `pollingDelay` between runs
+# pollingDelay = Wait this many minutes between polls
+# logExpiredEntries = Add expired entries to the database
+# numThreads = Use this many threads per CPU
+# logList = URLs of the CT Logs, comma delimited
+#
+# Examples
+#
 # Only accept certificates for Let's Encrypt's intermediates or the ISRG roots
-issuerCNList = Let's Encrypt, ISRG
+issuerCNFilter = Let's Encrypt, ISRG
 # Update the CT log list as you like, comma-delimited. Not currently tested with more than one log.
 logList = https://ct.googleapis.com/icarus
 # A path with plenty of disk space
