@@ -6,16 +6,19 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/bluele/gcache"
 	"github.com/google/certificate-transparency-go/x509"
 )
 
 type DiskDatabase struct {
 	rootDir     *os.File
 	permissions os.FileMode
+	fdCache     gcache.Cache
 }
 
 func isDirectory(aPath string) bool {
@@ -32,14 +35,38 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
 	}
 
+	// set env var VERBOSE to get cache details
+	_, verbose := os.LookupEnv("VERBOSE")
+
 	fileObj, err := os.Open(aPath)
 	if err != nil {
 		return nil, err
 	}
 
+	cache := gcache.New(64).ARC().
+		EvictedFunc(func(key, value interface{}) {
+			value.(*os.File).Close()
+			if verbose {
+				log.Printf("CACHE[%s]: closed datafile: %s", aPath, key)
+			}
+		}).
+		PurgeVisitorFunc(func(key, value interface{}) {
+			value.(*os.File).Close()
+			if verbose {
+				log.Printf("CACHE[%s]: shutdown closed datafile: %s", aPath, key)
+			}
+		}).
+		LoaderFunc(func(key interface{}) (interface{}, error) {
+			if verbose {
+				log.Printf("CACHE[%s]: loaded datafile: %s", aPath, key)
+			}
+			return os.OpenFile(key.(string), os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
+		}).Build()
+
 	db := &DiskDatabase{
 		rootDir:     fileObj,
 		permissions: aPerms,
+		fdCache:     cache,
 	}
 
 	return db, nil
@@ -72,7 +99,7 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		// Not an error to not have a state file, just prime one for us
-		return &CertificateLog{ URL: aUrl }, nil
+		return &CertificateLog{URL: aUrl}, nil
 	}
 
 	var certLogObj CertificateLog
@@ -119,18 +146,17 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
 
 	pemblock := pem.Block{
-		Type: "CERTIFICATE",
+		Type:    "CERTIFICATE",
 		Headers: headers,
-		Bytes: aCert.Raw,
+		Bytes:   aCert.Raw,
 	}
 
-	fd, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, db.permissions)
+	fd, err := db.fdCache.Get(filePath)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	defer fd.Close()
 
-	err = pem.Encode(fd, &pemblock)
+	err = pem.Encode(fd.(*os.File), &pemblock)
 	if err != nil {
 		return err
 	}
@@ -141,5 +167,10 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 		return err
 	}
 
+	return nil
+}
+
+func (db *DiskDatabase) Cleanup() error {
+	db.fdCache.Purge()
 	return nil
 }

@@ -2,6 +2,7 @@ module github.com/jcjones/ct-mapreduce
 
 require (
 	github.com/aws/aws-sdk-go v1.13.14
+	github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7
 	github.com/go-ini/ini v1.33.0
 	github.com/golang/protobuf v1.0.0
 	github.com/google/certificate-transparency-go v1.0.12
