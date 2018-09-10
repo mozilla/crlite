@@ -22,7 +22,6 @@ type CTConfig struct {
 	PollingDelay      *int
 	IssuerCNFilter    *string
 	LogExpiredEntries *bool
-	AWSS3Bucket       *string
 	Config            *string
 }
 
@@ -31,7 +30,6 @@ func NewCTConfig() *CTConfig {
 		Verbose:           flag.Bool("v", false, "Give verbose output"),
 		Offset:            flag.Uint64("offset", 0, "offset from the beginning"),
 		Limit:             flag.Uint64("limit", 0, "limit processing to this many entries"),
-		AWSS3Bucket:       flag.String("awsS3Bucket", "", "AWS S3 Path"),
 		Config:            flag.String("config", "~/.ct-fetch.ini", "configuration .ini file"),
 		LogUrlList:        new(string),
 		NumThreads:        new(int),
