@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"gopkg.in/ini.v1"
 	"log"
+	"os/user"
 )
 
 type CTConfig struct {
@@ -26,11 +27,17 @@ type CTConfig struct {
 }
 
 func NewCTConfig() *CTConfig {
+	userObj, err := user.Current()
+	confFile := ".ct-fetch.ini"
+	if err == nil {
+		confFile = fmt.Sprintf("%s/.ct-fetch.ini", userObj.HomeDir)
+	}
+
 	ret := &CTConfig{
 		Verbose:           flag.Bool("v", false, "Give verbose output"),
 		Offset:            flag.Uint64("offset", 0, "offset from the beginning"),
 		Limit:             flag.Uint64("limit", 0, "limit processing to this many entries"),
-		Config:            flag.String("config", "~/.ct-fetch.ini", "configuration .ini file"),
+		Config:            flag.String("config", confFile, "configuration .ini file"),
 		LogUrlList:        new(string),
 		NumThreads:        new(int),
 		LogExpiredEntries: new(bool),
@@ -43,7 +50,7 @@ func NewCTConfig() *CTConfig {
 
 	cfg, err := ini.Load(*ret.Config)
 	if err == nil {
-		log.Printf("Loaded config file from %s", *ret.Config)
+		log.Printf("Loaded config file from %s\n", *ret.Config)
 		*ret.LogUrlList = cfg.Section("").Key("logList").String()
 		*ret.NumThreads = cfg.Section("").Key("numThreads").MustInt(1)
 		*ret.LogExpiredEntries = cfg.Section("").Key("logExpiredEntries").MustBool(false)
@@ -51,6 +58,8 @@ func NewCTConfig() *CTConfig {
 		*ret.PollingDelay = cfg.Section("").Key("pollingDelay").MustInt(10)
 		*ret.IssuerCNFilter = cfg.Section("").Key("issuerCNFilter").String()
 		*ret.CertPath = cfg.Section("").Key("certPath").String()
+	} else {
+		log.Printf("Could not load config file: %s\n", err)
 	}
 
 	return ret
