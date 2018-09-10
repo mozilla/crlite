@@ -55,7 +55,7 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 }
 
 func uint64ToTimestamp(timestamp uint64) time.Time {
-  return time.Unix(int64(timestamp/1000), int64(timestamp%1000))
+	return time.Unix(int64(timestamp/1000), int64(timestamp%1000))
 }
 
 type CtLogEntry struct {
@@ -161,6 +161,11 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 		logObj.LastEntryTime = uint64ToTimestamp(finalTime)
 	}
 
+	err = ld.Database.Cleanup()
+	if err != nil {
+		log.Printf("\n[%s] Cache cleanup error caught: %s\n", ctLogUrl, err)
+	}
+
 	err = ld.Database.SaveLogState(logObj)
 	if err == nil {
 		log.Printf("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
@@ -261,8 +266,7 @@ func (ld *LogDownloader) insertCTWorker() {
 }
 
 func main() {
-	log.SetFlags(0)
-	log.SetPrefix("")
+	log.SetFlags(log.LstdFlags)
 
 	var err error
 	var storageDB storage.CertDatabase
