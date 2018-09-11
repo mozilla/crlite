@@ -26,7 +26,7 @@ func NewCacheEntry(aFileObj *os.File, aKnownPath string, aPerms os.FileMode) (*C
 	knownCerts := NewKnownCertificates(aKnownPath, aPerms)
 	err := knownCerts.Load()
 	if err != nil {
-		glog.Infof("Creating new known certificates file for %s", aKnownPath)
+		glog.V(1).Infof("Creating new known certificates file for %s", aKnownPath)
 	}
 
 	return &CacheEntry{
