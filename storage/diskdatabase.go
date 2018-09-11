@@ -19,12 +19,31 @@ import (
 type CacheEntry struct {
 	mutex *sync.Mutex
 	fd    *os.File
+	known *KnownCertificates
 }
 
-func (ce *CacheEntry) Close() {
+func NewCacheEntry(aFileObj *os.File, aKnownPath string, aPerms os.FileMode) (*CacheEntry, error) {
+	knownCerts := NewKnownCertificates(aKnownPath, aPerms)
+	err := knownCerts.Load()
+	if err != nil {
+		log.Printf("Creating new known certificates file for %s", aKnownPath)
+	}
+
+	return &CacheEntry{
+		fd:    aFileObj,
+		mutex: &sync.Mutex{},
+		known: knownCerts,
+	}, nil
+}
+
+func (ce *CacheEntry) Close() error {
 	ce.mutex.Lock()
 	defer ce.mutex.Unlock()
-	ce.fd.Close()
+	if err := ce.fd.Close(); err != nil {
+		return err
+	}
+
+	return ce.known.Save()
 }
 
 type DiskDatabase struct {
@@ -57,15 +76,15 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 
 	cache := gcache.New(64).ARC().
 		EvictedFunc(func(key, value interface{}) {
-			value.(*CacheEntry).Close()
+			err := value.(*CacheEntry).Close()
 			if verbose {
-				log.Printf("CACHE[%s]: closed datafile: %s", aPath, key)
+				log.Printf("CACHE[%s]: closed datafile: %s [err=%s]", aPath, key, err)
 			}
 		}).
 		PurgeVisitorFunc(func(key, value interface{}) {
-			value.(*CacheEntry).Close()
+			err := value.(*CacheEntry).Close()
 			if verbose {
-				log.Printf("CACHE[%s]: shutdown closed datafile: %s", aPath, key)
+				log.Printf("CACHE[%s]: shutdown closed datafile: %s [err=%s]", aPath, key, err)
 			}
 		}).
 		LoaderFunc(func(key interface{}) (interface{}, error) {
@@ -73,15 +92,15 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 				log.Printf("CACHE[%s]: loaded datafile: %s", aPath, key)
 			}
 
-			fd, err := os.OpenFile(key.(string), os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
+			pemPath := key.(string)
+
+			fd, err := os.OpenFile(pemPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
 			if err != nil {
 				return nil, err
 			}
 
-			return &CacheEntry{
-				fd:    fd,
-				mutex: &sync.Mutex{},
-			}, nil
+			knownPath := fmt.Sprintf("%s.known", pemPath)
+			return NewCacheEntry(fd, knownPath, aPerms)
 		}).Build()
 
 	db := &DiskDatabase{
@@ -183,9 +202,16 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 
 		ce := obj.(*CacheEntry)
 
-		ce.mutex.Lock()
-		err = pem.Encode(ce.fd, &pemblock)
-		ce.mutex.Unlock()
+		certWasUnknown, err := ce.known.WasUnknown(aCert.SerialNumber)
+		if err != nil {
+			return err
+		}
+
+		if certWasUnknown {
+			ce.mutex.Lock()
+			err = pem.Encode(ce.fd, &pemblock)
+			ce.mutex.Unlock()
+		}
 
 		if err == nil {
 			break
