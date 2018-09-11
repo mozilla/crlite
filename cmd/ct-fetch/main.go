@@ -270,7 +270,7 @@ func main() {
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
 		glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewDiskDatabase(*ctconfig.CertPath, 0644)
+		storageDB, err = storage.NewDiskDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, 0644)
 		if err != nil {
 			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
 		}

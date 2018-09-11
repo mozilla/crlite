@@ -18,6 +18,7 @@ type CTConfig struct {
 	Offset            *uint64
 	Limit             *uint64
 	NumThreads        *int
+	CacheSize         *int
 	RunForever        *bool
 	PollingDelay      *int
 	IssuerCNFilter    *string
@@ -38,6 +39,7 @@ func NewCTConfig() *CTConfig {
 		Config:            flag.String("config", confFile, "configuration .ini file"),
 		LogUrlList:        new(string),
 		NumThreads:        new(int),
+		CacheSize:         new(int),
 		LogExpiredEntries: new(bool),
 		RunForever:        new(bool),
 		PollingDelay:      new(int),
@@ -51,6 +53,7 @@ func NewCTConfig() *CTConfig {
 		glog.Infof("Loaded config file from %s\n", *ret.Config)
 		*ret.LogUrlList = cfg.Section("").Key("logList").String()
 		*ret.NumThreads = cfg.Section("").Key("numThreads").MustInt(1)
+		*ret.CacheSize = cfg.Section("").Key("cacheSize").MustInt(64)
 		*ret.LogExpiredEntries = cfg.Section("").Key("logExpiredEntries").MustBool(false)
 		*ret.RunForever = cfg.Section("").Key("runForever").MustBool(false)
 		*ret.PollingDelay = cfg.Section("").Key("pollingDelay").MustInt(10)
@@ -75,5 +78,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("pollingDelay = Wait this many minutes between polls")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for database insertions")
+	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 }

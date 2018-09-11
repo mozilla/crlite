@@ -61,7 +61,7 @@ func isDirectory(aPath string) bool {
 	return fileStat.IsDir()
 }
 
-func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
+func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 	if !isDirectory(aPath) {
 		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
 	}
@@ -71,7 +71,7 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 		return nil, err
 	}
 
-	cache := gcache.New(64).ARC().
+	cache := gcache.New(aCacheSize).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
 			glog.V(2).Infof("CACHE[%s]: closed datafile: %s [err=%s]", aPath, key, err)
