@@ -8,8 +8,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/golang/glog"
 	"golang.org/x/net/context"
-	"log"
 	"net/url"
 	"os"
 	"os/signal"
@@ -88,7 +88,7 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 }
 
 func (ld *LogDownloader) StartThreads() {
-  for t := 0; t < *ctconfig.NumThreads; t++ {
+	for t := 0; t < *ctconfig.NumThreads; t++ {
 		go ld.insertCTWorker()
 	}
 }
@@ -101,46 +101,46 @@ func (ld *LogDownloader) Stop() {
 func (ld *LogDownloader) Download(ctLogUrl string) {
 	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
 	if err != nil {
-		log.Printf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
 		return
 	}
 
-	log.Printf("[%s] Fetching signed tree head... ", ctLogUrl)
+	glog.Infof("[%s] Fetching signed tree head... ", ctLogUrl)
 	sth, err := ctLog.GetSTH(context.Background())
 	if err != nil {
-		log.Printf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
 		return
 	}
 
 	// Set pointer in DB, now that we've verified the log works
 	urlParts, err := url.Parse(ctLogUrl)
 	if err != nil {
-		log.Printf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
 		return
 	}
 	logObj, err := ld.Database.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
 	if err != nil {
-		log.Printf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
 		return
 	}
 
 	var origCount uint64
 	// Now we're OK to use the DB
 	if *ctconfig.Offset > 0 {
-		log.Printf("[%s] Starting from offset %d", ctLogUrl, *ctconfig.Offset)
+		glog.Infof("[%s] Starting from offset %d", ctLogUrl, *ctconfig.Offset)
 		origCount = *ctconfig.Offset
 	} else {
-		log.Printf("[%s] Counting existing entries... ", ctLogUrl)
+		glog.Infof("[%s] Counting existing entries... ", ctLogUrl)
 		origCount = logObj.MaxEntry
 		if err != nil {
-			log.Printf("[%s] Failed to read entries file: %s", ctLogUrl, err)
+			glog.Errorf("[%s] Failed to read entries file: %s", ctLogUrl, err)
 			return
 		}
 	}
 
-	log.Printf("[%s] %d total entries at %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
+	glog.Infof("[%s] %d total entries at %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 	if origCount == sth.TreeSize {
-		log.Printf("[%s] Nothing to do\n", ctLogUrl)
+		glog.Infof("[%s] Nothing to do\n", ctLogUrl)
 		return
 	}
 
@@ -149,11 +149,11 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 		endPos = origCount + *ctconfig.Limit
 	}
 
-	log.Printf("[%s] Going from %d to %d\n", ctLogUrl, origCount, endPos)
+	glog.Infof("[%s] Going from %d to %d\n", ctLogUrl, origCount, endPos)
 
 	finalIndex, finalTime, err := ld.downloadCTRangeToChannel(logObj.LogID, ctLog, origCount, endPos)
 	if err != nil {
-		log.Printf("\n[%s] Download halting, error caught: %s\n", ctLogUrl, err)
+		glog.Errorf("\n[%s] Download halting, error caught: %s\n", ctLogUrl, err)
 	}
 
 	logObj.MaxEntry = finalIndex
@@ -163,14 +163,14 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 
 	err = ld.Database.Cleanup()
 	if err != nil {
-		log.Printf("\n[%s] Cache cleanup error caught: %s\n", ctLogUrl, err)
+		glog.Errorf("\n[%s] Cache cleanup error caught: %s\n", ctLogUrl, err)
 	}
 
 	err = ld.Database.SaveLogState(logObj)
 	if err == nil {
-		log.Printf("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
+		glog.Infof("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
 	} else {
-		log.Printf("[%s] Log state save failed, MaxEntry=%d, LastEntryTime=%s, Err=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime, err)
+		glog.Errorf("[%s] Log state save failed, MaxEntry=%d, LastEntryTime=%s, Err=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime, err)
 	}
 }
 
@@ -250,7 +250,7 @@ func (ld *LogDownloader) insertCTWorker() {
 		}
 
 		if err != nil {
-			log.Printf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			glog.Errorf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
 			continue
 		}
 
@@ -260,21 +260,19 @@ func (ld *LogDownloader) insertCTWorker() {
 
 		err = ld.Database.Store(cert, ep.LogID)
 		if err != nil {
-			log.Printf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
 	}
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags)
-
 	var err error
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		log.Printf("Saving to disk at %s", *ctconfig.CertPath)
+		glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
 		storageDB, err = storage.NewDiskDatabase(*ctconfig.CertPath, 0644)
 		if err != nil {
-			log.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
+			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
 		}
 	}
 
@@ -299,7 +297,7 @@ func main() {
 		for _, part := range strings.Split(*ctconfig.LogUrlList, ",") {
 			ctLogUrl, err := url.Parse(strings.TrimSpace(part))
 			if err != nil {
-				log.Fatalf("unable to set Certificate Log: %s", err)
+				glog.Fatalf("unable to set Certificate Log: %s", err)
 			}
 			logUrls = append(logUrls, *ctLogUrl)
 		}
@@ -314,7 +312,7 @@ func main() {
 		// Start one thread per CT log to process the log entries
 		for _, ctLogUrl := range logUrls {
 			urlString := ctLogUrl.String()
-			log.Printf("[%s] Starting download.\n", urlString)
+			glog.Infof("[%s] Starting download.\n", urlString)
 
 			logDownloader.DownloaderWaitGroup.Add(1)
 			go func() {
@@ -331,11 +329,11 @@ func main() {
 						return
 					}
 					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute
-					log.Printf("[%s] Completed. Polling again in %s.\n", urlString, sleepTime)
+					glog.Infof("[%s] Completed. Polling again in %s.\n", urlString, sleepTime)
 
 					select {
 					case <-sigChan:
-						log.Printf("[%s] Signal caught.\n", urlString)
+						glog.Infof("[%s] Signal caught.\n", urlString)
 						return
 					case <-time.After(sleepTime):
 						continue
