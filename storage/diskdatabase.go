@@ -163,7 +163,7 @@ func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
 	return nil
 }
 
-func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
+func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	dirPath, filePath := db.getPathForID(&aCert.NotAfter, aCert.SubjectKeyId, aCert.AuthorityKeyId)
 	if !isDirectory(dirPath) {
 		err := os.MkdirAll(dirPath, os.ModeDir|0777)
@@ -173,7 +173,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 	}
 
 	headers := make(map[string]string)
-	headers["LogID"] = fmt.Sprintf("%d", aLogID)
+	headers["Log"] = aLogURL
 	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
 
 	pemblock := pem.Block{

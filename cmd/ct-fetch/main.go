@@ -60,7 +60,7 @@ func uint64ToTimestamp(timestamp uint64) time.Time {
 
 type CtLogEntry struct {
 	LogEntry *ct.LogEntry
-	LogID    int
+	LogURL   string
 }
 
 type LogDownloader struct {
@@ -158,7 +158,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 
 	glog.Infof("[%s] Going from %d to %d\n", ctLogUrl, origCount, endPos)
 
-	finalIndex, finalTime, err := ld.downloadCTRangeToChannel(logObj.LogID, ctLog, origCount, endPos)
+	finalIndex, finalTime, err := ld.downloadCTRangeToChannel(logObj, ctLog, origCount, endPos)
 	if err != nil {
 		glog.Errorf("\n[%s] Download halting, error caught: %s\n", ctLogUrl, err)
 	}
@@ -180,7 +180,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 // less than upTo. If status is not nil then status updates will be written to
 // it until the function is complete, when it will be closed. The log entries
 // are provided to an output channel.
-func (ld *LogDownloader) downloadCTRangeToChannel(logID int, ctLog *client.LogClient, start, upTo uint64) (uint64, uint64, error) {
+func (ld *LogDownloader) downloadCTRangeToChannel(log *storage.CertificateLog, ctLog *client.LogClient, start, upTo uint64) (uint64, uint64, error) {
 	ctx := context.Background()
 
 	if ld.EntryChan == nil {
@@ -221,12 +221,12 @@ func (ld *LogDownloader) downloadCTRangeToChannel(logID int, ctLog *client.LogCl
 			select {
 			case sig := <-sigChan:
 				return index, lastTime, fmt.Errorf("Signal caught: %s", sig)
-			case ld.EntryChan <- CtLogEntry{logEntry, logID}:
+			case ld.EntryChan <- CtLogEntry{logEntry, log.URL}:
 				lastTime = logEntry.Leaf.TimestampedEntry.Timestamp
 
 				ld.Backoff.Reset()
 			case <-progressTicker.C:
-				ld.Display.UpdateProgress(fmt.Sprintf("%d", logID), start, index, upTo)
+				ld.Display.UpdateProgress(fmt.Sprintf("[%d]", log.LogID), start, index, upTo)
 			default:
 				// Channel full, retry
 				time.Sleep(ld.Backoff.Duration())
@@ -260,7 +260,7 @@ func (ld *LogDownloader) insertCTWorker() {
 			continue
 		}
 
-		err = ld.Database.Store(cert, ep.LogID)
+		err = ld.Database.Store(cert, ep.LogURL)
 		if err != nil {
 			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
