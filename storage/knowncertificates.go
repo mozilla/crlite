@@ -95,10 +95,12 @@ func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
 	}
 
 	if idx < count && cmp == 0 {
+		glog.V(3).Infof("[%s] Certificate already known: %s (pos=%d)", kc.filePath, aSerial.Text(10), idx)
 		return false, nil
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
+	glog.V(3).Infof("[%s] Certificate unknown: %s (pos=%d)", kc.filePath, aSerial.Text(10), idx)
 	kc.known = append(kc.known, nil)
 	copy(kc.known[idx+1:], kc.known[idx:])
 	kc.known[idx] = aSerial

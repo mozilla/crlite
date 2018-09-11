@@ -98,6 +98,13 @@ func (ld *LogDownloader) Stop() {
 	ld.Display.Close()
 }
 
+func (ld *LogDownloader) Cleanup() {
+	err := ld.Database.Cleanup()
+	if err != nil {
+		glog.Errorf("\nCache cleanup error caught: %s", err)
+	}
+}
+
 func (ld *LogDownloader) Download(ctLogUrl string) {
 	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
 	if err != nil {
@@ -159,11 +166,6 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 	logObj.MaxEntry = finalIndex
 	if finalTime != 0 {
 		logObj.LastEntryTime = uint64ToTimestamp(finalTime)
-	}
-
-	err = ld.Database.Cleanup()
-	if err != nil {
-		glog.Errorf("\n[%s] Cache cleanup error caught: %s\n", ctLogUrl, err)
 	}
 
 	err = ld.Database.SaveLogState(logObj)
@@ -345,6 +347,8 @@ func main() {
 		logDownloader.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
 		logDownloader.Stop()                     // Stop workers
 		logDownloader.ThreadWaitGroup.Wait()     // Wait for workers to stop
+		logDownloader.Cleanup()                  // Ensure cache is coherent
+
 		os.Exit(0)
 	}
 
