@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+  "sync"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,6 +15,17 @@ import (
 	"github.com/bluele/gcache"
 	"github.com/google/certificate-transparency-go/x509"
 )
+
+type CacheEntry struct {
+	mutex *sync.Mutex
+	fd 		*os.File
+}
+
+func (ce *CacheEntry) Close() {
+	ce.mutex.Lock()
+	ce.fd.Close()
+	ce.mutex.Unlock()
+}
 
 type DiskDatabase struct {
 	rootDir     *os.File
@@ -45,13 +57,13 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 
 	cache := gcache.New(64).ARC().
 		EvictedFunc(func(key, value interface{}) {
-			value.(*os.File).Close()
+			value.(*CacheEntry).Close()
 			if verbose {
 				log.Printf("CACHE[%s]: closed datafile: %s", aPath, key)
 			}
 		}).
 		PurgeVisitorFunc(func(key, value interface{}) {
-			value.(*os.File).Close()
+			value.(*CacheEntry).Close()
 			if verbose {
 				log.Printf("CACHE[%s]: shutdown closed datafile: %s", aPath, key)
 			}
@@ -60,7 +72,16 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 			if verbose {
 				log.Printf("CACHE[%s]: loaded datafile: %s", aPath, key)
 			}
-			return os.OpenFile(key.(string), os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
+
+			fd, err := os.OpenFile(key.(string), os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
+			if err != nil {
+				return nil, err
+			}
+
+			return &CacheEntry{
+				fd:    fd,
+				mutex: &sync.Mutex{},
+			}, nil
 		}).Build()
 
 	db := &DiskDatabase{
@@ -151,12 +172,17 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 		Bytes:   aCert.Raw,
 	}
 
-	fd, err := db.fdCache.Get(filePath)
+	obj, err := db.fdCache.Get(filePath)
 	if err != nil {
 		panic(err)
 	}
 
-	err = pem.Encode(fd.(*os.File), &pemblock)
+	ce := obj.(*CacheEntry)
+
+	ce.mutex.Lock()
+	defer ce.mutex.Unlock()
+
+	err = pem.Encode(ce.fd, &pemblock)
 	if err != nil {
 		return err
 	}

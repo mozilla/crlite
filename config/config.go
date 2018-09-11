@@ -76,6 +76,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
 	fmt.Println("pollingDelay = Wait this many minutes between polls")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
-	fmt.Println("numThreads = Use this many threads per CPU")
+	fmt.Println("numThreads = Use this many threads for database insertions")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 }

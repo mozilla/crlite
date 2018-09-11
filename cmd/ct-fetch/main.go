@@ -88,9 +88,9 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 }
 
 func (ld *LogDownloader) StartThreads() {
-	// One thread right now, because there's no contention-protection
-	// in diskdatabase
-	go ld.insertCTWorker()
+  for t := 0; t < *ctconfig.NumThreads; t++ {
+		go ld.insertCTWorker()
+	}
 }
 
 func (ld *LogDownloader) Stop() {
@@ -308,8 +308,10 @@ func main() {
 	if len(logUrls) > 0 {
 		logDownloader := NewLogDownloader(storageDB)
 		logDownloader.Display.StartDisplay(logDownloader.ThreadWaitGroup)
+		// Start a pool of threads to parse log entries and hand them to the database
 		logDownloader.StartThreads()
 
+		// Start one thread per CT log to process the log entries
 		for _, ctLogUrl := range logUrls {
 			urlString := ctLogUrl.String()
 			log.Printf("[%s] Starting download.\n", urlString)
