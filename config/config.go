@@ -7,14 +7,13 @@ package config
 import (
 	"flag"
 	"fmt"
+	"github.com/golang/glog"
 	"gopkg.in/ini.v1"
-	"log"
 	"os/user"
 )
 
 type CTConfig struct {
 	LogUrlList        *string
-	Verbose           *bool
 	CertPath          *string
 	Offset            *uint64
 	Limit             *uint64
@@ -34,7 +33,6 @@ func NewCTConfig() *CTConfig {
 	}
 
 	ret := &CTConfig{
-		Verbose:           flag.Bool("v", false, "Give verbose output"),
 		Offset:            flag.Uint64("offset", 0, "offset from the beginning"),
 		Limit:             flag.Uint64("limit", 0, "limit processing to this many entries"),
 		Config:            flag.String("config", confFile, "configuration .ini file"),
@@ -50,7 +48,7 @@ func NewCTConfig() *CTConfig {
 
 	cfg, err := ini.Load(*ret.Config)
 	if err == nil {
-		log.Printf("Loaded config file from %s\n", *ret.Config)
+		glog.Infof("Loaded config file from %s\n", *ret.Config)
 		*ret.LogUrlList = cfg.Section("").Key("logList").String()
 		*ret.NumThreads = cfg.Section("").Key("numThreads").MustInt(1)
 		*ret.LogExpiredEntries = cfg.Section("").Key("logExpiredEntries").MustBool(false)
@@ -59,7 +57,7 @@ func NewCTConfig() *CTConfig {
 		*ret.IssuerCNFilter = cfg.Section("").Key("issuerCNFilter").String()
 		*ret.CertPath = cfg.Section("").Key("certPath").String()
 	} else {
-		log.Printf("Could not load config file: %s\n", err)
+		glog.Errorf("Could not load config file: %s\n", err)
 	}
 
 	return ret

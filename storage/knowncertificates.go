@@ -2,8 +2,8 @@ package storage
 
 import (
 	"encoding/json"
+	"github.com/golang/glog"
 	"io/ioutil"
-	"log"
 	"math/big"
 	"os"
 	"sort"
@@ -37,16 +37,16 @@ func (kc *KnownCertificates) Load() error {
 
 	data, err := ioutil.ReadAll(fd)
 	if err != nil {
-		log.Printf("Error reading known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error reading known certificates %s: %s", kc.filePath, err)
 	}
 
 	err = json.Unmarshal(data, &kc.known)
 	if err != nil {
-		log.Printf("Error unmarshaling known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error unmarshaling known certificates %s: %s", kc.filePath, err)
 	}
 
 	if err = fd.Close(); err != nil {
-		log.Printf("Error loading known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error loading known certificates %s: %s", kc.filePath, err)
 	}
 	return err
 }
@@ -57,22 +57,22 @@ func (kc *KnownCertificates) Save() error {
 
 	fd, err := os.OpenFile(kc.filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, kc.perms)
 	if err != nil {
-		log.Printf("Error opening known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error opening known certificates %s: %s", kc.filePath, err)
 		return err
 	}
 
 	data, err := json.Marshal(kc.known)
 	if err != nil {
-		log.Printf("Error marshaling known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error marshaling known certificates %s: %s", kc.filePath, err)
 	}
 
 	_, err = fd.Write(data)
 	if err != nil {
-		log.Printf("Error writing known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error writing known certificates %s: %s", kc.filePath, err)
 	}
 
 	if err = fd.Close(); err != nil {
-		log.Printf("Error storing known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error storing known certificates %s: %s", kc.filePath, err)
 	}
 	return err
 }

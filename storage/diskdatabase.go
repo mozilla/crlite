@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/golang/glog"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -26,7 +26,7 @@ func NewCacheEntry(aFileObj *os.File, aKnownPath string, aPerms os.FileMode) (*C
 	knownCerts := NewKnownCertificates(aKnownPath, aPerms)
 	err := knownCerts.Load()
 	if err != nil {
-		log.Printf("Creating new known certificates file for %s", aKnownPath)
+		glog.Infof("Creating new known certificates file for %s", aKnownPath)
 	}
 
 	return &CacheEntry{
@@ -66,9 +66,6 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
 	}
 
-	// set env var VERBOSE to get cache details
-	_, verbose := os.LookupEnv("VERBOSE")
-
 	fileObj, err := os.Open(aPath)
 	if err != nil {
 		return nil, err
@@ -77,20 +74,14 @@ func NewDiskDatabase(aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 	cache := gcache.New(64).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
-			if verbose {
-				log.Printf("CACHE[%s]: closed datafile: %s [err=%s]", aPath, key, err)
-			}
+			glog.V(2).Infof("CACHE[%s]: closed datafile: %s [err=%s]", aPath, key, err)
 		}).
 		PurgeVisitorFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
-			if verbose {
-				log.Printf("CACHE[%s]: shutdown closed datafile: %s [err=%s]", aPath, key, err)
-			}
+			glog.V(2).Infof("CACHE[%s]: shutdown closed datafile: %s [err=%s]", aPath, key, err)
 		}).
 		LoaderFunc(func(key interface{}) (interface{}, error) {
-			if verbose {
-				log.Printf("CACHE[%s]: loaded datafile: %s", aPath, key)
-			}
+			glog.V(2).Infof("CACHE[%s]: loaded datafile: %s", aPath, key)
 
 			pemPath := key.(string)
 
@@ -219,7 +210,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 	}
 
 	if err != nil {
-		log.Println("Cache eviction collision: ", err)
+		glog.Errorf("Cache eviction collision: ", err)
 		return err
 	}
 

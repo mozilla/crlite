@@ -4,6 +4,7 @@ require (
 	github.com/aws/aws-sdk-go v1.13.14
 	github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7
 	github.com/go-ini/ini v1.33.0
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.0.0
 	github.com/google/certificate-transparency-go v1.0.12
 	github.com/jcjones/ct-sql v0.0.0-20170221230105-a1a22e4a3ef6
