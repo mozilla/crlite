@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-  "sync"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -18,13 +18,13 @@ import (
 
 type CacheEntry struct {
 	mutex *sync.Mutex
-	fd 		*os.File
+	fd    *os.File
 }
 
 func (ce *CacheEntry) Close() {
 	ce.mutex.Lock()
+	defer ce.mutex.Unlock()
 	ce.fd.Close()
-	ce.mutex.Unlock()
 }
 
 type DiskDatabase struct {
@@ -172,18 +172,28 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogID int) error {
 		Bytes:   aCert.Raw,
 	}
 
-	obj, err := db.fdCache.Get(filePath)
-	if err != nil {
-		panic(err)
+	// Be willing to try twice, since fdCache sometimes makes a mistake and
+	// evicts an entry right as we're using it.
+	var err error
+	for t := 0; t < 2; t++ {
+		obj, err := db.fdCache.Get(filePath)
+		if err != nil {
+			panic(err)
+		}
+
+		ce := obj.(*CacheEntry)
+
+		ce.mutex.Lock()
+		err = pem.Encode(ce.fd, &pemblock)
+		ce.mutex.Unlock()
+
+		if err == nil {
+			break
+		}
 	}
 
-	ce := obj.(*CacheEntry)
-
-	ce.mutex.Lock()
-	defer ce.mutex.Unlock()
-
-	err = pem.Encode(ce.fd, &pemblock)
 	if err != nil {
+		log.Println("Cache eviction collision: ", err)
 		return err
 	}
 
