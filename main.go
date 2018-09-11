@@ -156,7 +156,7 @@ func (ld *LogDownloader) Download(ctLogUrl string) {
 		endPos = origCount + *ctconfig.Limit
 	}
 
-	glog.Infof("[%s] Going from %d to %d\n", ctLogUrl, origCount, endPos)
+	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)\n", ctLogUrl, origCount, endPos, float64(origCount)/float64(sth.TreeSize)*100)
 
 	finalIndex, finalTime, err := ld.downloadCTRangeToChannel(logObj, ctLog, origCount, endPos)
 	if err != nil {
