@@ -65,7 +65,7 @@ type CtLogEntry struct {
 }
 
 // Coordinates all workers
-type LogDownloader struct {
+type LogSyncEngine struct {
 	Database            storage.CertDatabase
 	EntryChan           chan CtLogEntry
 	ThreadWaitGroup     *sync.WaitGroup
@@ -154,8 +154,8 @@ func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) 
 	}, nil
 }
 
-func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
-	return &LogDownloader{
+func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
+	return &LogSyncEngine{
 		Database:            db,
 		EntryChan:           make(chan CtLogEntry, 1024),
 		ThreadWaitGroup:     new(sync.WaitGroup),
@@ -163,14 +163,14 @@ func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 	}
 }
 
-func (ld *LogDownloader) StartThreads() {
+func (ld *LogSyncEngine) StartThreads() {
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		go ld.insertCTWorker()
 	}
 }
 
 // Blocking function, run from a thread
-func (ld *LogDownloader) SyncLog(logURL string) error {
+func (ld *LogSyncEngine) SyncLog(logURL string) error {
 	worker, err := NewLogWorker(ld.Database, logURL)
 	if err != nil {
 		return err
@@ -178,12 +178,12 @@ func (ld *LogDownloader) SyncLog(logURL string) error {
 	return worker.SyncLog(ld.EntryChan)
 }
 
-func (ld *LogDownloader) Stop() {
+func (ld *LogSyncEngine) Stop() {
 	close(ld.EntryChan)
 	// ld.Display.Finish()
 }
 
-func (ld *LogDownloader) Cleanup() {
+func (ld *LogSyncEngine) Cleanup() {
 	err := ld.Database.Cleanup()
 	if err != nil {
 		glog.Errorf("\nCache cleanup error caught: %s", err)
@@ -269,7 +269,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	return index, lastTime, nil
 }
 
-func (ld *LogDownloader) insertCTWorker() {
+func (ld *LogSyncEngine) insertCTWorker() {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
 	for ep := range ld.EntryChan {
@@ -338,19 +338,19 @@ func main() {
 	}
 
 	if len(logUrls) > 0 {
-		logDownloader := NewLogDownloader(storageDB)
+		syncEngine := NewLogSyncEngine(storageDB)
 		// logDownloader.Display.StartDisplay(logDownloader.ThreadWaitGroup)
 		// Start a pool of threads to parse log entries and hand them to the database
-		logDownloader.StartThreads()
+		syncEngine.StartThreads()
 
 		// Start one thread per CT log to process the log entries
 		for _, ctLogUrl := range logUrls {
 			urlString := ctLogUrl.String()
 			glog.Infof("[%s] Starting download.\n", urlString)
 
-			logDownloader.DownloaderWaitGroup.Add(1)
+			syncEngine.DownloaderWaitGroup.Add(1)
 			go func() {
-				defer logDownloader.DownloaderWaitGroup.Done()
+				defer syncEngine.DownloaderWaitGroup.Done()
 
 				sigChan := make(chan os.Signal, 1)
 				signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
@@ -358,7 +358,7 @@ func main() {
 				defer close(sigChan)
 
 				for {
-					err := logDownloader.SyncLog(urlString)
+					err := syncEngine.SyncLog(urlString)
 					if err != nil {
 						glog.Errorf("[%s] Could not sync log: %s", urlString, err)
 					}
@@ -380,10 +380,10 @@ func main() {
 			}()
 		}
 
-		logDownloader.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
-		logDownloader.Stop()                     // Stop workers
-		logDownloader.ThreadWaitGroup.Wait()     // Wait for workers to stop
-		logDownloader.Cleanup()                  // Ensure cache is coherent
+		syncEngine.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
+		syncEngine.Stop()                     // Stop workers
+		syncEngine.ThreadWaitGroup.Wait()     // Wait for workers to stop
+		syncEngine.Cleanup()                  // Ensure cache is coherent
 
 		os.Exit(0)
 	}
