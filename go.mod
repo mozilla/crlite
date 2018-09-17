@@ -11,7 +11,10 @@ require (
 	github.com/jcjones/go-progressdisplay v0.0.0-20180910000447-19ad88f5fde4 // indirect
 	github.com/jmespath/go-jmespath v0.0.0-20160202185014-0b12d6b521d8
 	github.com/jpillora/backoff v0.0.0-20170918002102-8eab2debe79d
+	github.com/mattn/go-runewidth v0.0.3 // indirect
 	golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd
 	golang.org/x/net v0.0.0-20180314180242-e0c57d8f86c1
+	golang.org/x/sys v0.0.0-20180909124046-d0be0721c37e // indirect
+	gopkg.in/cheggaaa/pb.v1 v1.0.25 // indirect
 	gopkg.in/ini.v1 v1.38.2
 )

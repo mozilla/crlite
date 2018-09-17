@@ -24,8 +24,8 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/jcjones/go-progressdisplay"
 	"github.com/jpillora/backoff"
+	"gopkg.in/cheggaaa/pb.v1"
 )
 
 var (
@@ -54,8 +54,9 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 	return skip
 }
 
-func uint64ToTimestamp(timestamp uint64) time.Time {
-	return time.Unix(int64(timestamp/1000), int64(timestamp%1000))
+func uint64ToTimestamp(timestamp uint64) *time.Time {
+	t := time.Unix(int64(timestamp/1000), int64(timestamp%1000))
+	return &t
 }
 
 type CtLogEntry struct {
@@ -63,27 +64,102 @@ type CtLogEntry struct {
 	LogURL   string
 }
 
+// Coordinates all workers
 type LogDownloader struct {
 	Database            storage.CertDatabase
 	EntryChan           chan CtLogEntry
-	Display             *utils.ProgressDisplay
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
-	Backoff             *backoff.Backoff
+}
+
+// Operates on a single log
+type LogWorker struct {
+	Display  *pb.ProgressBar
+	Database storage.CertDatabase
+	Client   *client.LogClient
+	LogURL   string
+	STH      *ct.SignedTreeHead
+	LogState *storage.CertificateLog
+	StartPos uint64
+	EndPos   uint64
+	Backoff  *backoff.Backoff
+}
+
+func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) {
+	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
+	if err != nil {
+		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
+		return nil, err
+	}
+
+	glog.Infof("[%s] Fetching signed tree head... ", ctLogUrl)
+	sth, err := ctLog.GetSTH(context.Background())
+	if err != nil {
+		glog.Errorf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
+		return nil, err
+	}
+
+	// Set pointer in DB, now that we've verified the log works
+	urlParts, err := url.Parse(ctLogUrl)
+	if err != nil {
+		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
+		return nil, err
+	}
+	logObj, err := db.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
+	if err != nil {
+		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
+		return nil, err
+	}
+
+	var startPos uint64
+	// Now we're OK to use the DB
+	if *ctconfig.Offset > 0 {
+		glog.Infof("[%s] Starting from offset %d", ctLogUrl, *ctconfig.Offset)
+		startPos = *ctconfig.Offset
+	} else {
+		glog.Infof("[%s] Counting existing entries... ", ctLogUrl)
+		startPos = logObj.MaxEntry
+		if err != nil {
+			glog.Errorf("[%s] Failed to read entries file: %s", ctLogUrl, err)
+			return nil, err
+		}
+	}
+
+	var endPos uint64
+	endPos = sth.TreeSize
+	if *ctconfig.Limit > 0 && (startPos+*ctconfig.Limit) < sth.TreeSize {
+		endPos = startPos + *ctconfig.Limit
+	}
+
+	glog.Infof("[%s] %d total entries as of %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
+	// if origCount == sth.TreeSize {
+	// 	glog.Infof("[%s] Nothing to do\n", ctLogUrl)
+	// 	return nil, nil
+	// }
+
+	return &LogWorker{
+		Display:  nil,
+		Database: db,
+		Client:   ctLog,
+		LogState: logObj,
+		LogURL:   ctLogUrl,
+		STH:      sth,
+		StartPos: startPos,
+		EndPos:   endPos,
+		Backoff: &backoff.Backoff{
+			Min:    10 * time.Millisecond,
+			Max:    1 * time.Second,
+			Jitter: true,
+		},
+	}, nil
 }
 
 func NewLogDownloader(db storage.CertDatabase) *LogDownloader {
 	return &LogDownloader{
 		Database:            db,
 		EntryChan:           make(chan CtLogEntry, 1024),
-		Display:             utils.NewProgressDisplay(),
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
-		Backoff: &backoff.Backoff{
-			Min:    10 * time.Millisecond,
-			Max:    1 * time.Second,
-			Jitter: true,
-		},
 	}
 }
 
@@ -93,9 +169,18 @@ func (ld *LogDownloader) StartThreads() {
 	}
 }
 
+// Blocking function, run from a thread
+func (ld *LogDownloader) SyncLog(logURL string) error {
+	worker, err := NewLogWorker(ld.Database, logURL)
+	if err != nil {
+		return err
+	}
+	return worker.SyncLog(ld.EntryChan)
+}
+
 func (ld *LogDownloader) Stop() {
 	close(ld.EntryChan)
-	ld.Display.Close()
+	// ld.Display.Finish()
 }
 
 func (ld *LogDownloader) Cleanup() {
@@ -105,112 +190,61 @@ func (ld *LogDownloader) Cleanup() {
 	}
 }
 
-func (ld *LogDownloader) Download(ctLogUrl string) {
-	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
+func (lw *LogWorker) SyncLog(entryChan chan<- CtLogEntry) error {
+	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)\n", lw.LogURL, lw.StartPos, lw.EndPos, float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
+
+	// lw.Display = pb.New(endPos - origCount).Prefix(fmt.Sprintf("%s", ctLogUrl))
+
+	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
 	if err != nil {
-		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
-		return
+		glog.Errorf("\n[%s] Download halting, error caught: %s\n", lw.LogURL, err)
+		return err
 	}
 
-	glog.Infof("[%s] Fetching signed tree head... ", ctLogUrl)
-	sth, err := ctLog.GetSTH(context.Background())
+	lw.LogState.MaxEntry = finalIndex
+	if finalTime != nil {
+		lw.LogState.LastEntryTime = *finalTime
+	}
+
+	err = lw.Database.SaveLogState(lw.LogState)
 	if err != nil {
-		glog.Errorf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
-		return
+		glog.Errorf("[%s] Log state save failed, %s Err=%s, Err=%s", lw.LogURL, lw.LogState, err)
+		return err
 	}
 
-	// Set pointer in DB, now that we've verified the log works
-	urlParts, err := url.Parse(ctLogUrl)
-	if err != nil {
-		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
-		return
-	}
-	logObj, err := ld.Database.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
-	if err != nil {
-		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
-		return
-	}
-
-	var origCount uint64
-	// Now we're OK to use the DB
-	if *ctconfig.Offset > 0 {
-		glog.Infof("[%s] Starting from offset %d", ctLogUrl, *ctconfig.Offset)
-		origCount = *ctconfig.Offset
-	} else {
-		glog.Infof("[%s] Counting existing entries... ", ctLogUrl)
-		origCount = logObj.MaxEntry
-		if err != nil {
-			glog.Errorf("[%s] Failed to read entries file: %s", ctLogUrl, err)
-			return
-		}
-	}
-
-	glog.Infof("[%s] %d total entries at %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
-	if origCount == sth.TreeSize {
-		glog.Infof("[%s] Nothing to do\n", ctLogUrl)
-		return
-	}
-
-	endPos := sth.TreeSize
-	if *ctconfig.Limit > 0 && endPos > origCount+*ctconfig.Limit {
-		endPos = origCount + *ctconfig.Limit
-	}
-
-	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)\n", ctLogUrl, origCount, endPos, float64(origCount)/float64(sth.TreeSize)*100)
-
-	finalIndex, finalTime, err := ld.downloadCTRangeToChannel(logObj, ctLog, origCount, endPos)
-	if err != nil {
-		glog.Errorf("\n[%s] Download halting, error caught: %s\n", ctLogUrl, err)
-	}
-
-	logObj.MaxEntry = finalIndex
-	if finalTime != 0 {
-		logObj.LastEntryTime = uint64ToTimestamp(finalTime)
-	}
-
-	err = ld.Database.SaveLogState(logObj)
-	if err == nil {
-		glog.Infof("[%s] Saved state. MaxEntry=%d, LastEntryTime=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime)
-	} else {
-		glog.Errorf("[%s] Log state save failed, MaxEntry=%d, LastEntryTime=%s, Err=%s", logObj.URL, logObj.MaxEntry, logObj.LastEntryTime, err)
-	}
+	glog.Infof("[%s] Saved state. %s", lw.LogURL, lw.LogState)
+	return nil
 }
 
 // DownloadRange downloads log entries from the given starting index till one
 // less than upTo. If status is not nil then status updates will be written to
 // it until the function is complete, when it will be closed. The log entries
 // are provided to an output channel.
-func (ld *LogDownloader) downloadCTRangeToChannel(log *storage.CertificateLog, ctLog *client.LogClient, start, upTo uint64) (uint64, uint64, error) {
+func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint64, *time.Time, error) {
 	ctx := context.Background()
-
-	if ld.EntryChan == nil {
-		return start, 0, fmt.Errorf("No output channel provided")
-	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(sigChan)
 	defer close(sigChan)
 
-	progressTicker := time.NewTicker(10 * time.Second)
-	defer progressTicker.Stop()
+	var lastTime *time.Time
 
-	var lastTime uint64
-
-	index := start
-	for index < upTo {
+	index := lw.StartPos
+	for index < lw.EndPos {
 		max := index + 1024
-		if max >= upTo {
-			max = upTo - 1
+		if max >= lw.EndPos {
+			max = lw.EndPos - 1
 		}
 
-		resp, err := ctLog.GetRawEntries(ctx, int64(index), int64(max))
+		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
 			return index, lastTime, err
 		}
 
 		for _, entry := range resp.Entries {
 			index++
+			// ld.Display.Increment()
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				fmt.Printf("Erroneous certificate: %v\n", err)
@@ -221,15 +255,13 @@ func (ld *LogDownloader) downloadCTRangeToChannel(log *storage.CertificateLog, c
 			select {
 			case sig := <-sigChan:
 				return index, lastTime, fmt.Errorf("Signal caught: %s", sig)
-			case ld.EntryChan <- CtLogEntry{logEntry, log.URL}:
-				lastTime = logEntry.Leaf.TimestampedEntry.Timestamp
+			case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
+				lastTime = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
 
-				ld.Backoff.Reset()
-			case <-progressTicker.C:
-				ld.Display.UpdateProgress(fmt.Sprintf("[%d]", log.LogID), start, index, upTo)
+				lw.Backoff.Reset()
 			default:
 				// Channel full, retry
-				time.Sleep(ld.Backoff.Duration())
+				time.Sleep(lw.Backoff.Duration())
 			}
 		}
 	}
@@ -307,7 +339,7 @@ func main() {
 
 	if len(logUrls) > 0 {
 		logDownloader := NewLogDownloader(storageDB)
-		logDownloader.Display.StartDisplay(logDownloader.ThreadWaitGroup)
+		// logDownloader.Display.StartDisplay(logDownloader.ThreadWaitGroup)
 		// Start a pool of threads to parse log entries and hand them to the database
 		logDownloader.StartThreads()
 
@@ -326,12 +358,16 @@ func main() {
 				defer close(sigChan)
 
 				for {
-					logDownloader.Download(urlString)
+					err := logDownloader.SyncLog(urlString)
+					if err != nil {
+						glog.Errorf("[%s] Could not sync log: %s", urlString, err)
+					}
+
 					if !*ctconfig.RunForever {
 						return
 					}
 					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute
-					glog.Infof("[%s] Completed. Polling again in %s.\n", urlString, sleepTime)
+					glog.Infof("[%s] Stopped. Polling again in %s.\n", urlString, sleepTime)
 
 					select {
 					case <-sigChan:
