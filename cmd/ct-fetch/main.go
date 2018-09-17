@@ -25,7 +25,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jpillora/backoff"
-	"gopkg.in/cheggaaa/pb.v1"
+	"github.com/vbauerster/mpb"
+	"github.com/vbauerster/mpb/decor"
 )
 
 var (
@@ -47,10 +48,7 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 		}
 	}
 
-	// if skip && edb.Verbose {
-	//  fmt.Printf("Skipping inserting cert issued by %s\n", cert.Issuer.CommonName)
-	// }
-
+	glog.V(4).Infof("Skipping inserting cert issued by %s", aCert.Issuer.CommonName)
 	return skip
 }
 
@@ -66,15 +64,18 @@ type CtLogEntry struct {
 
 // Coordinates all workers
 type LogSyncEngine struct {
-	Database            storage.CertDatabase
-	EntryChan           chan CtLogEntry
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
+	database            storage.CertDatabase
+	entryChan           chan CtLogEntry
+	logWorkers          []*LogWorker
+	display             mpb.Progress
+	cancelChan          chan<- struct{}
 }
 
 // Operates on a single log
 type LogWorker struct {
-	Display  *pb.ProgressBar
+	Bar      *mpb.Bar
 	Database storage.CertDatabase
 	Client   *client.LogClient
 	LogURL   string
@@ -86,15 +87,26 @@ type LogWorker struct {
 }
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
+	cancelChan := make(chan struct{}, 0)
+	twg := new(sync.WaitGroup)
+
+	display := mpb.New(
+		mpb.WithWaitGroup(twg),
+		mpb.WithCancel(cancelChan),
+	)
+
 	return &LogSyncEngine{
-		Database:            db,
-		EntryChan:           make(chan CtLogEntry, 1024),
-		ThreadWaitGroup:     new(sync.WaitGroup),
+		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
+		database:            db,
+		entryChan:           make(chan CtLogEntry, 1024),
+		logWorkers:          make([]*LogWorker, 1),
+		display:             *display,
+		cancelChan:          cancelChan,
 	}
 }
 
-func (ld *LogSyncEngine) StartThreads() {
+func (ld *LogSyncEngine) StartDatabaseThreads() {
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		go ld.insertCTWorker()
 	}
@@ -102,29 +114,32 @@ func (ld *LogSyncEngine) StartThreads() {
 
 // Blocking function, run from a thread
 func (ld *LogSyncEngine) SyncLog(logURL string) error {
-	worker, err := NewLogWorker(ld.Database, logURL)
+	worker, err := ld.NewLogWorker(logURL)
 	if err != nil {
 		return err
 	}
-	return worker.SyncLog(ld.EntryChan)
+
+	ld.logWorkers = append(ld.logWorkers, worker)
+	return worker.Run(ld.entryChan)
 }
 
 func (ld *LogSyncEngine) Stop() {
-	close(ld.EntryChan)
-	// ld.Display.Finish()
+	close(ld.entryChan)
+	close(ld.cancelChan)
+	ld.display.Wait()
 }
 
 func (ld *LogSyncEngine) Cleanup() {
-	err := ld.Database.Cleanup()
+	err := ld.database.Cleanup()
 	if err != nil {
-		glog.Errorf("\nCache cleanup error caught: %s", err)
+		glog.Errorf("Cache cleanup error caught: %s", err)
 	}
 }
 
 func (ld *LogSyncEngine) insertCTWorker() {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
-	for ep := range ld.EntryChan {
+	for ep := range ld.entryChan {
 		var cert *x509.Certificate
 		var err error
 
@@ -144,14 +159,14 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			continue
 		}
 
-		err = ld.Database.Store(cert, ep.LogURL)
+		err = ld.database.Store(cert, ep.LogURL)
 		if err != nil {
 			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
 	}
 }
 
-func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) {
+func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
@@ -171,7 +186,7 @@ func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) 
 		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
 		return nil, err
 	}
-	logObj, err := db.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
+	logObj, err := ld.database.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
 	if err != nil {
 		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
 		return nil, err
@@ -197,15 +212,30 @@ func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) 
 		endPos = startPos + *ctconfig.Limit
 	}
 
-	glog.Infof("[%s] %d total entries as of %s\n", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
-	// if origCount == sth.TreeSize {
-	// 	glog.Infof("[%s] Nothing to do\n", ctLogUrl)
-	// 	return nil, nil
-	// }
+	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
+
+	progressBar := ld.display.AddBar((int64)(endPos-startPos),
+		mpb.PrependDecorators(
+			// display our name with one space on the right
+			decor.Name(ctLogUrl, decor.WC{W: len(ctLogUrl) + 1, C: decor.DidentRight}),
+			// replace ETA decorator with "done" message, OnComplete event
+			decor.OnComplete(
+				// ETA decorator with ewma age of 60, and width reservation of 4
+				decor.EwmaETA(decor.ET_STYLE_GO, 5, decor.WC{W: 4}), "done",
+			)),
+		mpb.AppendDecorators(
+			decor.Percentage(),
+			decor.Name(""),
+			// decor.MovingAverageETA(decor.ET_STYLE_GO, decor.NewMedian(), decor.NopNormalizer(), decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
+			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+		),
+		mpb.BarRemoveOnComplete(),
+	)
 
 	return &LogWorker{
-		Display:  nil,
-		Database: db,
+		Bar:      progressBar,
+		Database: ld.database,
 		Client:   ctLog,
 		LogState: logObj,
 		LogURL:   ctLogUrl,
@@ -220,14 +250,16 @@ func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) 
 	}, nil
 }
 
-func (lw *LogWorker) SyncLog(entryChan chan<- CtLogEntry) error {
-	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)\n", lw.LogURL, lw.StartPos, lw.EndPos, float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
+func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
+	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)", lw.LogURL, lw.StartPos, lw.EndPos, float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
 
-	// lw.Display = pb.New(endPos - origCount).Prefix(fmt.Sprintf("%s", ctLogUrl))
+	if lw.StartPos == lw.EndPos {
+		glog.Infof("[%s] Nothing to do", lw.LogURL)
+		return nil
+	}
 
 	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
 	if err != nil {
-		glog.Errorf("\n[%s] Download halting, error caught: %s\n", lw.LogURL, err)
 		return err
 	}
 
@@ -274,17 +306,18 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 		for _, entry := range resp.Entries {
 			index++
-			// ld.Display.Increment()
+			lw.Bar.Increment()
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
-				fmt.Printf("Erroneous certificate: %v\n", err)
+				glog.Warningf("Erroneous certificate: %v", err)
 				continue
 			}
 
 			// Are there waiting signals?
 			select {
 			case sig := <-sigChan:
-				return index, lastTime, fmt.Errorf("Signal caught: %s", sig)
+				glog.V(1).Infof("[%s] Signal caught: %s", lw.LogURL, sig)
+				return index, lastTime, nil
 			case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
 				lastTime = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
 
@@ -339,14 +372,14 @@ func main() {
 
 	if len(logUrls) > 0 {
 		syncEngine := NewLogSyncEngine(storageDB)
-		// logDownloader.Display.StartDisplay(logDownloader.ThreadWaitGroup)
+
 		// Start a pool of threads to parse log entries and hand them to the database
-		syncEngine.StartThreads()
+		syncEngine.StartDatabaseThreads()
 
 		// Start one thread per CT log to process the log entries
 		for _, ctLogUrl := range logUrls {
 			urlString := ctLogUrl.String()
-			glog.Infof("[%s] Starting download.\n", urlString)
+			glog.Infof("[%s] Starting download.", urlString)
 
 			syncEngine.DownloaderWaitGroup.Add(1)
 			go func() {
@@ -367,11 +400,11 @@ func main() {
 						return
 					}
 					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute
-					glog.Infof("[%s] Stopped. Polling again in %s.\n", urlString, sleepTime)
+					glog.Infof("[%s] Stopped. Polling again in %s.", urlString, sleepTime)
 
 					select {
 					case <-sigChan:
-						glog.Infof("[%s] Signal caught.\n", urlString)
+						glog.Infof("[%s] Signal caught.", urlString)
 						return
 					case <-time.After(sleepTime):
 						continue

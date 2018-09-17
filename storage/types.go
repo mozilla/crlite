@@ -15,7 +15,7 @@ type CertificateLog struct {
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("[%d] %s MaxEntry=%d, LastEntryTime=%s", o.LogID, o.URL, o.MaxEntry, o.LastEntryTime)
+	return fmt.Sprintf("LogID=%d MaxEntry=%d, LastEntryTime=%s, URL=%s", o.LogID, o.MaxEntry, o.LastEntryTime, o.URL)
 }
 
 type CertDatabase interface {
