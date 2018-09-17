@@ -85,6 +85,72 @@ type LogWorker struct {
 	Backoff  *backoff.Backoff
 }
 
+func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
+	return &LogSyncEngine{
+		Database:            db,
+		EntryChan:           make(chan CtLogEntry, 1024),
+		ThreadWaitGroup:     new(sync.WaitGroup),
+		DownloaderWaitGroup: new(sync.WaitGroup),
+	}
+}
+
+func (ld *LogSyncEngine) StartThreads() {
+	for t := 0; t < *ctconfig.NumThreads; t++ {
+		go ld.insertCTWorker()
+	}
+}
+
+// Blocking function, run from a thread
+func (ld *LogSyncEngine) SyncLog(logURL string) error {
+	worker, err := NewLogWorker(ld.Database, logURL)
+	if err != nil {
+		return err
+	}
+	return worker.SyncLog(ld.EntryChan)
+}
+
+func (ld *LogSyncEngine) Stop() {
+	close(ld.EntryChan)
+	// ld.Display.Finish()
+}
+
+func (ld *LogSyncEngine) Cleanup() {
+	err := ld.Database.Cleanup()
+	if err != nil {
+		glog.Errorf("\nCache cleanup error caught: %s", err)
+	}
+}
+
+func (ld *LogSyncEngine) insertCTWorker() {
+	ld.ThreadWaitGroup.Add(1)
+	defer ld.ThreadWaitGroup.Done()
+	for ep := range ld.EntryChan {
+		var cert *x509.Certificate
+		var err error
+
+		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
+		case ct.X509LogEntryType:
+			cert = ep.LogEntry.X509Cert
+		case ct.PrecertLogEntryType:
+			cert, err = x509.ParseCertificate(ep.LogEntry.Precert.Submitted.Data)
+		}
+
+		if err != nil {
+			glog.Errorf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			continue
+		}
+
+		if certIsFilteredOut(cert) {
+			continue
+		}
+
+		err = ld.Database.Store(cert, ep.LogURL)
+		if err != nil {
+			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
+		}
+	}
+}
+
 func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) {
 	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
 	if err != nil {
@@ -152,42 +218,6 @@ func NewLogWorker(db storage.CertDatabase, ctLogUrl string) (*LogWorker, error) 
 			Jitter: true,
 		},
 	}, nil
-}
-
-func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
-	return &LogSyncEngine{
-		Database:            db,
-		EntryChan:           make(chan CtLogEntry, 1024),
-		ThreadWaitGroup:     new(sync.WaitGroup),
-		DownloaderWaitGroup: new(sync.WaitGroup),
-	}
-}
-
-func (ld *LogSyncEngine) StartThreads() {
-	for t := 0; t < *ctconfig.NumThreads; t++ {
-		go ld.insertCTWorker()
-	}
-}
-
-// Blocking function, run from a thread
-func (ld *LogSyncEngine) SyncLog(logURL string) error {
-	worker, err := NewLogWorker(ld.Database, logURL)
-	if err != nil {
-		return err
-	}
-	return worker.SyncLog(ld.EntryChan)
-}
-
-func (ld *LogSyncEngine) Stop() {
-	close(ld.EntryChan)
-	// ld.Display.Finish()
-}
-
-func (ld *LogSyncEngine) Cleanup() {
-	err := ld.Database.Cleanup()
-	if err != nil {
-		glog.Errorf("\nCache cleanup error caught: %s", err)
-	}
 }
 
 func (lw *LogWorker) SyncLog(entryChan chan<- CtLogEntry) error {
@@ -267,36 +297,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	}
 
 	return index, lastTime, nil
-}
-
-func (ld *LogSyncEngine) insertCTWorker() {
-	ld.ThreadWaitGroup.Add(1)
-	defer ld.ThreadWaitGroup.Done()
-	for ep := range ld.EntryChan {
-		var cert *x509.Certificate
-		var err error
-
-		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
-		case ct.X509LogEntryType:
-			cert = ep.LogEntry.X509Cert
-		case ct.PrecertLogEntryType:
-			cert, err = x509.ParseCertificate(ep.LogEntry.Precert.Submitted.Data)
-		}
-
-		if err != nil {
-			glog.Errorf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
-			continue
-		}
-
-		if certIsFilteredOut(cert) {
-			continue
-		}
-
-		err = ld.Database.Store(cert, ep.LogURL)
-		if err != nil {
-			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
-		}
-	}
 }
 
 func main() {
