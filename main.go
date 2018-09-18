@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"math/rand"
 	"strings"
 	"sync"
 	"syscall"
@@ -224,7 +225,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 2048, decor.WC{W: 14}),
+			decor.EwmaETA(decor.ET_STYLE_GO, 64, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
@@ -298,12 +299,12 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			max = lw.EndPos - 1
 		}
 
+		cycleTime = time.Now()
+
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
 			return index, lastTime, err
 		}
-
-		cycleTime = time.Now()
 
 		for _, entry := range resp.Entries {
 			index++
@@ -402,7 +403,10 @@ func main() {
 					if !*ctconfig.RunForever {
 						return
 					}
-					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute
+
+					// Sleep PollingDelay + rand(15) minutes
+					timeJitter := time.Duration(rand.Int63n(int64(time.Minute * 15)))
+					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute + timeJitter
 					glog.Infof("[%s] Stopped. Polling again in %s.", urlString, sleepTime)
 
 					select {
