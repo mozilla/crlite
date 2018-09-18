@@ -224,7 +224,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 5, decor.WC{W: 14}),
+			decor.EwmaETA(decor.ET_STYLE_GO, 2048, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
