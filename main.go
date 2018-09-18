@@ -180,13 +180,15 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		return nil, err
 	}
 
+
 	// Set pointer in DB, now that we've verified the log works
 	urlParts, err := url.Parse(ctLogUrl)
 	if err != nil {
 		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
 		return nil, err
 	}
-	logObj, err := ld.database.GetLogState(fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path))
+	shortUrl := fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path)
+	logObj, err := ld.database.GetLogState(shortUrl)
 	if err != nil {
 		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
 		return nil, err
@@ -217,17 +219,12 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	progressBar := ld.display.AddBar((int64)(endPos-startPos),
 		mpb.PrependDecorators(
 			// display our name with one space on the right
-			decor.Name(ctLogUrl, decor.WC{W: len(ctLogUrl) + 1, C: decor.DidentRight}),
-			// replace ETA decorator with "done" message, OnComplete event
-			decor.OnComplete(
-				// ETA decorator with ewma age of 60, and width reservation of 4
-				decor.EwmaETA(decor.ET_STYLE_GO, 5, decor.WC{W: 4}), "done",
-			)),
+			decor.Name(shortUrl, decor.WC{W: 30, C: decor.DidentRight}),
+		),
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			// decor.MovingAverageETA(decor.ET_STYLE_GO, decor.NewMedian(), decor.NopNormalizer(), decor.WC{W: 14}),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
+			decor.EwmaETA(decor.ET_STYLE_GO, 5, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
@@ -255,6 +252,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	if lw.StartPos == lw.EndPos {
 		glog.Infof("[%s] Nothing to do", lw.LogURL)
+		lw.Bar.SetTotal((int64)(lw.EndPos), true)
 		return nil
 	}
 
@@ -291,6 +289,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	defer close(sigChan)
 
 	var lastTime *time.Time
+	var cycleTime time.Time
 
 	index := lw.StartPos
 	for index < lw.EndPos {
@@ -304,9 +303,13 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			return index, lastTime, err
 		}
 
+		cycleTime = time.Now()
+
 		for _, entry := range resp.Entries {
 			index++
-			lw.Bar.Increment()
+			lw.Bar.IncrBy(1, time.Since(cycleTime))
+			cycleTime = time.Now()
+
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				glog.Warningf("Erroneous certificate: %v", err)
