@@ -8,17 +8,16 @@ package main
 
 import (
 	"fmt"
-	"github.com/golang/glog"
-	"golang.org/x/net/context"
+	"math/rand"
 	"net/url"
 	"os"
 	"os/signal"
-	"math/rand"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
@@ -28,6 +27,7 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -180,7 +180,6 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		glog.Errorf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
 		return nil, err
 	}
-
 
 	// Set pointer in DB, now that we've verified the log works
 	urlParts, err := url.Parse(ctLogUrl)
@@ -406,7 +405,7 @@ func main() {
 
 					// Sleep PollingDelay + rand(15) minutes
 					timeJitter := time.Duration(rand.Int63n(int64(time.Minute * 15)))
-					sleepTime := time.Duration(*ctconfig.PollingDelay) * time.Minute + timeJitter
+					sleepTime := time.Duration(*ctconfig.PollingDelay)*time.Minute + timeJitter
 					glog.Infof("[%s] Stopped. Polling again in %s.", urlString, sleepTime)
 
 					select {
