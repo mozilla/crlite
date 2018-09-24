@@ -23,4 +23,7 @@ type CertDatabase interface {
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url string) (*CertificateLog, error)
 	Store(aCert *x509.Certificate, aURL string) error
+	ListExpirationDates(aNotBefore time.Time) ([]string, error)
+	ListIssuersForExpirationDate(expDate string) ([]string, error)
+	ReconstructIssuerMetadata(expDate string, issuer string) error
 }

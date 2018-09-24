@@ -1,20 +1,29 @@
 package storage
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/golang/glog"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
+	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 )
+
+const kExpirationFormat = "2006-01-02"
+const kStateDirName = "state"
+
+var kPemEndCert = []byte("-----END CERTIFICATE-----\n")
 
 type CacheEntry struct {
 	mutex *sync.Mutex
@@ -47,7 +56,7 @@ func (ce *CacheEntry) Close() error {
 }
 
 type DiskDatabase struct {
-	rootDir     *os.File
+	rootPath    string
 	permissions os.FileMode
 	fdCache     gcache.Cache
 }
@@ -64,11 +73,6 @@ func isDirectory(aPath string) bool {
 func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
 	if !isDirectory(aPath) {
 		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
-	}
-
-	fileObj, err := os.Open(aPath)
-	if err != nil {
-		return nil, err
 	}
 
 	cache := gcache.New(aCacheSize).ARC().
@@ -95,7 +99,7 @@ func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDat
 		}).Build()
 
 	db := &DiskDatabase{
-		rootDir:     fileObj,
+		rootPath:    aPath,
 		permissions: aPerms,
 		fdCache:     cache,
 	}
@@ -103,9 +107,124 @@ func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDat
 	return db, nil
 }
 
+func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+	expDates := make([]string, 0)
+
+	err := filepath.Walk(db.rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
+			return err
+		}
+		if info.IsDir() {
+			if info.Name() == kStateDirName {
+				return filepath.SkipDir
+			}
+
+			// Note: Parses in UTC
+			t, err := time.Parse(kExpirationFormat, info.Name())
+			if err == nil && t.After(aNotBefore) {
+				expDates = append(expDates, info.Name())
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+
+	return expDates, err
+}
+
+func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
+	issuers := make([]string, 0)
+
+	err := filepath.Walk(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
+			return err
+		}
+		if strings.HasSuffix(info.Name(), ".pem") {
+			issuers = append(issuers, strings.TrimSuffix(info.Name(), ".pem"))
+		}
+		return nil
+	})
+
+	return issuers, err
+}
+
+func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
+	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s.pem", issuer))
+
+	fd, err := os.Open(pemPath)
+	if err != nil {
+		return err
+	}
+
+	knownPath := fmt.Sprintf("%s.known", pemPath)
+
+	cacheEntry, err := NewCacheEntry(fd, knownPath, db.permissions)
+	if err != nil {
+		return err
+	}
+	defer cacheEntry.Close()
+
+	scanner := bufio.NewScanner(fd)
+
+	// Splits on the end of a PEM CERTIFICATE, won't work for non-CERTIFICATE
+	// objects
+	split := func(data []byte, atEOF bool) (int, []byte, error) {
+		if data != nil && len(data) > len(kPemEndCert) {
+
+			offset := bytes.Index(data, kPemEndCert)
+
+			if offset >= 0 {
+				totalLength := offset + len(kPemEndCert)
+				token := data[:totalLength]
+				return totalLength, token, nil
+			}
+		}
+
+		return 0, nil, nil
+	}
+	scanner.Split(split)
+
+	for {
+		if !scanner.Scan() {
+			return scanner.Err()
+		}
+
+		block, rest := pem.Decode(scanner.Bytes())
+
+		if block == nil {
+			glog.Info("Not a valid PEM.")
+			glog.Info(hex.Dump(rest))
+			continue
+		}
+
+		if len(rest) != 0 {
+			err := fmt.Errorf("PEM Scanner failure, should have been an exact PEM. Rest=%s, Buf=%s", hex.Dump(rest), hex.Dump(scanner.Bytes()))
+			return err
+		}
+
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			glog.Warningf("Couldn't parse certificate: %v", err)
+			glog.Warningf("Cert bytes: %s", hex.Dump(scanner.Bytes()))
+			continue
+		}
+		cacheEntry.known.WasUnknown(cert.SerialNumber)
+
+	}
+	os.Exit(1)
+
+	return nil
+}
+
 func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	filename := base64.URLEncoding.EncodeToString([]byte(aLogObj.URL))
-	dirPath := filepath.Join(db.rootDir.Name(), "state")
+	dirPath := filepath.Join(db.rootPath, kStateDirName)
 	filePath := filepath.Join(dirPath, filename)
 
 	data, err := json.Marshal(aLogObj)
@@ -125,7 +244,7 @@ func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
 
 func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
-	filePath := filepath.Join(db.rootDir.Name(), "state", filename)
+	filePath := filepath.Join(db.rootPath, kStateDirName, filename)
 
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -142,8 +261,8 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 }
 
 func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI []byte) (string, string) {
-	subdirName := aExpiration.Format("2006-01-02")
-	dirPath := filepath.Join(db.rootDir.Name(), subdirName)
+	subdirName := aExpiration.Format(kExpirationFormat)
+	dirPath := filepath.Join(db.rootPath, subdirName)
 
 	issuerName := base64.URLEncoding.EncodeToString(aAKI)
 	fileName := fmt.Sprintf("%s.pem", issuerName)
@@ -152,8 +271,8 @@ func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI [
 }
 
 func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
-	subdirName := aExpiration.Format("2006-01-02")
-	dirPath := filepath.Join(db.rootDir.Name(), subdirName)
+	subdirName := aExpiration.Format(kExpirationFormat)
+	dirPath := filepath.Join(db.rootPath, subdirName)
 	filePath := filepath.Join(dirPath, "dirty")
 
 	_, err := os.Stat(filePath)
