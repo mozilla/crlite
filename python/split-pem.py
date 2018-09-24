@@ -23,7 +23,7 @@ def splitPem(in_path, out_path=None, idx=None):
       # Record length always
       buffer_len += len(line)
 
-      if line.startswith("LogID") or line.startswith("Recorded-at") or len(line)<3:
+      if line.startswith("Log") or line.startswith("Recorded-at") or len(line)<3:
         continue
       if line.startswith("Seen-in-log"):
         continue
