@@ -2,9 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -16,11 +18,42 @@ import (
 
 var (
 	ctconfig = config.NewCTConfig()
+
+	matchingRegexes = make([]*regexp.Regexp, 0)
 )
 
 type metadataTuple struct {
 	expDate string
 	issuer  string
+}
+
+func shouldProcess(expDate, issuer string) bool {
+	if len(flag.Args()) == 0 {
+		return true
+	}
+
+	// Lazily initialize
+	if len(matchingRegexes) == 0 {
+		for _, matchStr := range flag.Args() {
+			rx, err := regexp.Compile(matchStr)
+
+			if err != nil {
+				glog.Fatalf("Could not compile regex [%s] %s", matchStr, err)
+				os.Exit(1)
+			}
+
+			matchingRegexes = append(matchingRegexes, rx)
+		}
+	}
+
+	// Try and match on one of the provided arguments
+	for _, matcher := range matchingRegexes {
+		if matcher.MatchString(expDate) || matcher.MatchString(issuer) ||
+			matcher.MatchString(filepath.Join(expDate, issuer)) {
+			return true
+		}
+	}
+	return false
 }
 
 func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan bool, storageDB storage.CertDatabase) {
@@ -41,11 +74,6 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 }
 
 func main() {
-	glog.Infof("OK, operating on:")
-	for _, path := range flag.Args() {
-		glog.Infof("Path: %s", path)
-	}
-
 	var err error
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
@@ -58,6 +86,9 @@ func main() {
 
 	if storageDB == nil {
 		ctconfig.Usage()
+		fmt.Println()
+		fmt.Println("Non-flag arguments are interpreted as regular expressions to be matched.")
+		fmt.Println()
 		os.Exit(2)
 	}
 
@@ -97,7 +128,9 @@ func main() {
 		}
 
 		for _, issuer := range issuers {
-			metaChan <- metadataTuple{expDate, issuer}
+			if shouldProcess(expDate, issuer) {
+				metaChan <- metadataTuple{expDate, issuer}
+			}
 		}
 	}
 

@@ -194,7 +194,7 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 		block, rest := pem.Decode(scanner.Bytes())
 
 		if block == nil {
-			glog.Info("Not a valid PEM.")
+			glog.Infof("%s: Not a valid PEM.", pemPath)
 			glog.Info(hex.Dump(rest))
 			continue
 		}
@@ -210,16 +210,22 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			glog.Warningf("Couldn't parse certificate: %v", err)
-			glog.Warningf("Cert bytes: %s", hex.Dump(scanner.Bytes()))
+			glog.Warningf("%s: Couldn't parse certificate: %v", pemPath, err)
+			glog.Warningf("%s: Cert bytes: %s", pemPath, hex.Dump(scanner.Bytes()))
 			continue
 		}
-		cacheEntry.known.WasUnknown(cert.SerialNumber)
 
+		unknown, err := cacheEntry.known.WasUnknown(cert.SerialNumber)
+		if err != nil {
+			glog.Warningf("%s: Couldn't check known status of certificate: %v", pemPath, err)
+			glog.Warningf("%s: Cert bytes: %s", pemPath, hex.Dump(scanner.Bytes()))
+			continue
+		}
+
+		if unknown {
+			glog.Warningf("%s: Certificate was unknown %v", pemPath, cert.SerialNumber)
+		}
 	}
-	os.Exit(1)
-
-	return nil
 }
 
 func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
