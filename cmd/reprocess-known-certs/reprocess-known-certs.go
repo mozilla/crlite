@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,28 @@ import (
 var (
 	ctconfig = config.NewCTConfig()
 )
+
+type metadataTuple struct {
+	expDate string
+	issuer  string
+}
+
+func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan bool, storageDB storage.CertDatabase) {
+	defer wg.Done()
+
+	for tuple := range metaChan {
+		select {
+		case <-quitChan:
+			return
+		default:
+			glog.V(1).Infof("Processing %s", filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer))
+
+			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
+				glog.Fatalf("Error reconstructing issuer metadata (%s / %s) %s", tuple.expDate, tuple.issuer, err)
+			}
+		}
+	}
+}
 
 func main() {
 	glog.Infof("OK, operating on:")
@@ -38,10 +61,29 @@ func main() {
 		os.Exit(2)
 	}
 
+	var wg sync.WaitGroup
+	metaChan := make(chan metadataTuple, 1024*1024)
+
+	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(sigChan)
-	defer close(sigChan)
+
+	// Exit signal, used by signals from the OS
+	quitChan := make(chan bool)
+
+	// Start the workers
+	for t := 0; t < *ctconfig.NumThreads; t++ {
+		wg.Add(1)
+		go metadataWorker(&wg, metaChan, quitChan, storageDB)
+	}
+
+	// Set up a notifier for stopping at the end
+	doneChan := make(chan bool)
+	go func(wait *sync.WaitGroup) {
+		wg.Wait()
+		doneChan <- true
+	}(&wg)
 
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
@@ -53,23 +95,20 @@ func main() {
 		if err != nil {
 			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
 		}
-		glog.Infof("Processing expiration date %s: (%d issuers)", expDate, len(issuers))
 
 		for _, issuer := range issuers {
-			glog.Infof("Processing %s", filepath.Join(*ctconfig.CertPath, expDate, issuer))
-			err = storageDB.ReconstructIssuerMetadata(expDate, issuer)
-			if err != nil {
-				glog.Fatalf("Error reconstructing issuer metadata (%s / %s) %s", expDate, issuer, err)
-			}
-
-			select {
-			case <-sigChan:
-				glog.Infof("Signal caught.")
-				return
-			default:
-			}
-
+			metaChan <- metadataTuple{expDate, issuer}
 		}
 	}
 
+	// Signal that was the last work
+	close(metaChan)
+
+	select {
+	case <-sigChan:
+		glog.Infof("Signal caught, stopping threads at next opportunity.")
+		quitChan <- true
+	case <-doneChan:
+		glog.Infof("Completed.")
+	}
 }
