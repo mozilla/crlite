@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/golang/glog"
@@ -36,6 +38,11 @@ func main() {
 		os.Exit(2)
 	}
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
+	defer signal.Stop(sigChan)
+	defer close(sigChan)
+
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
 		glog.Fatalf("Could not list expiration dates", err)
@@ -54,6 +61,14 @@ func main() {
 			if err != nil {
 				glog.Fatalf("Error reconstructing issuer metadata (%s / %s) %s", expDate, issuer, err)
 			}
+
+			select {
+			case <-sigChan:
+				glog.Infof("Signal caught.")
+				return
+			default:
+			}
+
 		}
 	}
 
