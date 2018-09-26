@@ -100,7 +100,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	metaChan := make(chan metadataTuple, 1024*1024)
+	metaChan := make(chan metadataTuple, 16*1024*1024)
 
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
@@ -109,31 +109,6 @@ func main() {
 
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
-
-	// Start the display
-	display := mpb.New()
-
-	progressBar := display.AddBar(128, // A number large enough to start with
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-	)
-
-	// Start the workers
-	for t := 0; t < *ctconfig.NumThreads; t++ {
-		wg.Add(1)
-		go metadataWorker(&wg, metaChan, quitChan, progressBar, storageDB)
-	}
-
-	// Set up a notifier for stopping at the end
-	doneChan := make(chan bool)
-	go func(wait *sync.WaitGroup) {
-		wg.Wait()
-		doneChan <- true
-	}(&wg)
 
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
@@ -149,16 +124,43 @@ func main() {
 
 		for _, issuer := range issuers {
 			if shouldProcess(expDate, issuer) {
-				metaChan <- metadataTuple{expDate, issuer}
-				count = count + 1
+				select {
+				case metaChan <- metadataTuple{expDate, issuer}:
+					count = count + 1
+				default:
+					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
+				}
 			}
 		}
 	}
 
-	progressBar.SetTotal(count, false)
-
 	// Signal that was the last work
 	close(metaChan)
+
+	// Start the display
+	display := mpb.New()
+
+	progressBar := display.AddBar(count,
+		mpb.AppendDecorators(
+			decor.Percentage(),
+			decor.Name(""),
+			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+		),
+	)
+
+	// Start the workers
+	for t := 0; t < *ctconfig.NumThreads; t++ {
+		wg.Add(1)
+		go metadataWorker(&wg, metaChan, quitChan, progressBar, storageDB)
+	}
+
+	// Set up a notifier for the workers closing
+	doneChan := make(chan bool)
+	go func(wait *sync.WaitGroup) {
+		wg.Wait()
+		doneChan <- true
+	}(&wg)
 
 	select {
 	case <-sigChan:
