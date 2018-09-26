@@ -14,6 +14,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/vbauerster/mpb"
+	"github.com/vbauerster/mpb/decor"
 )
 
 var (
@@ -56,8 +58,10 @@ func shouldProcess(expDate, issuer string) bool {
 	return false
 }
 
-func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan bool, storageDB storage.CertDatabase) {
+func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan struct{}, progBar *mpb.Bar, storageDB storage.CertDatabase) {
 	defer wg.Done()
+
+	var lastTime time.Time
 
 	for tuple := range metaChan {
 		select {
@@ -69,6 +73,9 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
 				glog.Fatalf("Error reconstructing issuer metadata (%s / %s) %s", tuple.expDate, tuple.issuer, err)
 			}
+
+			progBar.IncrBy(1, time.Since(lastTime))
+			lastTime = time.Now()
 		}
 	}
 }
@@ -101,12 +108,24 @@ func main() {
 	defer signal.Stop(sigChan)
 
 	// Exit signal, used by signals from the OS
-	quitChan := make(chan bool)
+	quitChan := make(chan struct{})
+
+	// Start the display
+	display := mpb.New()
+
+	progressBar := display.AddBar(128, // A number large enough to start with
+		mpb.AppendDecorators(
+			decor.Percentage(),
+			decor.Name(""),
+			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+		),
+	)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go metadataWorker(&wg, metaChan, quitChan, storageDB)
+		go metadataWorker(&wg, metaChan, quitChan, progressBar, storageDB)
 	}
 
 	// Set up a notifier for stopping at the end
@@ -121,6 +140,7 @@ func main() {
 		glog.Fatalf("Could not list expiration dates", err)
 	}
 
+	var count int64
 	for _, expDate := range expDates {
 		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
 		if err != nil {
@@ -130,9 +150,12 @@ func main() {
 		for _, issuer := range issuers {
 			if shouldProcess(expDate, issuer) {
 				metaChan <- metadataTuple{expDate, issuer}
+				count = count + 1
 			}
 		}
 	}
+
+	progressBar.SetTotal(count, false)
 
 	// Signal that was the last work
 	close(metaChan)
@@ -140,7 +163,7 @@ func main() {
 	select {
 	case <-sigChan:
 		glog.Infof("Signal caught, stopping threads at next opportunity.")
-		quitChan <- true
+		quitChan <- struct{}{}
 	case <-doneChan:
 		glog.Infof("Completed.")
 	}
