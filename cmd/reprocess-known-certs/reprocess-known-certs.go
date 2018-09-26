@@ -68,10 +68,11 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 		case <-quitChan:
 			return
 		default:
-			glog.V(1).Infof("Processing %s", filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer))
+			path := filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer)
+			glog.V(1).Infof("Processing %s", path)
 
 			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
-				glog.Fatalf("Error reconstructing issuer metadata (%s / %s) %s", tuple.expDate, tuple.issuer, err)
+				glog.Errorf("%s: Error reconstructing issuer metadata, file not totally read. Err=%s", path, err)
 			}
 
 			progBar.IncrBy(1, time.Since(lastTime))

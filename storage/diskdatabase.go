@@ -180,6 +180,8 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 	defer cacheEntry.Close()
 
 	scanner := bufio.NewScanner(fd)
+	scanBuffer := make([]byte, 0, 512*1024)
+	scanner.Buffer(scanBuffer, cap(scanBuffer))
 
 	// Splits on the end of a PEM CERTIFICATE, won't work for non-CERTIFICATE
 	// objects
