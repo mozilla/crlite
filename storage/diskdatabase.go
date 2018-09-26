@@ -29,30 +29,46 @@ type CacheEntry struct {
 	mutex *sync.Mutex
 	fd    *os.File
 	known *KnownCertificates
+	meta  *IssuerMetadata
 }
 
-func NewCacheEntry(aFileObj *os.File, aKnownPath string, aPerms os.FileMode) (*CacheEntry, error) {
-	knownCerts := NewKnownCertificates(aKnownPath, aPerms)
+func NewCacheEntry(aFileObj *os.File, aPemPath string, aPerms os.FileMode) (*CacheEntry, error) {
+	knownPath := fmt.Sprintf("%s.known", aPemPath)
+
+	knownCerts := NewKnownCertificates(knownPath, aPerms)
 	err := knownCerts.Load()
 	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s", aKnownPath)
+		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
+	}
+
+	metaPath := fmt.Sprintf("%s.meta", aPemPath)
+
+	issuerMetadata := NewIssuerMetadata(metaPath, aPerms)
+	err = issuerMetadata.Load()
+	if err != nil {
+		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)
 	}
 
 	return &CacheEntry{
 		fd:    aFileObj,
 		mutex: &sync.Mutex{},
 		known: knownCerts,
+		meta:  issuerMetadata,
 	}, nil
 }
 
 func (ce *CacheEntry) Close() error {
 	ce.mutex.Lock()
 	defer ce.mutex.Unlock()
-	if err := ce.fd.Close(); err != nil {
-		return err
+
+	errDisk := ce.fd.Close()
+	errKnown := ce.known.Save()
+	errMeta := ce.meta.Save()
+	if errDisk != nil || errMeta != nil || errKnown != nil {
+		return fmt.Errorf("Error saving data: Disk=%s Known=%s Meta=%s", errDisk, errKnown, errMeta)
 	}
 
-	return ce.known.Save()
+	return nil
 }
 
 type DiskDatabase struct {
@@ -94,8 +110,7 @@ func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDat
 				return nil, err
 			}
 
-			knownPath := fmt.Sprintf("%s.known", pemPath)
-			return NewCacheEntry(fd, knownPath, aPerms)
+			return NewCacheEntry(fd, pemPath, aPerms)
 		}).Build()
 
 	db := &DiskDatabase{
@@ -158,9 +173,7 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 		return err
 	}
 
-	knownPath := fmt.Sprintf("%s.known", pemPath)
-
-	cacheEntry, err := NewCacheEntry(fd, knownPath, db.permissions)
+	cacheEntry, err := NewCacheEntry(fd, pemPath, db.permissions)
 	if err != nil {
 		return err
 	}
@@ -214,6 +227,8 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 			glog.Warningf("%s: Cert bytes: %s", pemPath, hex.Dump(scanner.Bytes()))
 			continue
 		}
+
+		cacheEntry.meta.Accumulate(cert)
 
 		unknown, err := cacheEntry.known.WasUnknown(cert.SerialNumber)
 		if err != nil {
@@ -325,6 +340,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 
 		if certWasUnknown {
 			ce.mutex.Lock()
+			ce.meta.Accumulate(aCert)
 			err = pem.Encode(ce.fd, &pemblock)
 			ce.mutex.Unlock()
 		}
