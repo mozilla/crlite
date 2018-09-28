@@ -20,10 +20,48 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 )
 
-const kExpirationFormat = "2006-01-02"
-const kStateDirName = "state"
+const (
+	kExpirationFormat        = "2006-01-02"
+	kStateDirName            = "state"
+	kSuffixKnownCertificates = ".known"
+	kSuffixIssuerMetadata    = ".meta"
+	kSuffixCertificates      = ".pem"
+)
 
 var kPemEndCert = []byte("-----END CERTIFICATE-----\n")
+
+func GetKnownCertificates(aPath string, aExpDate string, aIssuer string, aPerms os.FileMode) *KnownCertificates {
+	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
+	return GetKnownCertificatesFromPath(pemPath, aPerms)
+}
+
+func GetKnownCertificatesFromPath(aPemPath string, aPerms os.FileMode) *KnownCertificates {
+	knownPath := fmt.Sprintf("%s%s", aPemPath, kSuffixKnownCertificates)
+
+	knownCerts := NewKnownCertificates(knownPath, aPerms)
+	err := knownCerts.Load()
+	if err != nil {
+		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
+	}
+	return knownCerts
+}
+
+func GetIssuerMetadata(aPath string, aExpDate string, aIssuer string, aPerms os.FileMode) *IssuerMetadata {
+	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
+	return GetIssuerMetadataFromPath(pemPath, aPerms)
+}
+
+func GetIssuerMetadataFromPath(aPemPath string, aPerms os.FileMode) *IssuerMetadata {
+	metaPath := fmt.Sprintf("%s%s", aPemPath, kSuffixIssuerMetadata)
+
+	issuerMetadata := NewIssuerMetadata(metaPath, aPerms)
+	err := issuerMetadata.Load()
+	if err != nil {
+		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)
+	}
+
+	return issuerMetadata
+}
 
 type CacheEntry struct {
 	mutex *sync.Mutex
@@ -33,21 +71,8 @@ type CacheEntry struct {
 }
 
 func NewCacheEntry(aFileObj *os.File, aPemPath string, aPerms os.FileMode) (*CacheEntry, error) {
-	knownPath := fmt.Sprintf("%s.known", aPemPath)
-
-	knownCerts := NewKnownCertificates(knownPath, aPerms)
-	err := knownCerts.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
-	}
-
-	metaPath := fmt.Sprintf("%s.meta", aPemPath)
-
-	issuerMetadata := NewIssuerMetadata(metaPath, aPerms)
-	err = issuerMetadata.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)
-	}
+	knownCerts := GetKnownCertificatesFromPath(aPemPath, aPerms)
+	issuerMetadata := GetIssuerMetadataFromPath(aPemPath, aPerms)
 
 	return &CacheEntry{
 		fd:    aFileObj,
@@ -156,8 +181,8 @@ func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, 
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
 			return err
 		}
-		if strings.HasSuffix(info.Name(), ".pem") {
-			issuers = append(issuers, strings.TrimSuffix(info.Name(), ".pem"))
+		if strings.HasSuffix(info.Name(), kSuffixCertificates) {
+			issuers = append(issuers, strings.TrimSuffix(info.Name(), kSuffixCertificates))
 		}
 		return nil
 	})
@@ -166,7 +191,7 @@ func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, 
 }
 
 func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
-	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s.pem", issuer))
+	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s%s", issuer, kSuffixCertificates))
 
 	fd, err := os.Open(pemPath)
 	if err != nil {
@@ -288,7 +313,7 @@ func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI [
 	dirPath := filepath.Join(db.rootPath, subdirName)
 
 	issuerName := base64.URLEncoding.EncodeToString(aAKI)
-	fileName := fmt.Sprintf("%s.pem", issuerName)
+	fileName := fmt.Sprintf("%s%s", issuerName, kSuffixCertificates)
 	filePath := filepath.Join(dirPath, fileName)
 	return dirPath, filePath
 }

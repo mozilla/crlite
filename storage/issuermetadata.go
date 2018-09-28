@@ -15,24 +15,25 @@ import (
 
 type IssuerMetadata struct {
 	mutex    *sync.Mutex
-	metadata metadata
+	Metadata Metadata
 	filePath string
 	perms    os.FileMode
 }
 
-type metadata struct {
+// A separate type for future expandability
+type Metadata struct {
 	Crls []*string `json:"crls"`
 }
 
 func NewIssuerMetadata(aMetadataPath string, aPerms os.FileMode) *IssuerMetadata {
-	metadata := metadata{
+	metadata := Metadata{
 		Crls: make([]*string, 0, 10),
 	}
 	return &IssuerMetadata{
 		mutex:    &sync.Mutex{},
 		filePath: aMetadataPath,
 		perms:    aPerms,
-		metadata: metadata,
+		Metadata: metadata,
 	}
 }
 
@@ -50,7 +51,7 @@ func (im *IssuerMetadata) Load() error {
 		glog.Errorf("Error reading issuer metadata %s: %s", im.filePath, err)
 	}
 
-	err = json.Unmarshal(data, &im.metadata)
+	err = json.Unmarshal(data, &im.Metadata)
 	if err != nil {
 		glog.Errorf("Error unmarshaling issuer metadata %s: %s", im.filePath, err)
 	}
@@ -73,7 +74,7 @@ func (im *IssuerMetadata) Save() error {
 
 	enc := json.NewEncoder(fd)
 
-	if err := enc.Encode(im.metadata); err != nil {
+	if err := enc.Encode(im.Metadata); err != nil {
 		glog.Errorf("Error marshaling issuer metadata %s: %s", im.filePath, err)
 	}
 
@@ -86,15 +87,15 @@ func (im *IssuerMetadata) Save() error {
 
 func (im *IssuerMetadata) addCRL(aCRL string) {
 	// Assume that im.mutex is locked
-	count := len(im.metadata.Crls)
+	count := len(im.Metadata.Crls)
 
 	idx := sort.Search(count, func(i int) bool {
-		return strings.Compare(aCRL, *im.metadata.Crls[i]) <= 0
+		return strings.Compare(aCRL, *im.Metadata.Crls[i]) <= 0
 	})
 
 	var cmp int
 	if idx < count {
-		cmp = strings.Compare(aCRL, *im.metadata.Crls[idx])
+		cmp = strings.Compare(aCRL, *im.Metadata.Crls[idx])
 	}
 
 	if idx < count && cmp == 0 {
@@ -104,9 +105,9 @@ func (im *IssuerMetadata) addCRL(aCRL string) {
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
 	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.filePath, aCRL, idx)
-	im.metadata.Crls = append(im.metadata.Crls, nil)
-	copy(im.metadata.Crls[idx+1:], im.metadata.Crls[idx:])
-	im.metadata.Crls[idx] = &aCRL
+	im.Metadata.Crls = append(im.Metadata.Crls, nil)
+	copy(im.Metadata.Crls[idx+1:], im.Metadata.Crls[idx:])
+	im.Metadata.Crls[idx] = &aCRL
 }
 
 // Must tolerate duplicate information
