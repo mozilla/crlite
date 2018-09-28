@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	outfile  = flag.String("out", "<stdout>", "output json dictionary of issues-to-CRLs")
+	outfile  = flag.String("out", "<stdout>", "output json dictionary of issuers-to-CRLs")
 	ctconfig = config.NewCTConfig()
 )
 
