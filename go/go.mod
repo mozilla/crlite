@@ -1,4 +1,4 @@
-module github.com/crlite/go
+module github.com/mozilla/crlite/go
 
 require (
 	github.com/aws/aws-sdk-go v1.15.44 // indirect

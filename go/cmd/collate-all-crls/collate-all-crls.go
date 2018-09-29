@@ -12,6 +12,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -21,48 +22,28 @@ var (
 	ctconfig = config.NewCTConfig()
 )
 
-type issuerCrlMap map[string]map[string]bool
-
-func (self issuerCrlMap) Merge(other issuerCrlMap) {
-	for issuer, crls := range other {
-		selfCrls, pres := self[issuer]
-		if !pres {
-			selfCrls = make(map[string]bool)
-		}
-		for crl, _ := range crls {
-			selfCrls[crl] = true
-		}
-		self[issuer] = selfCrls
-	}
-}
-
-type metadataTuple struct {
-	expDate string
-	issuer  string
-}
-
-func issuerCrlWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan struct{}, resultChan chan<- issuerCrlMap, progBar *mpb.Bar) {
+func issuerCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	var lastTime time.Time
 
-	issuerCrls := make(issuerCrlMap)
+	issuerCrls := make(types.IssuerCrlMap)
 
 	for tuple := range metaChan {
 		select {
 		case <-quitChan:
 			return
 		default:
-			meta := storage.GetIssuerMetadata(*ctconfig.CertPath, tuple.expDate, tuple.issuer, 0644)
+			meta := storage.GetIssuerMetadata(*ctconfig.CertPath, tuple.ExpDate, tuple.Issuer, 0644)
 
-			crls, prs := issuerCrls[tuple.issuer]
+			crls, prs := issuerCrls[tuple.Issuer]
 			if !prs {
 				crls = make(map[string]bool)
 			}
 			for _, url := range meta.Metadata.Crls {
 				crls[*url] = true
 			}
-			issuerCrls[tuple.issuer] = crls
+			issuerCrls[tuple.Issuer] = crls
 
 			progBar.IncrBy(1, time.Since(lastTime))
 			lastTime = time.Now()
@@ -89,7 +70,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	metaChan := make(chan metadataTuple, 16*1024*1024)
+	metaChan := make(chan types.MetadataTuple, 16*1024*1024)
 
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
@@ -114,7 +95,7 @@ func main() {
 		for _, issuer := range issuers {
 			glog.V(1).Infof("%s/%s", expDate, issuer)
 			select {
-			case metaChan <- metadataTuple{expDate, issuer}:
+			case metaChan <- types.MetadataTuple{expDate, issuer}:
 				count = count + 1
 			default:
 				glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
@@ -137,7 +118,7 @@ func main() {
 		),
 	)
 
-	resultChan := make(chan issuerCrlMap, *ctconfig.NumThreads)
+	resultChan := make(chan types.IssuerCrlMap, *ctconfig.NumThreads)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -162,7 +143,7 @@ func main() {
 	}
 
 	// Take all worker results and merge them into one JSON structure
-	mergedCrls := make(issuerCrlMap)
+	mergedCrls := make(types.IssuerCrlMap)
 	for mapPart := range resultChan {
 		mergedCrls.Merge(mapPart)
 	}
