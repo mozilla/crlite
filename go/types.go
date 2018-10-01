@@ -1,5 +1,9 @@
 package types
 
+import (
+	"math/big"
+)
+
 type IssuerCrlMap map[string]map[string]bool
 
 func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
@@ -18,4 +22,17 @@ func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
 type MetadataTuple struct {
 	ExpDate string
 	Issuer  string
+}
+
+type IssuerRevocations struct {
+	Issuer         string
+	RevokedSerials []*big.Int
+}
+
+func (self IssuerRevocations) Merge(other IssuerRevocations) {
+}
+
+type CrlTuple struct {
+	Issuer string
+	Url    string
 }
