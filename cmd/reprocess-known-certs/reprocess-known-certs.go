@@ -61,7 +61,7 @@ func shouldProcess(expDate, issuer string) bool {
 func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan struct{}, progBar *mpb.Bar, storageDB storage.CertDatabase) {
 	defer wg.Done()
 
-	var lastTime time.Time
+	lastTime := time.Now()
 
 	for tuple := range metaChan {
 		select {
