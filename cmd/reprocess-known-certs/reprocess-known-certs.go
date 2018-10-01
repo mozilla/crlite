@@ -101,7 +101,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	metaChan := make(chan metadataTuple, 16*1024*1024)
+	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
 
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
@@ -126,7 +126,7 @@ func main() {
 		for _, issuer := range issuers {
 			if shouldProcess(expDate, issuer) {
 				select {
-				case metaChan <- metadataTuple{expDate, issuer}:
+				case workUnitsChan <- metadataTuple{expDate, issuer}:
 					count = count + 1
 				default:
 					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
@@ -136,7 +136,7 @@ func main() {
 	}
 
 	// Signal that was the last work
-	close(metaChan)
+	close(workUnitsChan)
 
 	// Start the display
 	display := mpb.New()
@@ -153,13 +153,13 @@ func main() {
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go metadataWorker(&wg, metaChan, quitChan, progressBar, storageDB)
+		go metadataWorker(&wg, workUnitsChan, quitChan, progressBar, storageDB)
 	}
 
 	// Set up a notifier for the workers closing
 	doneChan := make(chan bool)
 	go func(wait *sync.WaitGroup) {
-		wg.Wait()
+		wait.Wait()
 		doneChan <- true
 	}(&wg)
 

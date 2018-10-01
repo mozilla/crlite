@@ -22,7 +22,8 @@ type IssuerMetadata struct {
 
 // A separate type for future expandability
 type Metadata struct {
-	Crls []*string `json:"crls"`
+	Crls      []*string `json:"crls"`
+	IssuerDNs []*string `json:"issuerDNs"`
 }
 
 func NewIssuerMetadata(aMetadataPath string, aPerms os.FileMode) *IssuerMetadata {
@@ -110,6 +111,31 @@ func (im *IssuerMetadata) addCRL(aCRL string) {
 	im.Metadata.Crls[idx] = &aCRL
 }
 
+func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) {
+	// Assume that im.mutex is locked
+	count := len(im.Metadata.IssuerDNs)
+
+	idx := sort.Search(count, func(i int) bool {
+		return strings.Compare(aIssuerDN, *im.Metadata.IssuerDNs[i]) <= 0
+	})
+
+	var cmp int
+	if idx < count {
+		cmp = strings.Compare(aIssuerDN, *im.Metadata.IssuerDNs[idx])
+	}
+
+	if idx < count && cmp == 0 {
+		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.filePath, aIssuerDN, idx)
+		return
+	}
+
+	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
+	glog.V(3).Infof("[%s] IssuerDN unknown: %s (pos=%d)", im.filePath, aIssuerDN, idx)
+	im.Metadata.IssuerDNs = append(im.Metadata.IssuerDNs, nil)
+	copy(im.Metadata.IssuerDNs[idx+1:], im.Metadata.IssuerDNs[idx:])
+	im.Metadata.IssuerDNs[idx] = &aIssuerDN
+}
+
 // Must tolerate duplicate information
 func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) {
 	im.mutex.Lock()
@@ -130,4 +156,6 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) {
 			glog.V(3).Infof("Ignoring unknown CRL scheme: %v", url)
 		}
 	}
+
+	im.addIssuerDN(aCert.Issuer.String())
 }
