@@ -134,17 +134,23 @@ func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
 			result[i] = right[r]
 			r++
 		}
-	}
 
-	// TODO: Move into the main loop
-	if size > 1 {
-		for i := 1; i < size; i++ {
-			if result[i].Cmp(result[i-1]) < 0 {
-				return fmt.Errorf("Unsorted %d (%v, %v)", i, result[i-1], result[i])
-			}
+		if i > 0 && result[i].Cmp(result[i-1]) < 0 {
+			return fmt.Errorf("Unsorted merge")
 		}
 	}
 
 	kc.known = result
 	return nil
+}
+
+func (kc *KnownCertificates) IsSorted() bool {
+	if len(kc.known) > 1 {
+		for i := 1; i < len(kc.known); i++ {
+			if kc.known[i].Cmp(kc.known[i-1]) < 0 {
+				return false
+			}
+		}
+	}
+	return true
 }

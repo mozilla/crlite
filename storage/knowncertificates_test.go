@@ -67,7 +67,7 @@ func Test_MergeOutOfOrder(t *testing.T) {
 	}
 
 	err = left.Merge(right)
-	if err.Error() != "Unsorted 3 (3, 0)" {
+	if err.Error() != "Unsorted merge" {
 		t.Errorf("Expected unsorted error!: %s", err)
 	}
 }
@@ -96,7 +96,83 @@ func Test_MergeDescending(t *testing.T) {
 	}
 
 	err = left.Merge(right)
-	if err.Error() != "Unsorted 2 (4, 3)" {
+	if err.Error() != "Unsorted merge" {
 		t.Errorf("Expected unsorted error!: %s", err)
+	}
+}
+
+func Test_Unknown(t *testing.T) {
+	kc := NewKnownCertificates("", 0644)
+
+	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+
+	origText, err := json.Marshal(kc.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(origText) != "[1,2,3,4]" {
+		t.Error("Invalid initial")
+	}
+
+	for _, bi := range kc.known {
+		if u, _ := kc.WasUnknown(bi); u == true {
+			t.Errorf("%v should have been known", bi)
+		}
+	}
+
+	if u, _ := kc.WasUnknown(big.NewInt(5)); u == false {
+		t.Error("5 should not have been known")
+	}
+
+	if u, _ := kc.WasUnknown(big.NewInt(5)); u == true {
+		t.Error("5 should now have been known")
+	}
+
+	endText, err := json.Marshal(kc.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(endText) != "[1,2,3,4,5]" {
+		t.Error("Invalid end")
+	}
+}
+
+func Test_IsSorted(t *testing.T) {
+	kc := NewKnownCertificates("", 0644)
+	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+
+	if kc.IsSorted() != true {
+		t.Error("Should be sorted")
+	}
+
+	kc.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(2), big.NewInt(4)}
+
+	if kc.IsSorted() != false {
+		t.Error("Should not be sorted")
+	}
+}
+
+func BenchmarkMerge(b *testing.B) {
+	b.StopTimer()
+
+	left := NewKnownCertificates("", 0644)
+	right := NewKnownCertificates("", 0644)
+
+	var i int64
+	for i = 0; i < 128*1024*1024; i++ {
+		if i%2 == 0 {
+			left.known = append(left.known, big.NewInt(i))
+		} else {
+			right.known = append(right.known, big.NewInt(i))
+		}
+	}
+
+	b.StartTimer()
+
+	err := left.Merge(right)
+	if err != nil {
+		b.Error(err)
 	}
 }
