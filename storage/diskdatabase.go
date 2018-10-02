@@ -378,7 +378,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	}
 
 	if err != nil {
-		glog.Errorf("Cache eviction collision: ", err)
+		glog.Errorf("Cache eviction collision: %s", err)
 		return err
 	}
 

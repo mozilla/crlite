@@ -2,12 +2,14 @@ package storage
 
 import (
 	"encoding/json"
-	"github.com/golang/glog"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"sort"
 	"sync"
+
+	"github.com/golang/glog"
 )
 
 type KnownCertificates struct {
@@ -105,4 +107,44 @@ func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
 	copy(kc.known[idx+1:], kc.known[idx:])
 	kc.known[idx] = aSerial
 	return true, nil
+}
+
+func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
+	kc.mutex.Lock()
+	defer kc.mutex.Unlock()
+
+	left := kc.known
+	right := other.known
+	l, r := 0, 0
+
+	size := len(left) + len(right)
+	result := make([]*big.Int, size)
+
+	for i := 0; i < size; i++ {
+		if l > len(left)-1 && r <= len(right)-1 {
+			result[i] = right[r]
+			r++
+		} else if r > len(right)-1 && l <= len(left)-1 {
+			result[i] = left[l]
+			l++
+		} else if left[l].Cmp(right[r]) < 0 {
+			result[i] = left[l]
+			l++
+		} else {
+			result[i] = right[r]
+			r++
+		}
+	}
+
+	// TODO: Move into the main loop
+	if size > 1 {
+		for i := 1; i < size; i++ {
+			if result[i].Cmp(result[i-1]) < 0 {
+				return fmt.Errorf("Unsorted %d (%v, %v)", i, result[i-1], result[i])
+			}
+		}
+	}
+
+	kc.known = result
+	return nil
 }
