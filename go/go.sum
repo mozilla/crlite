@@ -4,11 +4,13 @@ github.com/aws/aws-sdk-go v1.13.14/go.mod h1:ZRmQr0FajVIyZ4ZzBYKG5P3ZqPz9IHG41Zo
 github.com/aws/aws-sdk-go v1.15.36/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
 github.com/aws/aws-sdk-go v1.15.43/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
 github.com/aws/aws-sdk-go v1.15.44/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
+github.com/aws/aws-sdk-go v1.15.46/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
 github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7 h1:NpQ+gkFOH27AyDypSCJ/LdsIi/b4rdnEb1N5+IpFfYs=
 github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7/go.mod h1:8c4/i2VlovMO2gBnHGQPN5EJw+H0lx1u/5p+cgsXtCk=
 github.com/go-ini/ini v1.25.4/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
 github.com/go-ini/ini v1.33.0/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
 github.com/go-ini/ini v1.38.2/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
+github.com/go-ini/ini v1.38.3/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b h1:VKtxabqXZkF25pY9ekfRL6a582T4P37/31XEstQ5p58=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
 github.com/golang/protobuf v1.0.0/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
@@ -26,6 +28,8 @@ github.com/jcjones/ct-mapreduce v0.0.0-20180928174550-444e04ca01a3 h1:iIjbJ3Kj96
 github.com/jcjones/ct-mapreduce v0.0.0-20180928174550-444e04ca01a3/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
 github.com/jcjones/ct-mapreduce v0.0.0-20180928175516-a70821011582 h1:FrnBMz8eX/oAqzArRcohOwfwuMNwikWKAk3eudC/2xM=
 github.com/jcjones/ct-mapreduce v0.0.0-20180928175516-a70821011582/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
+github.com/jcjones/ct-mapreduce v0.0.0-20181002152408-be2c381a0e0b h1:DnfOpE5fCxMA/W4hiMYpwDyJ5zsd2IdyYcT1XETOeAY=
+github.com/jcjones/ct-mapreduce v0.0.0-20181002152408-be2c381a0e0b/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
 github.com/jcjones/ct-sql v0.0.0-20170221230105-a1a22e4a3ef6/go.mod h1:KDrmEyT7WDq8+is5AXfGWOp5NzaOVymW9ix6sRNJHoY=
 github.com/jcjones/go-progressdisplay v0.0.0-20180910000447-19ad88f5fde4/go.mod h1:TSFxJe3t8ItorHuwOMXJye6jO5Oo9RLbyE4V2JwznHQ=
 github.com/jcjones/go-progressdisplay v0.0.0-20180918214458-dbd08ed7fa4e/go.mod h1:TSFxJe3t8ItorHuwOMXJye6jO5Oo9RLbyE4V2JwznHQ=
@@ -42,6 +46,8 @@ golang.org/x/crypto v0.0.0-20180910181607-0e37d006457b h1:2b9XGzhjiYsYPnKXoEfL7k
 golang.org/x/crypto v0.0.0-20180910181607-0e37d006457b/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20180927165925-5295e8364332 h1:hvQVdF6P9DX4OiKA5tpehlG6JsgzmyQiThG7q5Bn3UQ=
 golang.org/x/crypto v0.0.0-20180927165925-5295e8364332/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
+golang.org/x/crypto v0.0.0-20181001203147-e3636079e1a4 h1:Vk3wNqEZwyGyei9yq5ekj7frek2u7HUfffJ1/opblzc=
+golang.org/x/crypto v0.0.0-20181001203147-e3636079e1a4/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/net v0.0.0-20180314180242-e0c57d8f86c1/go.mod h1:mL1N/T3taQHkDXs73rZJwtUhF3w3ftmwwsq0BUmARs4=
 golang.org/x/net v0.0.0-20180911220305-26e67e76b6c3/go.mod h1:mL1N/T3taQHkDXs73rZJwtUhF3w3ftmwwsq0BUmARs4=
 golang.org/x/net v0.0.0-20180926154720-4dfa2610cdf3/go.mod h1:mL1N/T3taQHkDXs73rZJwtUhF3w3ftmwwsq0BUmARs4=
@@ -53,3 +59,5 @@ golang.org/x/sys v0.0.0-20180928133829-e4b3c5e90611 h1:O33LKL7WyJgjN9CvxfTIomjIC
 golang.org/x/sys v0.0.0-20180928133829-e4b3c5e90611/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 gopkg.in/ini.v1 v1.38.2 h1:dGcbywv4RufeGeiMycPT/plKB5FtmLKLnWKwBiLhUA4=
 gopkg.in/ini.v1 v1.38.2/go.mod h1:pNLf8WUiyNEtQjuu5G5vTm06TEv9tsIgeAvK8hOrP4k=
+gopkg.in/ini.v1 v1.38.3 h1:ourkRZgR6qjJYoec9lYhX4+nuN1tEbV34dQEQ3IRk9U=
+gopkg.in/ini.v1 v1.38.3/go.mod h1:pNLf8WUiyNEtQjuu5G5vTm06TEv9tsIgeAvK8hOrP4k=
