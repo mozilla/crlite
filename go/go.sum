@@ -30,6 +30,8 @@ github.com/jcjones/ct-mapreduce v0.0.0-20180928175516-a70821011582 h1:FrnBMz8eX/
 github.com/jcjones/ct-mapreduce v0.0.0-20180928175516-a70821011582/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
 github.com/jcjones/ct-mapreduce v0.0.0-20181002152408-be2c381a0e0b h1:DnfOpE5fCxMA/W4hiMYpwDyJ5zsd2IdyYcT1XETOeAY=
 github.com/jcjones/ct-mapreduce v0.0.0-20181002152408-be2c381a0e0b/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
+github.com/jcjones/ct-mapreduce v0.0.0-20181002175142-514b55fda982 h1:sxBsLBIEZidxfZJyGRLFukl5E4j4os32J9EqlckZt4E=
+github.com/jcjones/ct-mapreduce v0.0.0-20181002175142-514b55fda982/go.mod h1:ZixGm6vWcpIs9FEIOGtCh+bV6XQUcBEo5R+0Ez7jiw0=
 github.com/jcjones/ct-sql v0.0.0-20170221230105-a1a22e4a3ef6/go.mod h1:KDrmEyT7WDq8+is5AXfGWOp5NzaOVymW9ix6sRNJHoY=
 github.com/jcjones/go-progressdisplay v0.0.0-20180910000447-19ad88f5fde4/go.mod h1:TSFxJe3t8ItorHuwOMXJye6jO5Oo9RLbyE4V2JwznHQ=
 github.com/jcjones/go-progressdisplay v0.0.0-20180918214458-dbd08ed7fa4e/go.mod h1:TSFxJe3t8ItorHuwOMXJye6jO5Oo9RLbyE4V2JwznHQ=

@@ -36,9 +36,10 @@ func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-c
 		aggKnownPath := filepath.Join(*outpath, fmt.Sprintf("%s.known", tuple.issuer))
 
 		aggKnownCerts := storage.NewKnownCertificates(aggKnownPath, 0644)
-		if err := aggKnownCerts.Load(); err != nil {
-			glog.Infof("Making new known storage file %s", aggKnownPath)
-		}
+		// TODO: Track differences
+		// if err := aggKnownCerts.Load(); err != nil {
+		// 	glog.Infof("Making new known storage file %s", aggKnownPath)
+		// }
 
 		for _, expDate := range tuple.expDates {
 			select {
