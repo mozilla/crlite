@@ -109,6 +109,7 @@ func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
 	return true, nil
 }
 
+// Merge, handling duplicates
 func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
@@ -120,24 +121,39 @@ func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
 	size := len(left) + len(right)
 	result := make([]*big.Int, size)
 
-	for i := 0; i < size; i++ {
+	for i := 0; i < size; {
+		var chosen *big.Int
 		if l > len(left)-1 && r <= len(right)-1 {
-			result[i] = right[r]
+			chosen = right[r]
 			r++
 		} else if r > len(right)-1 && l <= len(left)-1 {
-			result[i] = left[l]
+			chosen = left[l]
 			l++
+		} else if r > len(right)-1 && l > len(left)-1 {
+			// Duplicates caused us to run off the end, keep the relevant slice
+			kc.known = result[:i]
+			return nil
 		} else if left[l].Cmp(right[r]) < 0 {
-			result[i] = left[l]
+			chosen = left[l]
 			l++
 		} else {
-			result[i] = right[r]
+			chosen = right[r]
 			r++
 		}
 
-		if i > 0 && result[i].Cmp(result[i-1]) < 0 {
-			return fmt.Errorf("Unsorted merge")
+		if i > 0 {
+			cmp := chosen.Cmp(result[i-1])
+			switch {
+			case cmp < 0:
+				return fmt.Errorf("Unsorted merge")
+			case cmp == 0:
+				// Don't increment index i or set a value
+				continue
+			}
 		}
+
+		result[i] = chosen
+		i++
 	}
 
 	kc.known = result

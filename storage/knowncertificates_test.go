@@ -101,6 +101,80 @@ func Test_MergeDescending(t *testing.T) {
 	}
 }
 
+func Test_MergeDuplicatesEnd(t *testing.T) {
+	left := NewKnownCertificates("", 0644)
+	right := NewKnownCertificates("", 0644)
+
+	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+	right.known = []*big.Int{big.NewInt(4)}
+
+	origText, err := json.Marshal(left.known)
+	if err != nil {
+		t.Error(err)
+	}
+	origTextR, err := json.Marshal(right.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(origText) != "[1,2,3,4]" {
+		t.Error("Invalid initial: left")
+	}
+	if string(origTextR) != "[4]" {
+		t.Error("Invalid initial: right")
+	}
+
+	err = left.Merge(right)
+	if err != nil {
+		t.Error(err)
+	}
+	mergedText, err := json.Marshal(left.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(mergedText) != "[1,2,3,4]" {
+		t.Errorf("Invalid merge: %s", string(mergedText))
+	}
+}
+
+func Test_MergeDuplicatesMiddle(t *testing.T) {
+	left := NewKnownCertificates("", 0644)
+	right := NewKnownCertificates("", 0644)
+
+	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(4), big.NewInt(5)}
+	right.known = []*big.Int{big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+
+	origText, err := json.Marshal(left.known)
+	if err != nil {
+		t.Error(err)
+	}
+	origTextR, err := json.Marshal(right.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(origText) != "[1,2,4,5]" {
+		t.Error("Invalid initial: left")
+	}
+	if string(origTextR) != "[2,3,4]" {
+		t.Error("Invalid initial: right")
+	}
+
+	err = left.Merge(right)
+	if err != nil {
+		t.Error(err)
+	}
+	mergedText, err := json.Marshal(left.known)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(mergedText) != "[1,2,3,4,5]" {
+		t.Errorf("Invalid merge: %s", string(mergedText))
+	}
+}
+
 func Test_Unknown(t *testing.T) {
 	kc := NewKnownCertificates("", 0644)
 
