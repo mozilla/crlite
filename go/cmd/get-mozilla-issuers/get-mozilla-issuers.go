@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
@@ -23,7 +22,7 @@ const (
 
 var (
 	outfile = flag.String("out", "<stdout>", "output json dictionary of issuers")
-	incsv   = flag.String("in", kMozCCADBReport, "input CCADB CSV path or URL")
+	incsv   = flag.String("in", "<path>", "input CCADB CSV path")
 )
 
 func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
@@ -104,9 +103,8 @@ func main() {
 	var mozIssuers []string
 	var err error
 
-	_, err = url.Parse(*incsv)
-	if err != nil {
-		mozIssuers, err = downloadAndParse(*incsv)
+	if *incsv == "<path>" {
+		mozIssuers, err = downloadAndParse(kMozCCADBReport)
 	} else {
 		mozIssuers, err = openAndParse(*incsv)
 	}
