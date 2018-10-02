@@ -64,7 +64,11 @@ func parseCCADB(aStream io.Reader) ([]string, error) {
 			return records, err
 		}
 
-		issuerID := base64.URLEncoding.EncodeToString(cert.AuthorityKeyId)
+		if len(cert.SubjectKeyId) < 8 {
+			glog.Warningf("SPKI is short: %v %s", cert.SubjectKeyId, cert.Issuer.String())
+		}
+
+		issuerID := base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
 
 		records = append(records, issuerID)
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
