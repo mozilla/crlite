@@ -47,8 +47,6 @@ func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-c
 				aggKnownCerts.Save()
 				return
 			default:
-				glog.Infof("Work Unit: %s %+v", expDate, tuple)
-
 				known := storage.GetKnownCertificates(*ctconfig.CertPath, expDate, tuple.issuer, 0644)
 				known.Load()
 
