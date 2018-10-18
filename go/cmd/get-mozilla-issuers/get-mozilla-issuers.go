@@ -82,9 +82,11 @@ func downloadAndParse(aUrl string) ([]string, error) {
 	if err != nil {
 		return []string{}, err
 	}
-	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite/cmd/get-mozilla-issuers")
+	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite")
 	glog.Infof("Loading salesforce data from %s\n", aUrl)
-	r, err := http.Get(aUrl)
+
+	client := &http.Client{}
+	r, err := client.Do(req)
 	if err != nil {
 		glog.Fatalf("Problem fetching salesforce data from URL %s\n", err)
 	}
