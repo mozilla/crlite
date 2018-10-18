@@ -2,6 +2,7 @@ package types
 
 import (
 	"math/big"
+	"net/url"
 )
 
 type IssuerCrlMap map[string]map[string]bool
@@ -30,9 +31,15 @@ type IssuerRevocations struct {
 }
 
 func (self IssuerRevocations) Merge(other IssuerRevocations) {
+	panic("Not implemented")
 }
 
-type CrlTuple struct {
+type IssuerCrlUrls struct {
 	Issuer string
-	Url    string
+	Urls   []url.URL
+}
+
+type IssuerCrlPaths struct {
+	Issuer   string
+	CrlPaths []string
 }
