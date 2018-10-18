@@ -148,7 +148,7 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	reader := progBar.ProxyReader(resp.Body)
 
 	// and copy from reader, propagating errors
-	_, err = io.Copy(outFile, reader)
+	totalBytes, err := io.Copy(outFile, reader)
 	if err != nil {
 		return err
 	}
@@ -159,6 +159,9 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 		return nil
 	}
 	os.Chtimes(path, lastMod, lastMod)
+
+	// Sometimes ContentLength is crazy far off.
+	progBar.SetTotal(totalBytes, true)
 
 	return nil
 }
