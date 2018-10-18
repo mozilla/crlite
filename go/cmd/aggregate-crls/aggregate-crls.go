@@ -107,17 +107,18 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 
 				_, localDate, err := downloader.GetSizeAndDateOfFile(path)
 				if err != nil {
-					glog.Fatalf("[%s] Could not download, and no local file: %s", crlUrl.String(), err)
-					panic("Not handling download failure without a local copy")
+					glog.Warningf("[%s] Could not download, and no local file", crlUrl.String())
+					// panic("Not handling download failure without a local copy")
+					continue
 				}
 
 				age := time.Now().Sub(localDate)
 
 				if age > allowableAgeOfLocalCRL {
-					glog.Fatalf("[%s] Could not download, and out of date local file. Age: %s", crlUrl.String(), age.String())
-					panic("Not handling download failure without an up-to-date local copy")
+					glog.Warningf("[%s] Could not download, and out of date local file. Age: %s", crlUrl.String(), age.String())
+					// panic("Not handling download failure without an up-to-date local copy")
+					continue
 				}
-
 			}
 
 			select {
