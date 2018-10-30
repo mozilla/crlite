@@ -13,11 +13,18 @@ import (
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
 
+const (
+	permMode    = 0644
+	permModeDir = 0755
+)
+
 var (
+	inccadb  = flag.String("ccadb", "<path>", "input CCADB CSV path")
 	outpath  = flag.String("outpath", "<dir>", "output directory for $issuer.known files")
 	ctconfig = config.NewCTConfig()
 )
@@ -35,7 +42,7 @@ func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-c
 	for tuple := range workChan {
 		aggKnownPath := filepath.Join(*outpath, fmt.Sprintf("%s.known", tuple.issuer))
 
-		aggKnownCerts := storage.NewKnownCertificates(aggKnownPath, 0644)
+		aggKnownCerts := storage.NewKnownCertificates(aggKnownPath, permMode)
 		// TODO: Track differences
 		// if err := aggKnownCerts.Load(); err != nil {
 		// 	glog.Infof("Making new known storage file %s", aggKnownPath)
@@ -47,7 +54,7 @@ func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-c
 				aggKnownCerts.Save()
 				return
 			default:
-				known := storage.GetKnownCertificates(*ctconfig.CertPath, expDate, tuple.issuer, 0644)
+				known := storage.GetKnownCertificates(*ctconfig.CertPath, expDate, tuple.issuer, permMode)
 				known.Load()
 
 				aggKnownCerts.Merge(known)
@@ -67,7 +74,7 @@ func main() {
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
 		glog.Infof("Opening disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewDiskDatabase(*ctconfig.NumThreads, *ctconfig.CertPath, 0644)
+		storageDB, err = storage.NewDiskDatabase(*ctconfig.NumThreads, *ctconfig.CertPath, permMode)
 		if err != nil {
 			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
 		}
@@ -76,6 +83,17 @@ func main() {
 	if storageDB == nil || *outpath == "<dir>" {
 		ctconfig.Usage()
 		os.Exit(2)
+	}
+
+	if err := os.MkdirAll(*outpath, permModeDir); err != nil {
+		glog.Fatalf("Unable to make the output directory: %s", err)
+	}
+
+	mozIssuers := rootprogram.NewMozillaIssuers()
+	if *inccadb != "<path>" {
+		err = mozIssuers.LoadFromDisk(*inccadb)
+	} else {
+		err = mozIssuers.Load()
 	}
 
 	var wg sync.WaitGroup
@@ -104,6 +122,10 @@ func main() {
 		}
 
 		for _, issuer := range issuers {
+			if !mozIssuers.IsIssuerInProgram(issuer) {
+				continue
+			}
+
 			glog.V(1).Infof("%s/%s", expDate, issuer)
 			count = count + 1
 

@@ -429,8 +429,8 @@ func main() {
 	}
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
-	if *ccadb != "<path>" {
-		err = mozIssuers.LoadFromDisk(*ccadb)
+	if *inccadb != "<path>" {
+		err = mozIssuers.LoadFromDisk(*inccadb)
 	} else {
 		err = mozIssuers.Load()
 	}
