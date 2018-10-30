@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/golang/glog"
-	"github.com/mozilla/crlite/go/mozilla-issuers"
+	"github.com/mozilla/crlite/go/rootprogram"
 )
 
 var (
@@ -19,7 +19,7 @@ func main() {
 
 	var err error
 
-	mozIssuers := mozillaissuers.NewMozillaIssuers()
+	mozIssuers := rootprogram.NewMozillaIssuers()
 
 	if *incsv != "<path>" {
 		err = mozIssuers.LoadFromDisk(*incsv)

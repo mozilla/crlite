@@ -1,4 +1,4 @@
-package mozillaissuers
+package rootprogram
 
 import (
 	"encoding/base64"
@@ -58,6 +58,11 @@ func (mi *MozIssuers) GetIssuers() []string {
 		i++
 	}
 	return issuers
+}
+
+func (mi *MozIssuers) IsIssuerInProgram(aIssuer string) bool {
+	_, ok := mi.issuerMap[aIssuer]
+	return ok
 }
 
 func (mi *MozIssuers) GetCertificateForIssuer(aIssuer string) (*x509.Certificate, error) {
