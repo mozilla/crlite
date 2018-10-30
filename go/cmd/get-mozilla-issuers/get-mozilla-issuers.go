@@ -11,7 +11,7 @@ import (
 
 var (
 	outfile = flag.String("out", "<stdout>", "output json dictionary of issuers")
-	incsv   = flag.String("in", "<path>", "input CCADB CSV path")
+	inccadb = flag.String("ccadb", "<path>", "input CCADB CSV path")
 )
 
 func main() {
@@ -21,8 +21,8 @@ func main() {
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 
-	if *incsv != "<path>" {
-		err = mozIssuers.LoadFromDisk(*incsv)
+	if *inccadb != "<path>" {
+		err = mozIssuers.LoadFromDisk(*inccadb)
 	} else {
 		err = mozIssuers.Load()
 	}

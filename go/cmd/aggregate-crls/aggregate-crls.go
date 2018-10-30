@@ -32,6 +32,7 @@ const (
 )
 
 var (
+	inccadb  = flag.String("ccadb", "<path>", "input CCADB CSV path")
 	crlpath  = flag.String("crls", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
 	outpath  = flag.String("out", "<path>", "output folder of revoked serial files of the form <issuer>.revoked")
 	ctconfig = config.NewCTConfig()
@@ -428,7 +429,13 @@ func main() {
 	}
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
-	if err := mozIssuers.Load(); err != nil {
+	if *ccadb != "<path>" {
+		err = mozIssuers.LoadFromDisk(*ccadb)
+	} else {
+		err = mozIssuers.Load()
+	}
+
+	if err != nil {
 		glog.Fatalf("Unable to load the Mozilla issuers: %s", err)
 	}
 
