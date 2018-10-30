@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -22,6 +21,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
+	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -139,7 +139,7 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 	}
 }
 
-func processCRL(aPath string, aRevoked *storage.KnownCertificates) {
+func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *x509.Certificate) {
 	glog.Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
@@ -150,6 +150,11 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates) {
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
 		glog.Warningf("[%s] Error parsing: %s", aPath, err)
+		return
+	}
+
+	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
+		glog.Errorf("[%s] Invalid signature on CRL: %s", aPath, err)
 		return
 	}
 
@@ -168,7 +173,7 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates) {
 	}
 }
 
-func aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
+func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	lastTime := time.Now()
@@ -184,10 +189,17 @@ func aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan type
 		for _, crlPath := range tuple.CrlPaths {
 			select {
 			case <-quitChan:
-				revokedCerts.Save()
+				if err := revokedCerts.Save(); err != nil {
+					glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+				}
 				return
 			default:
-				processCRL(crlPath, revokedCerts)
+				cert, err := mozIssuers.GetCertificateForIssuer(tuple.Issuer)
+				if err != nil {
+					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer, err)
+				}
+
+				processCRL(crlPath, revokedCerts, cert)
 			}
 		}
 
@@ -200,7 +212,7 @@ func aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan type
 	}
 }
 
-func identifyCrlsByIssuer(display *mpb.Progress, storageDB storage.CertDatabase, sigChan <-chan os.Signal) types.IssuerCrlMap {
+func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssuers, storageDB storage.CertDatabase, sigChan <-chan os.Signal) types.IssuerCrlMap {
 	var wg sync.WaitGroup
 
 	metaChan := make(chan types.MetadataTuple, 16*1024*1024)
@@ -218,6 +230,10 @@ func identifyCrlsByIssuer(display *mpb.Progress, storageDB storage.CertDatabase,
 		}
 
 		for _, issuer := range issuers {
+			if !mozissuers.IsIssuerInProgram(issuer) {
+				continue
+			}
+
 			select {
 			case metaChan <- types.MetadataTuple{expDate, issuer}:
 				count = count + 1
@@ -347,7 +363,7 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 	return resultChan, count
 }
 
-func aggregateCRLs(display *mpb.Progress, count int64, crlPaths <-chan types.IssuerCrlPaths, outPath string, sigChan <-chan os.Signal) {
+func aggregateCRLs(display *mpb.Progress, mozIssuers *rootprogram.MozIssuers, count int64, crlPaths <-chan types.IssuerCrlPaths, outPath string, sigChan <-chan os.Signal) {
 	var wg sync.WaitGroup
 
 	// Exit signal, used by signals from the OS
@@ -368,7 +384,7 @@ func aggregateCRLs(display *mpb.Progress, count int64, crlPaths <-chan types.Iss
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go aggregateCRLWorker(&wg, outPath, crlPaths, quitChan, progressBar)
+		go aggregateCRLWorker(&wg, mozIssuers, outPath, crlPaths, quitChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -411,6 +427,11 @@ func main() {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
 
+	mozIssuers := rootprogram.NewMozillaIssuers()
+	if err := mozIssuers.Load(); err != nil {
+		glog.Fatalf("Unable to load the Mozilla issuers: %s", err)
+	}
+
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
@@ -418,12 +439,12 @@ func main() {
 
 	display := mpb.New()
 
-	mergedCrls := identifyCrlsByIssuer(display, storageDB, sigChan)
+	mergedCrls := identifyCrlsByIssuer(display, mozIssuers, storageDB, sigChan)
 	if mergedCrls == nil {
 		return
 	}
 
 	crlPaths, count := downloadCRLs(display, mergedCrls, sigChan)
 
-	aggregateCRLs(display, count, crlPaths, *outpath, sigChan)
+	aggregateCRLs(display, mozIssuers, count, crlPaths, *outpath, sigChan)
 }
