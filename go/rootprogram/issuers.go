@@ -20,7 +20,8 @@ const (
 )
 
 type IssuerData struct {
-	cert *x509.Certificate
+	cert      *x509.Certificate
+	subjectDN string
 }
 
 type MozIssuers struct {
@@ -76,6 +77,17 @@ func (mi *MozIssuers) GetCertificateForIssuer(aIssuer string) (*x509.Certificate
 	return entry.cert, nil
 }
 
+func (mi *MozIssuers) GetSubjectForIssuer(aIssuer string) (string, error) {
+	mi.mutex.Lock()
+	defer mi.mutex.Unlock()
+
+	entry, ok := mi.issuerMap[aIssuer]
+	if !ok {
+		return nil, fmt.Errorf("Unknown issuer: %s", aIssuer)
+	}
+	return entry.subjectDN, nil
+}
+
 func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
 	p := strings.Trim(aRow[aColMap["PEM Info"]], "'")
 
@@ -119,12 +131,15 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 		}
 
 		if len(cert.SubjectKeyId) < 8 {
-			glog.Warningf("SPKI is short: %v %s", cert.SubjectKeyId, cert.Issuer.String())
+			glog.Warningf("SPKI is short: %v Issuer: %s Subject: %s", cert.SubjectKeyId, cert.Issuer.String(), cert.Subject.String())
 		}
 
 		issuerID := base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
 
-		mi.issuerMap[issuerID] = IssuerData{cert: cert}
+		mi.issuerMap[issuerID] = IssuerData{
+			cert:      cert,
+			subjectDN: cert.Subject.String(),
+		}
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
 	}
 
