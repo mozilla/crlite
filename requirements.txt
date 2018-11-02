@@ -1,3 +1,6 @@
-cryptography==2.2.2
-pyOpenSSL==17.5.0
+cryptography>=2.2
+pyOpenSSL>=17.5
+kinto-http>=9.1
+python-decouple>=3.1
 pybloom-live==2.3.2
+glog>=0.3
