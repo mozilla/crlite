@@ -41,7 +41,7 @@ func NewCTConfig() *CTConfig {
 		NumThreads:        new(int),
 		CacheSize:         new(int),
 		LogExpiredEntries: new(bool),
-		RunForever:        new(bool),
+		RunForever:        flag.Bool("forever", false, "Poll for updates forever"),
 		PollingDelay:      new(int),
 		IssuerCNFilter:    new(string),
 		CertPath:          new(string),
