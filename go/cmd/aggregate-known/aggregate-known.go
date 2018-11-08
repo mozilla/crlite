@@ -76,7 +76,7 @@ func main() {
 		glog.Infof("Opening disk at %s", *ctconfig.CertPath)
 		storageDB, err = storage.NewDiskDatabase(*ctconfig.NumThreads, *ctconfig.CertPath, permMode)
 		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
+			glog.Fatalf("unable to open Certificate Path: %s: %s", *ctconfig.CertPath, err)
 		}
 	}
 
@@ -109,7 +109,7 @@ func main() {
 
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
-		glog.Fatalf("Could not list expiration dates", err)
+		glog.Fatalf("Could not list expiration dates: %s", err)
 	}
 
 	issuerToWorkUnit := make(map[string]knownWorkUnit)

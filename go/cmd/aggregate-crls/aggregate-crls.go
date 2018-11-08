@@ -220,7 +220,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
-		glog.Fatalf("Could not list expiration dates", err)
+		glog.Fatalf("Could not list expiration dates: %s", err)
 	}
 
 	var count int64
@@ -236,7 +236,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 			}
 
 			select {
-			case metaChan <- types.MetadataTuple{expDate, issuer}:
+			case metaChan <- types.MetadataTuple{ExpDate: expDate, Issuer: issuer}:
 				count = count + 1
 			default:
 				glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
@@ -412,7 +412,7 @@ func main() {
 		glog.Infof("Opening disk at %s", *ctconfig.CertPath)
 		storageDB, err = storage.NewDiskDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, permMode)
 		if err != nil {
-			glog.Fatalf("Unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
+			glog.Fatalf("Unable to open Certificate Path: %s: %s", *ctconfig.CertPath, err)
 		}
 	}
 

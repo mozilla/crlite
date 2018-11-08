@@ -6,7 +6,7 @@ require (
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.2.0 // indirect
 	github.com/google/certificate-transparency-go v1.0.21
-	github.com/jcjones/ct-mapreduce v0.0.0-20181002175142-514b55fda982 // indirect
+	github.com/jcjones/ct-mapreduce v0.0.0-20181002175142-514b55fda982
 	github.com/jcjones/go-progressdisplay v0.0.0-20180918214458-dbd08ed7fa4e // indirect
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/jpillora/backoff v0.0.0-20180909062703-3050d21c67d7 // indirect
