@@ -1,0 +1,7 @@
+#!/bin/bash
+
+ID=$(/home/ubuntu/workflow/0-allocate_identifier)
+
+/home/ubuntu/workflow/1-ct-fetch
+/home/ubuntu/workflow/2-produce_revocation_data ${ID}
+/home/ubuntu/workflow/3-produce_known_data ${ID}

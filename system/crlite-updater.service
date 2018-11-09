@@ -1,0 +1,13 @@
+[Unit]
+Description=update CRLite data
+After=syslog.target network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/ct/
+ExecStart=/home/ubuntu/crlite/system/crlite-updater
+TimeoutStartSec=infinity
+LimitNOFILE=4096
+
+#User=ubuntu
+
