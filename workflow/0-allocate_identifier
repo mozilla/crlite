@@ -1,0 +1,22 @@
+#!/usr/bin/python3
+
+import os
+from datetime import datetime
+
+workdir="/ct/processing/"
+
+dateprefix = datetime.utcnow().date().strftime("%Y%m%d")
+
+existing=[]
+
+for path, dirs, files in os.walk(workdir):
+  for d in dirs:
+    if d.startswith(dateprefix):
+        existing.append(d)
+
+allocatedName = "{}-{}".format(dateprefix, len(existing))
+allocatedPath = os.path.join(workdir, allocatedName)
+
+os.mkdir(allocatedPath)
+print(allocatedPath)
+

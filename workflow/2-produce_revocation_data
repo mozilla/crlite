@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ $# -ne 1 ] ; then
+  echo "Usage: $0 /ct/processing/{IDENTIFIER}"
+  exit 1
+fi
+
+~/go/bin/aggregate-crls -crls /ct/crls/ -out ${1}/revoked -log_dir /tmp/
