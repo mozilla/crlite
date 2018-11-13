@@ -2,9 +2,11 @@ from bloomer import Bloomer
 from struct import pack, unpack, calcsize
 import datetime
 
+
 class FilterCascade:
     FILE_FMT = b'<III'
-    def __init__(self, filters, error_rates = [0.02, 0.5]):
+
+    def __init__(self, filters, error_rates=[0.02, 0.5]):
         self.filters = filters
         self.error_rates = error_rates
 
@@ -21,7 +23,9 @@ class FilterCascade:
                 er = self.error_rates[depth]
 
             if depth > len(self.filters):
-                self.filters.append(Bloomer.filter_with_characteristics(len(exclude), er, depth))
+                self.filters.append(
+                    Bloomer.filter_with_characteristics(
+                        len(exclude), er, depth))
 
             print("Initializing the {}-depth layer. err={}".format(depth, er))
             filter = self.filters[depth - 1]
@@ -36,15 +40,19 @@ class FilterCascade:
             for elem in exclude:
                 if elem in filter:
                     false_positives.add(elem)
-            
+
             endtime = datetime.datetime.utcnow()
-            print("Took {} ms to process layer {} with bit count {}".format((endtime - starttime).seconds * 1000 + (endtime - starttime).microseconds/1000, depth, len(filter.bitarray)))
+            print("Took {} ms to process layer {} with bit count {}".format(
+                (endtime - starttime).seconds * 1000 +
+                (endtime - starttime).microseconds / 1000, depth,
+                len(filter.bitarray)))
             if len(exclude) > 0:
                 include, exclude = false_positives, include
                 depth = depth + 1
 
     def __contains__(self, elem):
-        for layer, filter in [(idx + 1, self.filters[idx]) for idx in range(len(self.filters))]:
+        for layer, filter in [(idx + 1, self.filters[idx])
+                              for idx in range(len(self.filters))]:
             even = layer % 2 == 0
             if elem in filter:
                 if layer == len(self.filters):
@@ -71,7 +79,9 @@ class FilterCascade:
 
     def saveDiffMeta(self, f):
         for filter in self.filters:
-            f.write(pack(FilterCascade.FILE_FMT, filter.size, filter.nHashFuncs, filter.level))
+            f.write(
+                pack(FilterCascade.FILE_FMT, filter.size, filter.nHashFuncs,
+                     filter.level))
 
     def tofile(self, f):
         for filter in self.filters:
@@ -83,18 +93,19 @@ class FilterCascade:
         size = calcsize(FilterCascade.FILE_FMT)
         data = f.read()
         while len(data) >= size:
-            filters.append(Bloomer(*unpack(FilterCascade.FILE_FMT, data[:size])))
+            filters.append(
+                Bloomer(*unpack(FilterCascade.FILE_FMT, data[:size])))
             data = data[size:]
         return FilterCascade(filters)
 
     @classmethod
     def cascade_with_characteristics(cls, capacity, error_rates, layer=0):
-        return FilterCascade([Bloomer.filter_with_characteristics(capacity, error_rates[0])], error_rates = error_rates)
-    
+        return FilterCascade(
+            [Bloomer.filter_with_characteristics(capacity, error_rates[0])],
+            error_rates=error_rates)
+
     @classmethod
     def fromfile(cls, f):
         buf = f.read()
         layers = Bloomer.from_buf(buf)
         return FilterCascade(layers)
-
-

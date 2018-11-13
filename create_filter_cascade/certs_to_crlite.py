@@ -11,6 +11,7 @@ from FilterCascade import FilterCascade
 
 times = dict()
 
+
 def open_crl(rawtext):
     try:
         return OpenSSL.crypto.load_crl(OpenSSL.crypto.FILETYPE_ASN1, rawtext)
@@ -21,10 +22,11 @@ def open_crl(rawtext):
     except:
         return False
 
+
 def getRevokedCRLCerts(crlbase):
     count = 0
     marktime = datetime.utcnow()
-    totalelapsed=0
+    totalelapsed = 0
     revoked_set = set()
     for path, dirs, files in os.walk(crlbase):
         for filename in files:
@@ -37,7 +39,8 @@ def getRevokedCRLCerts(crlbase):
                     revoked = crl.get_revoked()
                     if revoked != None:
                         for rvk in revoked:
-                            revoked_set.add(aki + str(rvk.get_serial().decode('utf-8')))
+                            revoked_set.add(
+                                aki + str(rvk.get_serial().decode('utf-8')))
                             count = count + 1
                             elapsedinterval = datetime.utcnow() - marktime
                             if elapsedinterval.total_seconds() > 15:
@@ -46,9 +49,10 @@ def getRevokedCRLCerts(crlbase):
                                 marktime = datetime.utcnow()
     return revoked_set
 
+
 def getRevokedCerts(args, aki):
     revoked_set = set()
-    revokedpath="%s/%s.revoked" % (args.revokedPath, aki)
+    revokedpath = "%s/%s.revoked" % (args.revokedPath, aki)
     if os.path.isfile(revokedpath):
         with open(revokedpath, "r") as f:
             try:
@@ -60,22 +64,27 @@ def getRevokedCerts(args, aki):
                 revoked_set.add(aki + str(s))
     return revoked_set
 
+
 def genCertLists(args, revoked_certs, nonrevoked_certs):
     marktime = datetime.utcnow()
-    totalelapsed=0
+    totalelapsed = 0
     counts = {}
     counts['knownrevoked'] = 0
     counts['knownnotrevoked'] = 0
     counts['crls'] = 0
-    if args.regen == False and os.path.isfile(args.revokedKeys) and os.path.isfile(args.validKeys):
+    if args.regen == False and os.path.isfile(
+            args.revokedKeys) and os.path.isfile(args.validKeys):
         return False
-    if not os.path.exists(args.knownPath) or not os.path.exists(args.revokedPath):
-        print ("path for known or revoked certs doesn't exist")
+    if not os.path.exists(args.knownPath) or not os.path.exists(
+            args.revokedPath):
+        print("path for known or revoked certs doesn't exist")
         sys.exit()
-    print("Generating revoked/nonrevoked list %s %s %s %s" % (args.knownPath, args.revokedPath, args.revokedKeys, args.validKeys))
+    print("Generating revoked/nonrevoked list %s %s %s %s" %
+          (args.knownPath, args.revokedPath, args.revokedKeys, args.validKeys))
     os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
     os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
-    with open(args.revokedKeys, 'w') as revfile, open(args.validKeys, 'w') as nonrevfile:
+    with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
+                                                      'w') as nonrevfile:
         knownAKIs = set()
         # Go through known AKIs/serials
         # generate a revoked/no
@@ -87,7 +96,7 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                 knownAKIs.add(aki)
                 knownpath = os.path.join(path, filename)
                 # Get known serials for AKI
-                with open(knownpath, "r") as f: 
+                with open(knownpath, "r") as f:
                     try:
                         serials = json.load(f)
                     except Exception as e:
@@ -106,14 +115,18 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                         if key not in revlist:
                             nonrevoked_certs.append(key)
                             nonrevfile.write(key + "\n")
-                            counts['knownnotrevoked'] = counts['knownnotrevoked'] + 1
+                            counts['knownnotrevoked'] = counts[
+                                'knownnotrevoked'] + 1
                         else:
                             # The revoked keys were already processed above.
                             # Just count it here.
                             counts['knownrevoked'] = counts['knownrevoked'] + 1
                         if elapsedinterval.total_seconds() > 15:
                             totalelapsed += elapsedinterval.total_seconds()
-                            print("Time %d R: %d KNR: %d KR: %d" % (totalelapsed, counts['crls'], counts['knownnotrevoked'], counts['knownrevoked']))
+                            print("Time %d R: %d KNR: %d KR: %d" %
+                                  (totalelapsed, counts['crls'],
+                                   counts['knownnotrevoked'],
+                                   counts['knownrevoked']))
                             marktime = datetime.utcnow()
 
         # Go through revoked AKIs and process any that were not part of known AKIs
@@ -129,11 +142,15 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                     revoked_certs.extend(revlist)
                     for r in revlist:
                         revfile.write(r + "\n")
-    print("Time %d R: %d KNR: %d KR: %d" % (totalelapsed, counts['crls'], counts['knownnotrevoked'], counts['knownrevoked']))
+    print("Time %d R: %d KNR: %d KR: %d" %
+          (totalelapsed, counts['crls'], counts['knownnotrevoked'],
+           counts['knownrevoked']))
     return True
 
+
 def loadCertLists(args, revoked_certs, nonrevoked_certs):
-    print("Loading revoked/nonrevoked list %s %s" % (args.revokedKeys, args.validKeys))
+    print("Loading revoked/nonrevoked list %s %s" % (args.revokedKeys,
+                                                     args.validKeys))
     nonrevoked_certs.clear()
     revoked_certs.clear()
     with open(args.revokedKeys, 'r') as file:
@@ -143,24 +160,31 @@ def loadCertLists(args, revoked_certs, nonrevoked_certs):
         for line in file:
             nonrevoked_certs.append(line[:-1])
 
+
 def generateMLBF(args, revoked_certs, nonrevoked_certs):
     marktime = datetime.utcnow()
     if args.diffMetaFile != None:
-        print("Loading filter characteristics from mlbf base file %s" % args.diffMetaFile)
+        print("Loading filter characteristics from mlbf base file %s" %
+              args.diffMetaFile)
         mlbf_meta_file = open(args.diffMetaFile, 'rb')
         cascade = FilterCascade.loadDiffMeta(mlbf_meta_file)
     else:
         #cascade = FilterCascade(len(revoked_certs), args.capacity, args.errorrate, 1)
-        cascade = FilterCascade.cascade_with_characteristics(int(len(revoked_certs) * 1.1), [0.02, 0.5])
+        cascade = FilterCascade.cascade_with_characteristics(
+            int(len(revoked_certs) * 1.1), [0.02, 0.5])
 
     if args.limit != None:
-        print("Data set limited to %d revoked and %d non-revoked" % (args.limit, args.limit*10))
-        cascade.initialize(revoked_certs[:args.limit], nonrevoked_certs[:args.limit*10])
+        print("Data set limited to %d revoked and %d non-revoked" %
+              (args.limit, args.limit * 10))
+        cascade.initialize(revoked_certs[:args.limit],
+                           nonrevoked_certs[:args.limit * 10])
     else:
         cascade.initialize(revoked_certs, nonrevoked_certs)
 
     times['filtertime'] = datetime.utcnow() - marktime
-    print("Filter cascade time: %d, layers: %d, bit: %d" % (times['filtertime'].total_seconds(), cascade.layerCount(), cascade.bitCount()))
+    print("Filter cascade time: %d, layers: %d, bit: %d" %
+          (times['filtertime'].total_seconds(), cascade.layerCount(),
+           cascade.bitCount()))
 
     # Verify generate filter
     marktime = datetime.utcnow()
@@ -168,12 +192,14 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
         loadCertLists(args, revoked_certs, nonrevoked_certs)
         print("Checking/verifying certs against MLBF")
         if args.limit != None:
-            cascade.check(revoked_certs[:args.limit], nonrevoked_certs[:args.limit*10])
+            cascade.check(revoked_certs[:args.limit],
+                          nonrevoked_certs[:args.limit * 10])
         else:
             cascade.check(revoked_certs, nonrevoked_certs)
     times['checktime'] = datetime.utcnow() - marktime
     print("Total check time %d seconds" % times['checktime'].total_seconds())
     return cascade
+
 
 def saveMLBF(args, cascade):
     marktime = datetime.utcnow()
@@ -185,29 +211,59 @@ def saveMLBF(args, cascade):
     cascade.saveDiffMeta(mlbf_meta_file)
     times['savetime'] = datetime.utcnow() - marktime
 
+
 def printStats():
-    print("Total cert sort revoked/non-revoked time %d seconds" % times['certtime'].total_seconds())
-    print("Total cascade filter time %d seconds" % times['filtertime'].total_seconds())
+    print("Total cert sort revoked/non-revoked time %d seconds" %
+          times['certtime'].total_seconds())
+    print("Total cascade filter time %d seconds" %
+          times['filtertime'].total_seconds())
     print("Total check time %d seconds" % times['checktime'].total_seconds())
     print("Total write time %d seconds" % times['savetime'].total_seconds())
-    print("Total time %d seconds" % (times['endtime'] - times['starttime']).total_seconds())
+    print("Total time %d seconds" %
+          (times['endtime'] - times['starttime']).total_seconds())
+
 
 def parseArgs(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("id", help="CT baseline identifier", metavar=('ID'))
-    parser.add_argument("-previd", help="Previous identifier to use for diff", metavar=('DIFFID'))
-    parser.add_argument("-certPath", help="Directory containing CT data.", default="/ct/processing")
-    parser.add_argument("-knownPath", help="Directory containing known unexpired serials.  <AKI>.known JSON files.")
-    parser.add_argument("-revokedPath", help="Directory containing known unexpired serials.  <AKI>.known JSON files.")
-    parser.add_argument("-limit", type=int, help="Only process specified revocations. Non-revoked will be 10x")
-    parser.add_argument("-errorrate", type=float, default=".5", help="MLBF error rate.")
-    parser.add_argument("-capacity", type=float, default="1.1", help="MLBF capacity.")
-    parser.add_argument("-excludeaki", nargs="*", help="Exclude the specified AKIs")
-    parser.add_argument("-regen", help="Regenerate revoked/non-revoked data", action="store_true")
-    parser.add_argument("-noVerify", help="Skip MLBF verification", action="store_true")
+    parser.add_argument(
+        "-previd",
+        help="Previous identifier to use for diff",
+        metavar=('DIFFID'))
+    parser.add_argument(
+        "-certPath",
+        help="Directory containing CT data.",
+        default="/ct/processing")
+    parser.add_argument(
+        "-knownPath",
+        help=
+        "Directory containing known unexpired serials.  <AKI>.known JSON files."
+    )
+    parser.add_argument(
+        "-revokedPath",
+        help=
+        "Directory containing known unexpired serials.  <AKI>.known JSON files."
+    )
+    parser.add_argument(
+        "-limit",
+        type=int,
+        help="Only process specified revocations. Non-revoked will be 10x")
+    parser.add_argument(
+        "-errorrate", type=float, default=".5", help="MLBF error rate.")
+    parser.add_argument(
+        "-capacity", type=float, default="1.1", help="MLBF capacity.")
+    parser.add_argument(
+        "-excludeaki", nargs="*", help="Exclude the specified AKIs")
+    parser.add_argument(
+        "-regen",
+        help="Regenerate revoked/non-revoked data",
+        action="store_true")
+    parser.add_argument(
+        "-noVerify", help="Skip MLBF verification", action="store_true")
     args = parser.parse_args(argv)
     if args.previd != None:
-        args.diffMetaFile = "%s/%s/mlbf/filter.meta" % (args.certPath, args.previd)
+        args.diffMetaFile = "%s/%s/mlbf/filter.meta" % (args.certPath,
+                                                        args.previd)
     else:
         args.diffMetaFile = None
     if args.knownPath == None:
@@ -222,6 +278,7 @@ def parseArgs(argv):
     args.metaFile = "%s/%s/mlbf/filter.meta" % (args.certPath, args.id)
     return args
 
+
 def main():
     args = parseArgs(sys.argv[1:])
     print(args)
@@ -233,12 +290,15 @@ def main():
     if genCertLists(args, revoked_certs, nonrevoked_certs) == False:
         loadCertLists(args, revoked_certs, nonrevoked_certs)
     times['certtime'] = datetime.utcnow() - marktime
-    print("Cert sort revoked/non-revoked time: %d s R: %d NR: %d" % (times['certtime'].total_seconds(), len(revoked_certs), len(nonrevoked_certs)))
+    print("Cert sort revoked/non-revoked time: %d s R: %d NR: %d" %
+          (times['certtime'].total_seconds(), len(revoked_certs),
+           len(nonrevoked_certs)))
 
     mlbf = generateMLBF(args, revoked_certs, nonrevoked_certs)
     saveMLBF(args, mlbf)
     times['endtime'] = datetime.utcnow()
     printStats()
+
 
 if __name__ == "__main__":
     main()

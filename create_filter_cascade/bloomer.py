@@ -7,6 +7,7 @@ import bitarray
 import mmh3
 from struct import pack, unpack
 
+
 class Bloomer:
     FILE_FMT = b'<III'
 
@@ -15,7 +16,7 @@ class Bloomer:
         self.size = size
         self.level = level
 
-        self.bitarray = bitarray.bitarray(self.size, endian = 'little')
+        self.bitarray = bitarray.bitarray(self.size, endian='little')
         self.bitarray.setall(False)
 
     def hash(self, seed, key):
@@ -55,9 +56,9 @@ class Bloomer:
         f.write(pack(self.FILE_FMT, self.size, self.nHashFuncs, self.level))
         f.flush()
         self.bitarray.tofile(f)
-    
+
     @classmethod
-    def filter_with_characteristics(cls, elements, falsePositiveRate, level = 1):
+    def filter_with_characteristics(cls, elements, falsePositiveRate, level=1):
         nHashFuncs = Bloomer.calc_n_hashes(falsePositiveRate)
         size = Bloomer.calc_size(nHashFuncs, elements, falsePositiveRate)
         return Bloomer(size, nHashFuncs, level)
@@ -65,10 +66,11 @@ class Bloomer:
     @classmethod
     def calc_n_hashes(cls, falsePositiveRate):
         return math.ceil(math.log(1.0 / falsePositiveRate) / math.log(2))
-    
+
     @classmethod
     def calc_size(cls, nHashFuncs, elements, falsePositiveRate):
-        return math.ceil(1 - (nHashFuncs * (elements + 0.5) / math.log(1 - (math.pow(falsePositiveRate, (1 / nHashFuncs))))))
+        return math.ceil(1 - (nHashFuncs * (elements + 0.5) / math.log(
+            1 - (math.pow(falsePositiveRate, (1 / nHashFuncs))))))
 
     @classmethod
     def from_buf(cls, buf):
@@ -82,7 +84,8 @@ class Bloomer:
             buf = buf[12 + byte_count:]
             bloomer = Bloomer(1, nHashFuncs, level)
             bloomer.size = size
-            print("Size is {}, level {}, nHashFuncs, {}".format(size, level, nHashFuncs))
+            print("Size is {}, level {}, nHashFuncs, {}".format(
+                size, level, nHashFuncs))
             bloomer.bitarray = ba
             filters.append(bloomer)
         return filters
