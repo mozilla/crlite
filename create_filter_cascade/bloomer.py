@@ -5,34 +5,30 @@
 import math
 import bitarray
 import mmh3
-from struct import pack
+from struct import pack, unpack
 
 class Bloomer:
-    FILE_FMT = b'<dQQ'
+    FILE_FMT = b'<III'
 
-    def __init__(self, elements, falsePositiveRate, level):
+    def __init__(self, size, nHashFuncs, level):
+        self.nHashFuncs = nHashFuncs
+        self.size = size
         self.level = level
-        self.elements = elements
-        self.falsePositiveRate = falsePositiveRate
-        # The ideal size for a bloom filter with a given number of elements and false positive
-        # rate is:
-        # * - nElements * log(fp rate) / ln(2)^2
-        # The ideal number of hash functions is:
-        # filter size * ln(2) / number of elements
-        # See: https://github.com/bitcoin/bitcoin/blob/master/src/bloom.cpp
 
-        self.nHashFuncs = math.ceil(math.log(1.0 / falsePositiveRate) / math.log(2))
-        self.size = math.ceil(1 - (self.nHashFuncs * (elements + 0.5) / math.log(1 - (math.pow(falsePositiveRate, (1 / self.nHashFuncs))))))
         self.bitarray = bitarray.bitarray(self.size, endian = 'little')
         self.bitarray.setall(False)
 
     def hash(self, seed, key):
-        if isinstance(key, str):
-            key = key.encode('utf-8')
-        else:
-            key = str(key).encode('utf-8')
-        h = mmh3.hash(key, ((seed * 0xFBA4C795) + (1000000000 * self.level)) & 0xFFFFFFFF)
-        return h % self.size
+        if not isinstance(key, bytes):
+            if isinstance(key, str):
+                key = key.encode('utf-8')
+            else:
+                key = str(key).encode('utf-8')
+        # print("key is {}".format([c for c in key]))
+        hash_seed = ((seed << 16) + self.level) & 0xFFFFFFFF
+        h = (mmh3.hash(key, hash_seed) & 0xFFFFFFFF) % self.size
+        # print("h is {}".format(h))
+        return h
 
     def add(self, key):
         for i in range(self.nHashFuncs):
@@ -43,7 +39,10 @@ class Bloomer:
         for i in range(self.nHashFuncs):
             index = self.hash(i, key)
             if not self.bitarray[index]:
+                # print("not in {}#{}".format(self.level, i))
                 return False
+            #else:
+            #    print("in {}#{}".format(self.level, i))
         return True
 
     def clear(self):
@@ -53,9 +52,37 @@ class Bloomer:
         """Write the bloom filter to file object `f'. Underlying bits
         are written as machine values. This is much more space
         efficient than pickling the object."""
-        f.write(pack(self.FILE_FMT, self.falsePositiveRate, self.elements,
-                     self.level))
+        f.write(pack(self.FILE_FMT, self.size, self.nHashFuncs, self.level))
+        f.flush()
         self.bitarray.tofile(f)
-        #(f.write(self.bitarray.tobytes()) if is_string_io(f)
-        # else self.bitarray.tofile(f))
+    
+    @classmethod
+    def filter_with_characteristics(cls, elements, falsePositiveRate, level = 1):
+        nHashFuncs = Bloomer.calc_n_hashes(falsePositiveRate)
+        size = Bloomer.calc_size(nHashFuncs, elements, falsePositiveRate)
+        return Bloomer(size, nHashFuncs, level)
 
+    @classmethod
+    def calc_n_hashes(cls, falsePositiveRate):
+        return math.ceil(math.log(1.0 / falsePositiveRate) / math.log(2))
+    
+    @classmethod
+    def calc_size(cls, nHashFuncs, elements, falsePositiveRate):
+        return math.ceil(1 - (nHashFuncs * (elements + 0.5) / math.log(1 - (math.pow(falsePositiveRate, (1 / nHashFuncs))))))
+
+    @classmethod
+    def from_buf(cls, buf):
+        filters = []
+        while len(buf) > 0:
+            print(len(buf))
+            size, nHashFuncs, level = unpack(Bloomer.FILE_FMT, buf[0:12])
+            byte_count = math.ceil(size / 8)
+            ba = bitarray.bitarray(endian="little")
+            ba.frombytes(buf[12:12 + byte_count])
+            buf = buf[12 + byte_count:]
+            bloomer = Bloomer(1, nHashFuncs, level)
+            bloomer.size = size
+            print("Size is {}, level {}, nHashFuncs, {}".format(size, level, nHashFuncs))
+            bloomer.bitarray = ba
+            filters.append(bloomer)
+        return filters

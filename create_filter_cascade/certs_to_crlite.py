@@ -150,7 +150,8 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
         mlbf_meta_file = open(args.diffMetaFile, 'rb')
         cascade = FilterCascade.loadDiffMeta(mlbf_meta_file)
     else:
-        cascade = FilterCascade(len(revoked_certs), args.capacity, args.errorrate, 1)
+        #cascade = FilterCascade(len(revoked_certs), args.capacity, args.errorrate, 1)
+        cascade = FilterCascade.cascade_with_characteristics(int(len(revoked_certs) * 1.1), [0.02, 0.5])
 
     if args.limit != None:
         print("Data set limited to %d revoked and %d non-revoked" % (args.limit, args.limit*10))
@@ -180,7 +181,7 @@ def saveMLBF(args, cascade):
     mlbf_file = open(args.outFile, 'wb')
     cascade.tofile(mlbf_file)
     print("Writing to meta file %s" % (args.metaFile))
-    mlbf_meta_file = open(args.metaFile, 'w')
+    mlbf_meta_file = open(args.metaFile, 'wb')
     cascade.saveDiffMeta(mlbf_meta_file)
     times['savetime'] = datetime.utcnow() - marktime
 
