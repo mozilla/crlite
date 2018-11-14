@@ -1,6 +1,8 @@
 from bloomer import Bloomer
 from struct import pack, unpack, calcsize
 import datetime
+import logging
+log = logging.getLogger(__name__)
 
 
 class FilterCascade:
@@ -12,7 +14,7 @@ class FilterCascade:
 
     def initialize(self, set1, set2):
         starttime = datetime.datetime.utcnow()
-        print("{} set1 and {} set2".format(len(set1), len(set2)))
+        log.debug("{} set1 and {} set2".format(len(set1), len(set2)))
         depth = 1
         include = set1
         exclude = set2
@@ -27,7 +29,7 @@ class FilterCascade:
                     Bloomer.filter_with_characteristics(
                         len(exclude), er, depth))
 
-            print("Initializing the {}-depth layer. err={}".format(depth, er))
+            log.debug("Initializing the {}-depth layer. err={}".format(depth, er))
             filter = self.filters[depth - 1]
             # loop over the elements that *should* be there. Add them to the filter.
             for elem in include:
@@ -35,14 +37,14 @@ class FilterCascade:
 
             # loop over the elements that should *not* be there. Create a new layer
             # that *includes* the false positives and *excludes* the true positives
-            print("Processing false positives")
+            log.debug("Processing false positives")
             false_positives = set()
             for elem in exclude:
                 if elem in filter:
                     false_positives.add(elem)
 
             endtime = datetime.datetime.utcnow()
-            print("Took {} ms to process layer {} with bit count {}".format(
+            log.debug("Took {} ms to process layer {} with bit count {}".format(
                 (endtime - starttime).seconds * 1000 +
                 (endtime - starttime).microseconds / 1000, depth,
                 len(filter.bitarray)))
@@ -62,11 +64,9 @@ class FilterCascade:
 
     def check(self, entries, exclusions):
         for entry in entries:
-            if not entry in self:
-                raise Error("oops! false negative!")
+            assert entry in self, "oops! false negative!"
         for entry in exclusions:
-            if entry in self:
-                raise Error("oops! false positive!")
+            assert not entry in self, "oops! false positive!"
 
     def bitCount(self):
         total = 0

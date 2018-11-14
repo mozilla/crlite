@@ -6,6 +6,8 @@ import math
 import bitarray
 import mmh3
 from struct import pack, unpack
+import logging
+log = logging.getLogger(__name__)
 
 
 class Bloomer:
@@ -25,10 +27,10 @@ class Bloomer:
                 key = key.encode('utf-8')
             else:
                 key = str(key).encode('utf-8')
-        # print("key is {}".format([c for c in key]))
+        # log.debug("key is {}".format([c for c in key]))
         hash_seed = ((seed << 16) + self.level) & 0xFFFFFFFF
         h = (mmh3.hash(key, hash_seed) & 0xFFFFFFFF) % self.size
-        # print("h is {}".format(h))
+        # log.debug("h is {}".format(h))
         return h
 
     def add(self, key):
@@ -40,10 +42,10 @@ class Bloomer:
         for i in range(self.nHashFuncs):
             index = self.hash(i, key)
             if not self.bitarray[index]:
-                # print("not in {}#{}".format(self.level, i))
+                # log.debug("not in {}#{}".format(self.level, i))
                 return False
             #else:
-            #    print("in {}#{}".format(self.level, i))
+            #    log.debug("in {}#{}".format(self.level, i))
         return True
 
     def clear(self):
@@ -76,7 +78,7 @@ class Bloomer:
     def from_buf(cls, buf):
         filters = []
         while len(buf) > 0:
-            print(len(buf))
+            log.debug(len(buf))
             size, nHashFuncs, level = unpack(Bloomer.FILE_FMT, buf[0:12])
             byte_count = math.ceil(size / 8)
             ba = bitarray.bitarray(endian="little")
@@ -84,7 +86,7 @@ class Bloomer:
             buf = buf[12 + byte_count:]
             bloomer = Bloomer(1, nHashFuncs, level)
             bloomer.size = size
-            print("Size is {}, level {}, nHashFuncs, {}".format(
+            log.debug("Size is {}, level {}, nHashFuncs, {}".format(
                 size, level, nHashFuncs))
             bloomer.bitarray = ba
             filters.append(bloomer)
