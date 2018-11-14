@@ -22,7 +22,7 @@ class FilterCascade:
         while len(include) > 0:
             er = self.error_rates[-1]
             if depth < len(self.error_rates):
-                er = self.error_rates[depth]
+                er = self.error_rates[depth - 1]
 
             if depth > len(self.filters):
                 self.filters.append(
