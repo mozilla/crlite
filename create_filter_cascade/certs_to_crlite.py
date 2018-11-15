@@ -47,7 +47,8 @@ def getRevokedCRLCerts(crlbase):
                             elapsedinterval = datetime.utcnow() - marktime
                             if elapsedinterval.total_seconds() > 15:
                                 totalelapsed += elapsedinterval.total_seconds()
-                                log.debug("Time %d R: %d " % (totalelapsed, count))
+                                log.debug(
+                                    "Time %d R: %d " % (totalelapsed, count))
                                 marktime = datetime.utcnow()
     return revoked_set
 
@@ -81,8 +82,9 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
             args.revokedPath):
         log.error("path for known or revoked certs doesn't exist")
         sys.exit()
-    log.info("Generating revoked/nonrevoked list %s %s %s %s" %
-          (args.knownPath, args.revokedPath, args.revokedKeys, args.validKeys))
+    log.info(
+        "Generating revoked/nonrevoked list %s %s %s %s" %
+        (args.knownPath, args.revokedPath, args.revokedKeys, args.validKeys))
     os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
     os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
     with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
@@ -126,9 +128,9 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                         if elapsedinterval.total_seconds() > 15:
                             totalelapsed += elapsedinterval.total_seconds()
                             log.debug("Time %d R: %d KNR: %d KR: %d" %
-                                  (totalelapsed, counts['crls'],
-                                   counts['knownnotrevoked'],
-                                   counts['knownrevoked']))
+                                      (totalelapsed, counts['crls'],
+                                       counts['knownnotrevoked'],
+                                       counts['knownrevoked']))
                             marktime = datetime.utcnow()
 
         # Go through revoked AKIs and process any that were not part of known AKIs
@@ -145,14 +147,14 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                     for r in revlist:
                         revfile.write(r + "\n")
     log.debug("Time %d R: %d KNR: %d KR: %d" %
-          (totalelapsed, counts['crls'], counts['knownnotrevoked'],
-           counts['knownrevoked']))
+              (totalelapsed, counts['crls'], counts['knownnotrevoked'],
+               counts['knownrevoked']))
     return True
 
 
 def loadCertLists(args, revoked_certs, nonrevoked_certs):
     log.info("Loading revoked/nonrevoked list %s %s" % (args.revokedKeys,
-                                                     args.validKeys))
+                                                        args.validKeys))
     nonrevoked_certs.clear()
     revoked_certs.clear()
     with open(args.revokedKeys, 'r') as file:
@@ -166,8 +168,9 @@ def loadCertLists(args, revoked_certs, nonrevoked_certs):
 def generateMLBF(args, revoked_certs, nonrevoked_certs):
     marktime = datetime.utcnow()
     if args.diffMetaFile != None:
-        log.info("Generating filter with characteristics from mlbf base file %s" %
-              args.diffMetaFile)
+        log.info(
+            "Generating filter with characteristics from mlbf base file %s" %
+            args.diffMetaFile)
         mlbf_meta_file = open(args.diffMetaFile, 'rb')
         cascade = FilterCascade.loadDiffMeta(mlbf_meta_file)
     else:
@@ -177,7 +180,7 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
 
     if args.limit != None:
         log.debug("Data set limited to %d revoked and %d non-revoked" %
-              (args.limit, args.limit * 10))
+                  (args.limit, args.limit * 10))
         cascade.initialize(revoked_certs[:args.limit],
                            nonrevoked_certs[:args.limit * 10])
     else:
@@ -185,8 +188,8 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
 
     times['filtertime'] = datetime.utcnow() - marktime
     log.debug("Filter cascade time: %d, layers: %d, bit: %d" %
-          (times['filtertime'].total_seconds(), cascade.layerCount(),
-           cascade.bitCount()))
+              (times['filtertime'].total_seconds(), cascade.layerCount(),
+               cascade.bitCount()))
 
     # Verify generate filter
     marktime = datetime.utcnow()
@@ -199,7 +202,8 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
         else:
             cascade.check(revoked_certs, nonrevoked_certs)
     times['checktime'] = datetime.utcnow() - marktime
-    log.debug("Total check time %d seconds" % times['checktime'].total_seconds())
+    log.debug(
+        "Total check time %d seconds" % times['checktime'].total_seconds())
     return cascade
 
 
@@ -212,20 +216,22 @@ def saveMLBF(args, cascade):
         log.info("Writing to meta file %s" % (args.metaFile))
         cascade.saveDiffMeta(mlbf_meta_file)
     if args.diffBaseFile != None:
-        log.info("Genderating patch file %s from %s to %s" % (args.patchFile, args.diffBaseFile, args.outFile))
+        log.info("Genderating patch file %s from %s to %s" %
+                 (args.patchFile, args.diffBaseFile, args.outFile))
         bsdiff4.file_diff(args.diffBaseFile, args.outFile, args.patchFile)
     times['savetime'] = datetime.utcnow() - marktime
 
 
 def printStats():
     log.info("Total cert sort revoked/non-revoked time %d seconds" %
-          times['certtime'].total_seconds())
+             times['certtime'].total_seconds())
     log.info("Total cascade filter time %d seconds" %
-          times['filtertime'].total_seconds())
-    log.info("Total check time %d seconds" % times['checktime'].total_seconds())
+             times['filtertime'].total_seconds())
+    log.info(
+        "Total check time %d seconds" % times['checktime'].total_seconds())
     log.info("Total write time %d seconds" % times['savetime'].total_seconds())
     log.info("Total time %d seconds" %
-          (times['endtime'] - times['starttime']).total_seconds())
+             (times['endtime'] - times['starttime']).total_seconds())
 
 
 def parseArgs(argv):
@@ -269,9 +275,9 @@ def parseArgs(argv):
     if args.previd != None:
         args.diffMetaFile = "%s/%s/mlbf/filter.meta" % (args.certPath,
                                                         args.previd)
-        args.diffBaseFile = "%s/%s/mlbf/filter" % (args.certPath,
-                                                        args.previd)
-        args.patchFile = "%s/%s/mlbf/filter.%s.patch" % (args.certPath, args.id, args.previd)
+        args.diffBaseFile = "%s/%s/mlbf/filter" % (args.certPath, args.previd)
+        args.patchFile = "%s/%s/mlbf/filter.%s.patch" % (args.certPath,
+                                                         args.id, args.previd)
     else:
         args.diffMetaFile = None
         args.diffBaseFile = None
@@ -301,8 +307,8 @@ def main():
         loadCertLists(args, revoked_certs, nonrevoked_certs)
     times['certtime'] = datetime.utcnow() - marktime
     log.debug("Cert sort revoked/non-revoked time: %d s R: %d NR: %d" %
-          (times['certtime'].total_seconds(), len(revoked_certs),
-           len(nonrevoked_certs)))
+              (times['certtime'].total_seconds(), len(revoked_certs),
+               len(nonrevoked_certs)))
 
     mlbf = generateMLBF(args, revoked_certs, nonrevoked_certs)
     saveMLBF(args, mlbf)

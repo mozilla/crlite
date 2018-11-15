@@ -29,7 +29,8 @@ class FilterCascade:
                     Bloomer.filter_with_characteristics(
                         len(exclude), er, depth))
 
-            log.debug("Initializing the {}-depth layer. err={}".format(depth, er))
+            log.debug("Initializing the {}-depth layer. err={}".format(
+                depth, er))
             filter = self.filters[depth - 1]
             # loop over the elements that *should* be there. Add them to the filter.
             for elem in include:
@@ -44,10 +45,11 @@ class FilterCascade:
                     false_positives.add(elem)
 
             endtime = datetime.datetime.utcnow()
-            log.debug("Took {} ms to process layer {} with bit count {}".format(
-                (endtime - starttime).seconds * 1000 +
-                (endtime - starttime).microseconds / 1000, depth,
-                len(filter.bitarray)))
+            log.debug(
+                "Took {} ms to process layer {} with bit count {}".format(
+                    (endtime - starttime).seconds * 1000 +
+                    (endtime - starttime).microseconds / 1000, depth,
+                    len(filter.bitarray)))
             if len(exclude) > 0:
                 include, exclude = false_positives, include
                 depth = depth + 1
