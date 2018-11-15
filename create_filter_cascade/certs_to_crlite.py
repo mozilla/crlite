@@ -5,6 +5,7 @@ import OpenSSL
 import os
 import sys
 import argparse
+import bsdiff4
 import logging
 
 # Local modules
@@ -204,12 +205,15 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
 
 def saveMLBF(args, cascade):
     marktime = datetime.utcnow()
-    log.info("Writing to file %s" % args.outFile)
-    mlbf_file = open(args.outFile, 'wb')
-    cascade.tofile(mlbf_file)
-    log.info("Writing to meta file %s" % (args.metaFile))
-    mlbf_meta_file = open(args.metaFile, 'wb')
-    cascade.saveDiffMeta(mlbf_meta_file)
+    with open(args.outFile, 'wb') as mlbf_file:
+        log.info("Writing to file %s" % args.outFile)
+        cascade.tofile(mlbf_file)
+    with open(args.metaFile, 'wb') as mlbf_meta_file:
+        log.info("Writing to meta file %s" % (args.metaFile))
+        cascade.saveDiffMeta(mlbf_meta_file)
+    if args.diffBaseFile != None:
+        log.info("Genderating patch file %s from %s to %s" % (args.patchFile, args.diffBaseFile, args.outFile))
+        bsdiff4.file_diff(args.diffBaseFile, args.outFile, args.patchFile)
     times['savetime'] = datetime.utcnow() - marktime
 
 
@@ -265,8 +269,13 @@ def parseArgs(argv):
     if args.previd != None:
         args.diffMetaFile = "%s/%s/mlbf/filter.meta" % (args.certPath,
                                                         args.previd)
+        args.diffBaseFile = "%s/%s/mlbf/filter" % (args.certPath,
+                                                        args.previd)
+        args.patchFile = "%s/%s/mlbf/filter.%s.patch" % (args.certPath, args.id, args.previd)
     else:
         args.diffMetaFile = None
+        args.diffBaseFile = None
+        args.patchFile = None
     if args.knownPath == None:
         args.knownPath = "%s/%s/known" % (args.certPath, args.id)
     if args.revokedPath == None:
