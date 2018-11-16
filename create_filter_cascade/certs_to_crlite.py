@@ -67,9 +67,8 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
     counts['knownnotrevoked'] = 0
     counts['crls'] = 0
     counts['nocrl'] = 0
-    log.info(
-        "Generating revoked/nonrevoked list %s %s" %
-        (args.knownPath, args.revokedPath))
+    log.info("Generating revoked/nonrevoked list %s %s" % (args.knownPath,
+                                                           args.revokedPath))
 
     knownAKIs = set()
     # Go through known AKIs/serials
@@ -92,7 +91,7 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                 if revlist == None:
                     # Skip AKI. No revocations for this AKI.  Not even empty list.
                     counts['nocrl'] = counts['nocrl'] + 1
-                    continue;
+                    continue
                 knownAKIs.add(aki)
                 counts['crls'] = counts['crls'] + len(revlist)
                 revoked_certs.extend(revlist)
@@ -101,8 +100,8 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                     key = aki + str(s)
                     if key not in revlist:
                         nonrevoked_certs.append(key)
-                        counts['knownnotrevoked'] = counts[
-                            'knownnotrevoked'] + 1
+                        counts[
+                            'knownnotrevoked'] = counts['knownnotrevoked'] + 1
                     else:
                         # The revoked keys were already processed above.
                         # Just count it here.
@@ -123,18 +122,19 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
               (counts['crls'], counts['knownnotrevoked'],
                counts['knownrevoked'], counts['nocrl']))
 
+
 def saveCertLists(args, revoked_certs, nonrevoked_certs):
-    log.info(
-        "Saving revoked/nonrevoked list %s %s" %
-        (args.revokedKeys, args.validKeys))
+    log.info("Saving revoked/nonrevoked list %s %s" % (args.revokedKeys,
+                                                       args.validKeys))
     os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
     os.makedirs(os.path.dirname(args.validKeys), exist_ok=True)
     with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
                                                       'w') as nonrevfile:
         for k in revoked_certs:
-            revfile.write("%s\n" % k) 
+            revfile.write("%s\n" % k)
         for k in nonrevoked_certs:
-            nonrevfile.write("%s\n" % k) 
+            nonrevfile.write("%s\n" % k)
+
 
 def loadCertLists(args, revoked_certs, nonrevoked_certs):
     log.info("Loading revoked/nonrevoked list %s %s" % (args.revokedKeys,
@@ -230,14 +230,22 @@ def parseArgs(argv):
         "Directory containing known unexpired serials.  <AKI>.known JSON files."
     )
     parser.add_argument(
-        "-errorrate", type=float, nargs="*", default=[.02,.5], help="MLBF error rates.")
+        "-errorrate",
+        type=float,
+        nargs="*",
+        default=[.02, .5],
+        help="MLBF error rates.")
     parser.add_argument(
         "-capacity", type=float, default="1.1", help="MLBF capacity.")
     parser.add_argument(
-        "-excludeaki", nargs="*", default=[], help="Exclude the specified AKIs")
+        "-excludeaki",
+        nargs="*",
+        default=[],
+        help="Exclude the specified AKIs")
     parser.add_argument(
         "-cachekeys",
-        help="Save revoked/non-revoked sorted certs to file or load from file if it exists.",
+        help=
+        "Save revoked/non-revoked sorted certs to file or load from file if it exists.",
         action="store_true")
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
@@ -251,7 +259,8 @@ def parseArgs(argv):
         args.knownPath = os.path.join(args.certPath, args.id, "known")
     if args.revokedPath == None:
         args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
-    args.revokedKeys = os.path.join(args.certPath, args.id, "mlbf/keys-revoked")
+    args.revokedKeys = os.path.join(args.certPath, args.id,
+                                    "mlbf/keys-revoked")
     args.validKeys = os.path.join(args.certPath, args.id, "mlbf/keys-valid")
     return args
 
@@ -270,7 +279,7 @@ def main():
     else:
         genCertLists(args, revoked_certs, nonrevoked_certs)
         if args.cachekeys == True:
-           saveCertLists(args, revoked_certs, nonrevoked_certs)
+            saveCertLists(args, revoked_certs, nonrevoked_certs)
     times['certtime'] = datetime.utcnow() - marktime
     log.debug("Cert sort revoked/non-revoked time: %d s R: %d NR: %d" %
               (times['certtime'].total_seconds(), len(revoked_certs),
@@ -281,15 +290,21 @@ def main():
     saveMLBF(args, mlbf)
     # Generate diff filter
     if args.previd != None:
-        args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf/filter.diff.meta")
-        args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf/filter.diff")
+        args.diffMetaFile = os.path.join(args.certPath, args.previd,
+                                         "mlbf/filter.diff.meta")
+        args.diffBaseFile = os.path.join(args.certPath, args.previd,
+                                         "mlbf/filter.diff")
         if not os.path.isfile(args.diffBaseFile):
             # The previous filter didn't have a diff, use the base
-            args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf/filter.meta")
-            args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf/filter")
-        args.patchFile = os.path.join(args.certPath, args.id, "mlbf/filter.%s.patch" % args.previd)
+            args.diffMetaFile = os.path.join(args.certPath, args.previd,
+                                             "mlbf/filter.meta")
+            args.diffBaseFile = os.path.join(args.certPath, args.previd,
+                                             "mlbf/filter")
+        args.patchFile = os.path.join(args.certPath, args.id,
+                                      "mlbf/filter.%s.patch" % args.previd)
         args.outFile = os.path.join(args.certPath, args.id, "mlbf/filter.diff")
-        args.metaFile = os.path.join(args.certPath, args.id, "mlbf/filter.diff.meta")
+        args.metaFile = os.path.join(args.certPath, args.id,
+                                     "mlbf/filter.diff.meta")
         mlbf = generateMLBF(args, revoked_certs, nonrevoked_certs)
         saveMLBF(args, mlbf)
     times['endtime'] = datetime.utcnow()
