@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if [ $# -ne 1 ] ; then
+  echo "Usage: $0 /ct/processing/{IDENTIFIER}"
+  exit 1
+fi
+WORKDIR="$(/usr/bin/dirname ${1})"
+ID="$(/usr/bin/basename ${1})"
+PREVID=""
+
+IDS="$(/bin/ls -1r $WORKDIR)"
+nextone=false
+for id in $IDS
+do
+  if $nextone = true ; then
+    PREVID=$id
+    break
+  fi
+  if [ "$id" == "$ID" ]; then
+    nextone=true
+  fi
+done
+if [ "$PREVID" != "" ]; then
+  /usr/bin/python3 ../create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
+else
+  /usr/bin/python3 ../create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
+fi
+
