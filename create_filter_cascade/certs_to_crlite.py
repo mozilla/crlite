@@ -27,8 +27,6 @@ def open_crl(rawtext):
 
 def getRevokedCRLCerts(crlbase):
     count = 0
-    marktime = datetime.utcnow()
-    totalelapsed = 0
     revoked_set = set()
     for path, dirs, files in os.walk(crlbase):
         for filename in files:
@@ -44,19 +42,14 @@ def getRevokedCRLCerts(crlbase):
                             revoked_set.add(
                                 aki + str(rvk.get_serial().decode('utf-8')))
                             count = count + 1
-                            elapsedinterval = datetime.utcnow() - marktime
-                            if elapsedinterval.total_seconds() > 15:
-                                totalelapsed += elapsedinterval.total_seconds()
-                                log.debug(
-                                    "Time %d R: %d " % (totalelapsed, count))
-                                marktime = datetime.utcnow()
     return revoked_set
 
 
 def getRevokedCerts(args, aki):
-    revoked_set = set()
+    revoked_set = None
     revokedpath = "%s/%s.revoked" % (args.revokedPath, aki)
     if os.path.isfile(revokedpath):
+        revoked_set = set()
         with open(revokedpath, "r") as f:
             try:
                 serials = json.load(f)
@@ -69,12 +62,11 @@ def getRevokedCerts(args, aki):
 
 
 def genCertLists(args, revoked_certs, nonrevoked_certs):
-    marktime = datetime.utcnow()
-    totalelapsed = 0
     counts = {}
     counts['knownrevoked'] = 0
     counts['knownnotrevoked'] = 0
     counts['crls'] = 0
+    counts['nocrl'] = 0
     log.info(
         "Generating revoked/nonrevoked list %s %s" %
         (args.knownPath, args.revokedPath))
@@ -87,7 +79,6 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
             aki = os.path.splitext(filename)[0]
             if aki in args.excludeaki:
                 continue
-            knownAKIs.add(aki)
             knownpath = os.path.join(path, filename)
             # Get known serials for AKI
             with open(knownpath, "r") as f:
@@ -98,12 +89,16 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                     log.error("Failed %s %s" % (aki, knownpath))
                 # Get revoked serials for AKI, if any
                 revlist = getRevokedCerts(args, aki)
+                if revlist == None:
+                    # Skip AKI. No revocations for this AKI.  Not even empty list.
+                    counts['nocrl'] = counts['nocrl'] + 1
+                    continue;
+                knownAKIs.add(aki)
                 counts['crls'] = counts['crls'] + len(revlist)
                 revoked_certs.extend(revlist)
                 # Decide if know serial is revoked or valid
                 for s in serials:
                     key = aki + str(s)
-                    elapsedinterval = datetime.utcnow() - marktime
                     if key not in revlist:
                         nonrevoked_certs.append(key)
                         counts['knownnotrevoked'] = counts[
@@ -112,13 +107,6 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                         # The revoked keys were already processed above.
                         # Just count it here.
                         counts['knownrevoked'] = counts['knownrevoked'] + 1
-                    if elapsedinterval.total_seconds() > 15:
-                        totalelapsed += elapsedinterval.total_seconds()
-                        log.debug("Time %d R: %d KNR: %d KR: %d" %
-                                  (totalelapsed, counts['crls'],
-                                   counts['knownnotrevoked'],
-                                   counts['knownrevoked']))
-                        marktime = datetime.utcnow()
 
     # Go through revoked AKIs and process any that were not part of known AKIs
     for path, dirs, files in os.walk(args.revokedPath):
@@ -131,9 +119,9 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
                 revlist = getRevokedCerts(args, aki)
                 counts['crls'] = counts['crls'] + len(revlist)
                 revoked_certs.extend(revlist)
-    log.debug("Time %d R: %d KNR: %d KR: %d" %
-              (totalelapsed, counts['crls'], counts['knownnotrevoked'],
-               counts['knownrevoked']))
+    log.debug("R: %d KNR: %d KR: %d NOCRL: %d" %
+              (counts['crls'], counts['knownnotrevoked'],
+               counts['knownrevoked'], counts['nocrl']))
 
 def saveCertLists(args, revoked_certs, nonrevoked_certs):
     log.info(
