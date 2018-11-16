@@ -75,82 +75,78 @@ def genCertLists(args, revoked_certs, nonrevoked_certs):
     counts['knownrevoked'] = 0
     counts['knownnotrevoked'] = 0
     counts['crls'] = 0
-    if args.regen == False and os.path.isfile(
-            args.revokedKeys) and os.path.isfile(args.validKeys):
-        return False
-    if not os.path.exists(args.knownPath) or not os.path.exists(
-            args.revokedPath):
-        log.error("path for known or revoked certs doesn't exist")
-        sys.exit()
     log.info(
-        "Generating revoked/nonrevoked list %s %s %s %s" %
-        (args.knownPath, args.revokedPath, args.revokedKeys, args.validKeys))
-    os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
-    os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
-    with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
-                                                      'w') as nonrevfile:
-        knownAKIs = set()
-        # Go through known AKIs/serials
-        # generate a revoked/no
-        for path, dirs, files in os.walk(args.knownPath):
-            for filename in files:
-                aki = os.path.splitext(filename)[0]
-                if aki in args.excludeaki:
-                    continue
-                knownAKIs.add(aki)
-                knownpath = os.path.join(path, filename)
-                # Get known serials for AKI
-                with open(knownpath, "r") as f:
-                    try:
-                        serials = json.load(f)
-                    except Exception as e:
-                        log.error("%s" % e)
-                        log.error("Failed %s %s" % (aki, knownpath))
-                    # Get revoked serials for AKI, if any
-                    revlist = getRevokedCerts(args, aki)
-                    counts['crls'] = counts['crls'] + len(revlist)
-                    revoked_certs.extend(revlist)
-                    for r in revlist:
-                        revfile.write(r + "\n")
-                    # Decide if know serial is revoked or valid
-                    for s in serials:
-                        key = aki + str(s)
-                        elapsedinterval = datetime.utcnow() - marktime
-                        if key not in revlist:
-                            nonrevoked_certs.append(key)
-                            nonrevfile.write(key + "\n")
-                            counts['knownnotrevoked'] = counts[
-                                'knownnotrevoked'] + 1
-                        else:
-                            # The revoked keys were already processed above.
-                            # Just count it here.
-                            counts['knownrevoked'] = counts['knownrevoked'] + 1
-                        if elapsedinterval.total_seconds() > 15:
-                            totalelapsed += elapsedinterval.total_seconds()
-                            log.debug("Time %d R: %d KNR: %d KR: %d" %
-                                      (totalelapsed, counts['crls'],
-                                       counts['knownnotrevoked'],
-                                       counts['knownrevoked']))
-                            marktime = datetime.utcnow()
+        "Generating revoked/nonrevoked list %s %s" %
+        (args.knownPath, args.revokedPath))
 
-        # Go through revoked AKIs and process any that were not part of known AKIs
-        for path, dirs, files in os.walk(args.revokedPath):
-            for filename in files:
-                aki = os.path.splitext(filename)[0]
-                if aki in args.excludeaki:
-                    continue
-                if aki not in knownAKIs:
-                    log.debug("Only revoked certs for AKI %s" % aki)
-                    revlist = getRevokedCerts(args, aki)
-                    counts['crls'] = counts['crls'] + len(revlist)
-                    revoked_certs.extend(revlist)
-                    for r in revlist:
-                        revfile.write(r + "\n")
+    knownAKIs = set()
+    # Go through known AKIs/serials
+    # generate a revoked/no
+    for path, dirs, files in os.walk(args.knownPath):
+        for filename in files:
+            aki = os.path.splitext(filename)[0]
+            if aki in args.excludeaki:
+                continue
+            knownAKIs.add(aki)
+            knownpath = os.path.join(path, filename)
+            # Get known serials for AKI
+            with open(knownpath, "r") as f:
+                try:
+                    serials = json.load(f)
+                except Exception as e:
+                    log.error("%s" % e)
+                    log.error("Failed %s %s" % (aki, knownpath))
+                # Get revoked serials for AKI, if any
+                revlist = getRevokedCerts(args, aki)
+                counts['crls'] = counts['crls'] + len(revlist)
+                revoked_certs.extend(revlist)
+                # Decide if know serial is revoked or valid
+                for s in serials:
+                    key = aki + str(s)
+                    elapsedinterval = datetime.utcnow() - marktime
+                    if key not in revlist:
+                        nonrevoked_certs.append(key)
+                        counts['knownnotrevoked'] = counts[
+                            'knownnotrevoked'] + 1
+                    else:
+                        # The revoked keys were already processed above.
+                        # Just count it here.
+                        counts['knownrevoked'] = counts['knownrevoked'] + 1
+                    if elapsedinterval.total_seconds() > 15:
+                        totalelapsed += elapsedinterval.total_seconds()
+                        log.debug("Time %d R: %d KNR: %d KR: %d" %
+                                  (totalelapsed, counts['crls'],
+                                   counts['knownnotrevoked'],
+                                   counts['knownrevoked']))
+                        marktime = datetime.utcnow()
+
+    # Go through revoked AKIs and process any that were not part of known AKIs
+    for path, dirs, files in os.walk(args.revokedPath):
+        for filename in files:
+            aki = os.path.splitext(filename)[0]
+            if aki in args.excludeaki:
+                continue
+            if aki not in knownAKIs:
+                log.debug("Only revoked certs for AKI %s" % aki)
+                revlist = getRevokedCerts(args, aki)
+                counts['crls'] = counts['crls'] + len(revlist)
+                revoked_certs.extend(revlist)
     log.debug("Time %d R: %d KNR: %d KR: %d" %
               (totalelapsed, counts['crls'], counts['knownnotrevoked'],
                counts['knownrevoked']))
-    return True
 
+def saveCertLists(args, revoked_certs, nonrevoked_certs):
+    log.info(
+        "Saving revoked/nonrevoked list %s %s" %
+        (args.revokedKeys, args.validKeys))
+    os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
+    os.makedirs(os.path.dirname(args.validKeys), exist_ok=True)
+    with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
+                                                      'w') as nonrevfile:
+        for k in revoked_certs:
+            revfile.write("%s\n" % k) 
+        for k in nonrevoked_certs:
+            nonrevfile.write("%s\n" % k) 
 
 def loadCertLists(args, revoked_certs, nonrevoked_certs):
     log.info("Loading revoked/nonrevoked list %s %s" % (args.revokedKeys,
@@ -176,7 +172,7 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
     else:
         log.info("Generating filter")
         cascade = FilterCascade.cascade_with_characteristics(
-            int(len(revoked_certs) * 1.1), [0.02, 0.5])
+            int(len(revoked_certs) * args.capacity), args.errorrate)
 
     if args.limit != None:
         log.debug("Data set limited to %d revoked and %d non-revoked" %
@@ -194,7 +190,6 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
     # Verify generate filter
     marktime = datetime.utcnow()
     if args.noVerify == False:
-        loadCertLists(args, revoked_certs, nonrevoked_certs)
         log.info("Checking/verifying certs against MLBF")
         if args.limit != None:
             cascade.check(revoked_certs[:args.limit],
@@ -260,14 +255,14 @@ def parseArgs(argv):
         type=int,
         help="Only process specified revocations. Non-revoked will be 10x")
     parser.add_argument(
-        "-errorrate", type=float, default=".5", help="MLBF error rate.")
+        "-errorrate", type=float, nargs="*", default=[.02,.5], help="MLBF error rates.")
     parser.add_argument(
         "-capacity", type=float, default="1.1", help="MLBF capacity.")
     parser.add_argument(
-        "-excludeaki", nargs="*", help="Exclude the specified AKIs")
+        "-excludeaki", nargs="*", default=[], help="Exclude the specified AKIs")
     parser.add_argument(
-        "-regen",
-        help="Regenerate revoked/non-revoked data",
+        "-cachekeys",
+        help="Save revoked/non-revoked sorted certs to file or load from file if it exists.",
         action="store_true")
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
@@ -286,8 +281,6 @@ def parseArgs(argv):
         args.knownPath = "%s/%s/known" % (args.certPath, args.id)
     if args.revokedPath == None:
         args.revokedPath = "%s/%s/revoked" % (args.certPath, args.id)
-    if args.excludeaki == None:
-        args.excludeaki = []
     args.revokedKeys = "%s/%s/mlbf/keys-revoked" % (args.certPath, args.id)
     args.validKeys = "%s/%s/mlbf/keys-valid" % (args.certPath, args.id)
     args.outFile = "%s/%s/mlbf/filter" % (args.certPath, args.id)
@@ -303,8 +296,13 @@ def main():
 
     marktime = datetime.utcnow()
     times['starttime'] = marktime
-    if genCertLists(args, revoked_certs, nonrevoked_certs) == False:
+    if args.cachekeys == True and os.path.isfile(
+            args.revokedKeys) and os.path.isfile(args.validKeys):
         loadCertLists(args, revoked_certs, nonrevoked_certs)
+    else:
+        genCertLists(args, revoked_certs, nonrevoked_certs)
+        if args.cachekeys == True:
+           saveCertLists(args, revoked_certs, nonrevoked_certs)
     times['certtime'] = datetime.utcnow() - marktime
     log.debug("Cert sort revoked/non-revoked time: %d s R: %d NR: %d" %
               (times['certtime'].total_seconds(), len(revoked_certs),

@@ -13,13 +13,13 @@ class FilterCascade:
         self.error_rates = error_rates
 
     def initialize(self, set1, set2):
-        starttime = datetime.datetime.utcnow()
         log.debug("{} set1 and {} set2".format(len(set1), len(set2)))
         depth = 1
         include = set1
         exclude = set2
 
         while len(include) > 0:
+            starttime = datetime.datetime.utcnow()
             er = self.error_rates[-1]
             if depth < len(self.error_rates):
                 er = self.error_rates[depth - 1]
