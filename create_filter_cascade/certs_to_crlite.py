@@ -162,13 +162,7 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
         cascade = FilterCascade.cascade_with_characteristics(
             int(len(revoked_certs) * args.capacity), args.errorrate)
 
-    if args.limit != None:
-        log.debug("Data set limited to %d revoked and %d non-revoked" %
-                  (args.limit, args.limit * 10))
-        cascade.initialize(revoked_certs[:args.limit],
-                           nonrevoked_certs[:args.limit * 10])
-    else:
-        cascade.initialize(revoked_certs, nonrevoked_certs)
+    cascade.initialize(revoked_certs, nonrevoked_certs)
 
     times['filtertime'] = datetime.utcnow() - marktime
     log.debug("Filter cascade time: %d, layers: %d, bit: %d" %
@@ -179,11 +173,7 @@ def generateMLBF(args, revoked_certs, nonrevoked_certs):
     marktime = datetime.utcnow()
     if args.noVerify == False:
         log.info("Checking/verifying certs against MLBF")
-        if args.limit != None:
-            cascade.check(revoked_certs[:args.limit],
-                          nonrevoked_certs[:args.limit * 10])
-        else:
-            cascade.check(revoked_certs, nonrevoked_certs)
+        cascade.check(revoked_certs, nonrevoked_certs)
     times['checktime'] = datetime.utcnow() - marktime
     log.debug(
         "Total check time %d seconds" % times['checktime'].total_seconds())
@@ -239,10 +229,6 @@ def parseArgs(argv):
         help=
         "Directory containing known unexpired serials.  <AKI>.known JSON files."
     )
-    parser.add_argument(
-        "-limit",
-        type=int,
-        help="Only process specified revocations. Non-revoked will be 10x")
     parser.add_argument(
         "-errorrate", type=float, nargs="*", default=[.02,.5], help="MLBF error rates.")
     parser.add_argument(
