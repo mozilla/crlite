@@ -1,0 +1,77 @@
+#!/bin/bash
+
+export HTTPS_PROXY=socks5://localhost:32547/ 
+
+validateMLBF() {
+  mlbf="${1}"
+  if [ ! -r "${mlbf}" ] ; then
+    echo "MLBF not found at ${mlbf}"
+    exit 1
+  fi
+
+  if [ ! -r "${mlbf}.meta" ] ; then
+    echo "MLBF metadata not found at ${mlbf}.meta"
+    exit 1
+  fi
+}
+
+if [ "$KINTO_AUTH_TOKEN" == "" ] ; then
+  echo "You'll need to export or set KINTO_AUTH_TOKEN before calling this."
+  echo "Example: "
+  echo "   KINTO_AUTH_TOKEN=ArandomLookingKintoAuthToken $0"
+  exit 1
+fi
+
+command -v bsdiff >/dev/null 2>&1 || { echo >&2 "bsdiff not found"; exit 1; }
+
+if [ $# -ne 1 ] ; then
+   echo "Usage: $0 /ct/processing/{IDENTIFIER}"
+   exit 1
+fi
+
+if [ ! -d ${1} ] ; then
+  echo "${1} is not a path."
+  exit 1
+fi
+
+identifier="$(basename ${1})"
+currentMLBF="/ct/processing/${identifier}/mlbf/filter"
+validateMLBF "${currentMLBF}"
+
+previousIdentifier=$(basename $(find /ct/processing -maxdepth 1 -type d | grep -v "${identifier}" | tail -n 1))
+previousMLBF="/ct/processing/${previousIdentifier}/mlbf/filter"
+validateMLBF "${previousMLBF}"
+
+patchMLBF="/ct/processing/${identifier}/mlbf/patch"
+
+echo Producing delta file...
+/usr/bin/time bsdiff "${previousMLBF}" "${currentMLBF}" "${patchMLBF}"
+
+ls -la "${patchMLBF}" "${currentMLBF}"
+
+filterSize=$(stat --printf="%s" "${currentMLBF}")
+patchSize=$(stat --printf="%s" "${patchMLBF}")
+ratio=$(echo ${patchSize}/${filterSize} | bc -l)
+
+echo "Filter size: ${filterSize}"
+echo "Patch size: ${patchSize}"
+echo "Ratio: ${ratio}"
+
+
+echo "Auth token: $KINTO_AUTH_TOKEN"
+echo "Proxy: $HTTPS_PROXY"
+echo "Remember, you needed to SSH into here with 'ssh -R 32547 <hostname>' to set up the reverse proxy. "
+echo "Also note:"
+echo "  1) This is a cheating way to get around firewall restrictions, bouncing to your home box."
+echo "  2) You'll need to have the VPN connected."
+echo "  3) You'll need OpenSSH 6.7 or later."
+
+if (( $(echo "${ratio} > 0.4" | bc -l) )); then
+  echo "Making a new base filter."
+  python3 ~/crlite/kinto-publisher/main.py --in "${currentMLBF}"
+
+else
+  echo "Posting a new incremental filter patch."
+  python3 ~/crlite/kinto-publisher/main.py --diff --in "${patchMLBF}"
+fi
+

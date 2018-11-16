@@ -167,7 +167,7 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 }
 
 func DownloadFileSync(display *mpb.Progress, crlUrl url.URL, path string) error {
-	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String)
+	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String())
 
 	return download(display, crlUrl, path)
 }

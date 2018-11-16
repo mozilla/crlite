@@ -83,7 +83,7 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer string) (string, error) {
 
 	entry, ok := mi.issuerMap[aIssuer]
 	if !ok {
-		return nil, fmt.Errorf("Unknown issuer: %s", aIssuer)
+		return "", fmt.Errorf("Unknown issuer: %s", aIssuer)
 	}
 	return entry.subjectDN, nil
 }

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+remaining="$(pgrep --exact ct-fetch)"
+if [ "${remaining}" != "" ] ; then
+  echo "Stopping other instances of ct-fetch at these PIDs: ${remaining}"
+  # cleanly stop all ct-fetch ops running
+  killall --exact --wait -SIGTERM ct-fetch
+
+  sleep 3
+fi
+
+remaining="$(pgrep --exact ct-fetch)"
+if [ "${remaining}" != "" ] ; then
+  echo "WARNING: There may still be running ct-fetch instances at these PIDs: ${remaining}"
+fi
+
+/usr/bin/time ~/go/bin/ct-fetch -log_dir /tmp/

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+workflow=~/go/src/github.com/mozilla/crlite/workflow
+
+ID=$(${workflow}/0-allocate_identifier)
+
+${workflow}/1-ct-fetch
+${workflow}/2-produce_revocation_data ${ID}
+${workflow}/3-produce_known_data ${ID}
