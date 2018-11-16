@@ -259,14 +259,14 @@ def parseArgs(argv):
     args.diffMetaFile = None
     args.diffBaseFile = None
     args.patchFile = None
-    args.outFile = "%s/%s/mlbf/filter" % (args.certPath, args.id)
-    args.metaFile = "%s/%s/mlbf/filter.meta" % (args.certPath, args.id)
+    args.outFile = os.path.join(args.certPath, args.id, "mlbf/filter")
+    args.metaFile = os.path.join(args.certPath, args.id, "mlbf/filter.meta")
     if args.knownPath == None:
-        args.knownPath = "%s/%s/known" % (args.certPath, args.id)
+        args.knownPath = os.path.join(args.certPath, args.id, "known")
     if args.revokedPath == None:
-        args.revokedPath = "%s/%s/revoked" % (args.certPath, args.id)
-    args.revokedKeys = "%s/%s/mlbf/keys-revoked" % (args.certPath, args.id)
-    args.validKeys = "%s/%s/mlbf/keys-valid" % (args.certPath, args.id)
+        args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
+    args.revokedKeys = os.path.join(args.certPath, args.id, "mlbf/keys-revoked")
+    args.validKeys = os.path.join(args.certPath, args.id, "mlbf/keys-valid")
     return args
 
 
@@ -295,18 +295,15 @@ def main():
     saveMLBF(args, mlbf)
     # Generate diff filter
     if args.previd != None:
-        args.diffMetaFile = "%s/%s/mlbf/filter.diff.meta" % (args.certPath,
-                                                        args.previd)
-        args.diffBaseFile = "%s/%s/mlbf/filter.diff" % (args.certPath, args.previd)
+        args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf/filter.diff.meta")
+        args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf/filter.diff")
         if not os.path.isfile(args.diffBaseFile):
             # The previous filter didn't have a diff, use the base
-            args.diffMetaFile = "%s/%s/mlbf/filter.meta" % (args.certPath,
-                                                        args.previd)
-            args.diffBaseFile = "%s/%s/mlbf/filter" % (args.certPath, args.previd)
-        args.patchFile = "%s/%s/mlbf/filter.%s.patch" % (args.certPath,
-                                                         args.id, args.previd)
-        args.outFile = "%s/%s/mlbf/filter.diff" % (args.certPath, args.id)
-        args.metaFile = "%s/%s/mlbf/filter.diff.meta" % (args.certPath, args.id)
+            args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf/filter.meta")
+            args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf/filter")
+        args.patchFile = os.path.join(args.certPath, args.id, "mlbf/filter.%s.patch" % args.previd)
+        args.outFile = os.path.join(args.certPath, args.id, "mlbf/filter.diff")
+        args.metaFile = os.path.join(args.certPath, args.id, "mlbf/filter.diff.meta")
         mlbf = generateMLBF(args, revoked_certs, nonrevoked_certs)
         saveMLBF(args, mlbf)
     times['endtime'] = datetime.utcnow()
