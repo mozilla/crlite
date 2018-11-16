@@ -21,8 +21,8 @@ do
   fi
 done
 if [ "$PREVID" != "" ]; then
-  python3 ../create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
+  python3 ~/crlite/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
 else
-  python3 ../create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
+  python3 ~/crlite/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
 fi
 
