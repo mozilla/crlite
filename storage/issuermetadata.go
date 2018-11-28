@@ -90,25 +90,39 @@ func (im *IssuerMetadata) addCRL(aCRL string) {
 	// Assume that im.mutex is locked
 	count := len(im.Metadata.Crls)
 
+	url, err := url.Parse(strings.TrimSpace(aCRL))
+	if err != nil {
+		glog.Warningf("Not a valid CRL DP URL: %s %s", aCRL, err)
+		return
+	}
+
+	if url.Scheme == "ldap" || url.Scheme == "ldaps" {
+		return
+	} else if url.Scheme != "http" && url.Scheme != "https" {
+		glog.V(3).Infof("Ignoring unknown CRL scheme: %v", url)
+		return
+	}
+
 	idx := sort.Search(count, func(i int) bool {
-		return strings.Compare(aCRL, *im.Metadata.Crls[i]) <= 0
+		return strings.Compare(url.String(), *im.Metadata.Crls[i]) <= 0
 	})
 
 	var cmp int
 	if idx < count {
-		cmp = strings.Compare(aCRL, *im.Metadata.Crls[idx])
+		cmp = strings.Compare(url.String(), *im.Metadata.Crls[idx])
 	}
 
 	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.filePath, aCRL, idx)
+		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.filePath, url.String(), idx)
 		return
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.filePath, aCRL, idx)
+	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.filePath, url.String(), idx)
 	im.Metadata.Crls = append(im.Metadata.Crls, nil)
 	copy(im.Metadata.Crls[idx+1:], im.Metadata.Crls[idx:])
-	im.Metadata.Crls[idx] = &aCRL
+	sanitizedCRL := url.String()
+	im.Metadata.Crls[idx] = &sanitizedCRL
 }
 
 func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) {
@@ -142,19 +156,7 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) {
 	defer im.mutex.Unlock()
 
 	for _, dp := range aCert.CRLDistributionPoints {
-		url, err := url.Parse(dp)
-		if err != nil {
-			glog.Warningf("Not a valid CRL DP URL: %s %s", dp, err)
-			continue
-		}
-
-		if url.Scheme == "http" || url.Scheme == "https" {
-			im.addCRL(dp)
-		} else if url.Scheme == "ldap" || url.Scheme == "ldaps" {
-			return
-		} else {
-			glog.V(3).Infof("Ignoring unknown CRL scheme: %v", url)
-		}
+		im.addCRL(dp)
 	}
 
 	im.addIssuerDN(aCert.Issuer.String())
