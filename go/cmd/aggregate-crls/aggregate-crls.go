@@ -103,12 +103,12 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 
 			err = downloader.DownloadFileSync(display, crlUrl, path)
 			if err != nil {
-				glog.Warningf("[%s] Could not download %s to %s", tuple.Issuer, crlUrl.String(), path)
+				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer, crlUrl.String(), path, err)
 				// Does it already exist on disk? If so, use that version and not die.
 
 				_, localDate, err := downloader.GetSizeAndDateOfFile(path)
 				if err != nil {
-					glog.Warningf("[%s] Could not download, and no local file", crlUrl.String())
+					glog.Errorf("[%s] Could not download, and no local file, will not be populating the revocations", crlUrl.String())
 					// panic("Not handling download failure without a local copy")
 					continue
 				}
@@ -116,7 +116,7 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 				age := time.Now().Sub(localDate)
 
 				if age > allowableAgeOfLocalCRL {
-					glog.Warningf("[%s] Could not download, and out of date local file. Age: %s", crlUrl.String(), age.String())
+					glog.Errorf("[%s] Could not download, and out of date local file, will not be populating the revocations. Age: %s", crlUrl.String(), age.String())
 					// panic("Not handling download failure without an up-to-date local copy")
 					continue
 				}
@@ -144,18 +144,18 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 	glog.Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		glog.Warningf("[%s] Error reading: %s", aPath, err)
+		glog.Errorf("[%s] Error reading CRL, will not process revocations: %s", aPath, err)
 		return
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
-		glog.Warningf("[%s] Error parsing: %s", aPath, err)
+		glog.Errorf("[%s] Error parsing, will not process revocations: %s", aPath, err)
 		return
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
-		glog.Errorf("[%s] Invalid signature on CRL: %s", aPath, err)
+		glog.Errorf("[%s] Invalid signature on CRL, will not process revocations: %s", aPath, err)
 		return
 	}
 
@@ -307,7 +307,7 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 		var urls []url.URL
 
 		for iUrl := range crlMap {
-			urlObj, err := url.Parse(iUrl)
+			urlObj, err := url.Parse(strings.TrimSpace(iUrl))
 			if err != nil {
 				glog.Warningf("Ignoring URL %s: %s", iUrl, err)
 				continue

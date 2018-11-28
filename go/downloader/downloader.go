@@ -113,6 +113,10 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Non-OK status: %s", resp.Status)
+	}
+
 	var outFileParams int
 	switch action {
 	case Resume:
