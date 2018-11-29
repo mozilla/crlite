@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -46,9 +48,11 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 	filename := fmt.Sprintf("%s-%s", crlUrl.Hostname(), path.Base(crlUrl.Path))
 	filename = strings.ToLower(filename)
 	filename = illegalPath.ReplaceAllString(filename, "")
-	if strings.HasSuffix(filename, ".crl") == false {
-		filename = fmt.Sprintf("%s.crl", filename)
-	}
+
+	hash := sha256.Sum256([]byte(crlUrl.String()))
+
+	filename = strings.TrimSuffix(filename, ".crl")
+	filename = fmt.Sprintf("%s-%s.crl", filename, hex.EncodeToString(hash[:8]))
 	return filename
 }
 

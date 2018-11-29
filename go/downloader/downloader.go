@@ -157,16 +157,16 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 		return err
 	}
 
+	// Sometimes ContentLength is crazy far off.
+	progBar.SetTotal(totalBytes, true)
+
 	lastMod, err := http.ParseTime(resp.Header.Get("Last-Modified"))
 	if err != nil {
 		glog.Warningf("[%s] Couldn't set modified time: %s [%s]", crlUrl.String(), err, resp.Header.Get("Last-Modified"))
 		return nil
 	}
+
 	os.Chtimes(path, lastMod, lastMod)
-
-	// Sometimes ContentLength is crazy far off.
-	progBar.SetTotal(totalBytes, true)
-
 	return nil
 }
 
