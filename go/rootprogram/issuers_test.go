@@ -127,15 +127,13 @@ func Test_GetIssuersEmptySPKI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Skip("Not yet handling empty certificates with empty SPKIs")
-
 	issuers := mi.GetIssuers()
 	if len(issuers) != 1 {
 		t.Error("Expecting one issuer")
 	}
 
-	if issuers[0] == "" {
-		t.Errorf("SPKI must not have been empty")
+	if issuers[0] != "RZQbKdvDIkL6QOTsnXF6e3X6zUU=" {
+		t.Errorf("SPKI should have been replaced with the sha1 value")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/pem"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"net/http"
@@ -130,11 +131,16 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 			return err
 		}
 
+		var issuerID string
 		if len(cert.SubjectKeyId) < 8 {
-			glog.Warningf("SPKI is short: %v Issuer: %s Subject: %s AKI: %v", cert.SubjectKeyId, cert.Issuer.String(), cert.Subject.String(), cert.AuthorityKeyId)
-		}
 
-		issuerID := base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
+			digest := sha1.Sum(cert.RawSubjectPublicKeyInfo)
+			issuerID = base64.URLEncoding.EncodeToString(digest[0:])
+
+			glog.Warningf("[issuer: %s] SPKI is short: %v, using %s instead.", cert.Issuer.String(), cert.SubjectKeyId, issuerID)
+		} else {
+			issuerID = base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
+		}
 
 		mi.issuerMap[issuerID] = IssuerData{
 			cert:      cert,
