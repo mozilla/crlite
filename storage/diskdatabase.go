@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -330,8 +331,21 @@ func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
 	return nil
 }
 
+func getSpki(aCert *x509.Certificate) []byte {
+	if len(aCert.SubjectKeyId) < 8 {
+		digest := sha1.Sum(aCert.RawSubjectPublicKeyInfo)
+
+		glog.Warningf("[issuer: %s] SPKI is short: %v, using %v instead.", aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
+		return digest[0:]
+	}
+
+	return aCert.SubjectKeyId
+}
+
 func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
-	dirPath, filePath := db.getPathForID(&aCert.NotAfter, aCert.SubjectKeyId, aCert.AuthorityKeyId)
+	spki := getSpki(aCert)
+
+	dirPath, filePath := db.getPathForID(&aCert.NotAfter, spki, aCert.AuthorityKeyId)
 	if !isDirectory(dirPath) {
 		err := os.MkdirAll(dirPath, os.ModeDir|0777)
 		if err != nil {
