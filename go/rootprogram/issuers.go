@@ -131,7 +131,7 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 		}
 
 		if len(cert.SubjectKeyId) < 8 {
-			glog.Warningf("SPKI is short: %v Issuer: %s Subject: %s", cert.SubjectKeyId, cert.Issuer.String(), cert.Subject.String())
+			glog.Warningf("SPKI is short: %v Issuer: %s Subject: %s AKI: %v", cert.SubjectKeyId, cert.Issuer.String(), cert.Subject.String(), cert.AuthorityKeyId)
 		}
 
 		issuerID := base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
