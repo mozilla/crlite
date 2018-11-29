@@ -48,7 +48,7 @@ cxhzf8XjZXECKL54a/4o9ISBcA==
 	kFirstTwoLinesAKI     = "vrwI1C66AEyA3CZntKXY3cNKGvk="
 	kFirstTwoLinesSubject = "SERIALNUMBER=A82743287,CN=RACER,O=AC Camerfirma SA,L=Madrid (see current address at www.camerfirma.com/address),C=ES"
 
-  kEmptySPKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM Info"
+	kEmptySPKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM Info"
 "Test Corporation","Test Corporation","test","Test Corporation","Test Corporation CA","","test","Test Corporation CA","71:8a:bd:2f:20:13:18:ea:a2:73:67:b0:3d:b5:3f:6b:24:3c:f6:f5","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2016 Nov 27","2019 Feb 05","http://crl.example.com/test.crl","RSA 2048 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","","'-----BEGIN CERTIFICATE-----
 MIICyTCCAbGgAwIBAgIURxOdvmKY1LMeejuRTiuHeGBhZHwwDQYJKoZIhvcNAQEL
 BQAwDTELMAkGA1UEAwwCY2EwIhgPMjAxNjExMjcwMDAwMDBaGA8yMDE5MDIwNTAw
@@ -119,7 +119,6 @@ func Test_GetIssuers(t *testing.T) {
 		t.Errorf("Unexpected issuer SPKI, got: [%s]", issuers[0])
 	}
 }
-
 
 func Test_GetIssuersEmptySPKI(t *testing.T) {
 	mi, err := loadSampleIssuers(kEmptySPKI)

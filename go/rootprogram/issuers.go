@@ -1,10 +1,10 @@
 package rootprogram
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/pem"
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"net/http"
