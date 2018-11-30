@@ -31,6 +31,10 @@ def main():
   if args.noop:
     print("No-op mode, not deleting anything...")
 
+  now = time.gmtime()
+  if args.today:
+    now = datetime.strptime(args.today, "%Y-%m-%d").timetuple()
+
   pbar = ProgressBar(widgets=widgets, max_value=len(dirlist), redirect_stdout=True)
   pbar.start()
 
@@ -48,15 +52,15 @@ def main():
 
     # Is this expired (check by looking the path so we don't have to continue
     # to load)
-    pathdate = datetime.strptime(item, "%Y-%m-%d").timetuple()
-    now = time.gmtime()
-    if args.today:
-      now = datetime.strptime(args.today, "%Y-%m-%d").timetuple()
+    try:
+      pathdate = datetime.strptime(item, "%Y-%m-%d").timetuple()
 
-    if (pathdate.tm_year < now.tm_year) or (pathdate.tm_year == now.tm_year and pathdate.tm_yday < now.tm_yday):
-      print("Deleting: {}".format(entry))
-      if not args.noop:
-        shutil.rmtree(entry)
+      if (pathdate.tm_year < now.tm_year) or (pathdate.tm_year == now.tm_year and pathdate.tm_yday < now.tm_yday):
+        print("Deleting: {}".format(entry))
+        if not args.noop:
+          shutil.rmtree(entry)
+    except ValueError:
+      pass
 
   pbar.finish()
   print("All done.")
