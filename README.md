@@ -2,54 +2,68 @@ This collection of tools is designed to assemble a cascading
 bloom filter containing all TLS certificate revocations, as described
 in this [CRLite paper.](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf)
 
-These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper. 
+These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper.
 
 ## Dependancies
 1. `ct-fetch` from [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
 1. Python 3
-2. Aria2c
-4. Patience; many scripts take several hours even with multiprocessing
+1. Patience; many scripts take several hours even with multiprocessing
 
-## Instructions
-### Part A: Obtaining all Certificates
-Use `ct-fetch` from [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
-to fetch all certificates from CT logs.
+## Setup
 
-### Part B: Determining CRL Revocations
-1. `pip install -r requirements.txt`
-2. `cd get_CRL_revocations`
-3. Edit `settings.py` `CT_FETCH_DATA_DIR` to point to the directory where you
-   fetched the CT data in Part A.
+### Installation
 
-The data pipeline for transforming CT log data into 2 final sets of "revoked"
-and "non-revoked" certs is broken up into a number of processes. Each step
-below creates an output that feeds into the next step.
+```
+go install -u github.com/jcjones/ct-mapreduce/cmd/ct-fetch
+go install -u github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
+go install -u github.com/mozilla/crlite/go/cmd/aggregate-crls
+go install -u github.com/mozilla/crlite/go/cmd/aggregate-known
+go install -u github.com/mozilla/crlite/go/cmd/get-mozilla-issuers
 
-Note: You can pass `--limit NNNN` to `extract_crls` to limit the number of
-certs it will process. The rest of the steps will work the same - the resulting
-data files will just be smaller. This is a good way to develop, test, and
-debug.
+pip3 install -r requirements.txt
+```
 
-4. `python extract_crls.py` loops over the `ct-fetch` data and outputs 2 files:
-   * `certs_using_CRL.json` - all certificates which have listed CRLs
-   * `CRL_servers.txt` - all CRL distribution points
-5. `aria2c -d all_CRLs -i CRL_servers.txt -j 16` downloads all CRLs from
-   `CRL_servers.txt` into the
-   * `all_CRLs/` directory
-6. `python build_megaCRL.py` combines all the CRLs in `all_CRLs/` into a
-   single:
-   * `megaCRL.json`
-7. `python build_CRL_revoked.py` parses `certs_using_crl.json` and `megaCRL.json`
-   into:
-   * `final_CRL_revoked.json` file
-   * `final_CRL_nonrevoked.json` file
+### Configuration
 
-### Part C: Building The Filter
+Configure a `~/.ct-fetch.ini`
+```
+certPath = /ct
+numThreads = 16
+cacheSize = 2048
+```
 
-8. `cd ../create_filter_cascade`
-9. `python certs_to_crlite.py` uses the `final_CRL_*` `json` files to create:
-   * `moz-crlite-mlbf-YYYYMMDD` multi-level bloom filter file
+Be sure to add the list of CT logs you wish to fetch. To get all current ones from
+[certificate-transparency.org](https://certificate-transparency.org/):
+```
+echo "logList = $(setup/list_all_active_ct_logs)" >> ~/.ct-fetch.ini
+```
 
+## General Operation
+
+Run the scripts in [`workflow/`](https://github.com/mozilla/crlite/tree/master/workflow)
+in order, each time step desired.
+
+## Tools
+
+*`ct-fetch`*
+Downloads all CT entries' certificates to `certPath` and collects their metadata. The results are
+collated into `*certPath config*/*expiration date*/*issuer SKI base64*.pem{.known/.meta}`
+
+*`reprocess-known-certs`*
+Reprocesses all `.pem` files to update the `.pem.meta` and `.pem.known` files. Needed if there's
+suspected corruption from crashes of `ct-fetch`.
+
+*`aggregate-crls`*
+Obtains all CRLs defined in all CT entries' certificates, verifies them, and collates their results
+into `*issuer SKI base64*.revoked` files.
+
+*`aggregate-known`*
+Collates all CT entries' unexpired certificates into `*issuer SKI base64*.known` files.
+
+*`get-mozilla-issuers`*
+Produces a JSON-formatted list of all `*issuer SKI base64*` identifiers in the Mozilla root program.
+The `aggregate-crls` and `aggregate-known` tools use that information, it can also be useful for
+other scripts, hence this utility.
 
 ## Credits
 
