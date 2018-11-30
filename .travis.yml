@@ -1,0 +1,9 @@
+language: go
+
+script:
+  - export GOROOT=$(go env GOROOT)
+  - if [ -n "$(gofmt -l .)" ]; then
+      echo "Go code is not formatted:"; gofmt -d .; exit 1;
+    fi
+  - go test ./storage
+  - go test -race -short ./storage
