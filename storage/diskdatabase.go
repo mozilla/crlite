@@ -161,9 +161,10 @@ func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, err
 				return filepath.SkipDir
 			}
 
-			// Note: Parses in UTC
+			// Note: Parses in UTC.  Comparison granularity is only to the day.
 			t, err := time.Parse(kExpirationFormat, info.Name())
-			if err == nil && t.After(aNotBefore) {
+			aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
+			if err == nil && !t.Before(aNotBefore) {
 				expDates = append(expDates, info.Name())
 				return filepath.SkipDir
 			}
