@@ -3,12 +3,12 @@ package storage
 import (
 	"bytes"
 	"encoding/pem"
-	"testing"
 	"io/ioutil"
-	"path/filepath"
-	"time"
-	"reflect"
 	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
 )
