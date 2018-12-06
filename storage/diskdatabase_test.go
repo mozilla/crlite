@@ -3,7 +3,12 @@ package storage
 import (
 	"bytes"
 	"encoding/pem"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
 )
@@ -89,5 +94,71 @@ func Test_GetSpkiSyntheticSPKI(t *testing.T) {
 
 	if len(spki) != 20 {
 		t.Errorf("Synthetic SPKI should be 20 bytes long: %d %v", len(spki), spki)
+	}
+}
+
+func Test_ListExpiration(t *testing.T) {
+	var err error
+	var storageDB CertDatabase
+	var dir string
+
+	dir, err = ioutil.TempDir("", "testListExpiration")
+	os.MkdirAll(filepath.Join(dir, "2017-11-28"), 0777)
+	os.MkdirAll(filepath.Join(dir, "2018-11-28"), 0777)
+	os.MkdirAll(filepath.Join(dir, "2019-11-28"), 0777)
+	defer os.RemoveAll(dir)
+
+	storageDB, err = NewDiskDatabase(1, dir, 0644)
+	if err != nil {
+		t.Fatalf("Can't find DB: %s", err.Error())
+	}
+	if storageDB == nil {
+		t.Fatalf("Can't find DB")
+	}
+
+	var refTime time.Time
+	var expDates []string
+
+	// All dirs valid.
+	expectedDates := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
+	refTime, err = time.Parse(time.RFC3339, "2016-11-29T15:04:05Z")
+	expDates, err = storageDB.ListExpirationDates(refTime)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if reflect.DeepEqual(expectedDates, expDates) == false {
+		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
+	}
+	// Some dirs valid.
+	expectedDates = []string{"2019-11-28"}
+	refTime, err = time.Parse(time.RFC3339, "2018-11-29T15:04:05Z")
+	expDates, err = storageDB.ListExpirationDates(refTime)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if reflect.DeepEqual(expectedDates, expDates) == false {
+		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
+	}
+
+	// No dirs valid
+	expectedDates = []string{}
+	refTime, err = time.Parse(time.RFC3339, "2020-11-29T15:04:05Z")
+	expDates, err = storageDB.ListExpirationDates(refTime)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if reflect.DeepEqual(expectedDates, expDates) == false {
+		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
+	}
+
+	// Some dirs valid with ref year, month, and day equal to a dir name
+	expectedDates = []string{"2018-11-28", "2019-11-28"}
+	refTime, err = time.Parse(time.RFC3339, "2018-11-28T23:59:59Z")
+	expDates, err = storageDB.ListExpirationDates(refTime)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if reflect.DeepEqual(expectedDates, expDates) == false {
+		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
 	}
 }
