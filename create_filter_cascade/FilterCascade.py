@@ -1,3 +1,6 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
 from bloomer import Bloomer
 from struct import pack, unpack, calcsize
 import datetime
@@ -12,11 +15,10 @@ class FilterCascade:
         self.filters = filters
         self.error_rates = error_rates
 
-    def initialize(self, set1, set2):
-        log.debug("{} set1 and {} set2".format(len(set1), len(set2)))
+    def initialize(self, *, include, exclude):
+        log.debug("{} include and {} exclude".format(
+            len(include), len(exclude)))
         depth = 1
-        include = set1
-        exclude = set2
 
         while len(include) > 0:
             starttime = datetime.datetime.utcnow()
@@ -64,7 +66,7 @@ class FilterCascade:
             else:
                 return False != even
 
-    def check(self, entries, exclusions):
+    def check(self, *, entries, exclusions):
         for entry in entries:
             assert entry in self, "oops! false negative!"
         for entry in exclusions:
@@ -85,6 +87,7 @@ class FilterCascade:
                 pack(FilterCascade.FILE_FMT, filter.size, filter.nHashFuncs,
                      filter.level))
 
+    # Follows the bitarray.tofile parameter convention.
     def tofile(self, f):
         for filter in self.filters:
             filter.tofile(f)
@@ -95,8 +98,10 @@ class FilterCascade:
         size = calcsize(FilterCascade.FILE_FMT)
         data = f.read()
         while len(data) >= size:
+            filtersize, nHashFuncs, level = unpack(FilterCascade.FILE_FMT,
+                                                   data[:size])
             filters.append(
-                Bloomer(*unpack(FilterCascade.FILE_FMT, data[:size])))
+                Bloomer(size=filtersize, nHashFuncs=nHashFuncs, level=level))
             data = data[size:]
         return FilterCascade(filters)
 

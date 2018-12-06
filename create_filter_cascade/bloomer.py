@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 # A simple-as-possible bloom filter implementation making use of version 3 of the 32-bit murmur
 # hash function (for compat with multi-level-bloom-filter-js).
 # mgoodwin 2018
@@ -13,7 +17,7 @@ log = logging.getLogger(__name__)
 class Bloomer:
     FILE_FMT = b'<III'
 
-    def __init__(self, size, nHashFuncs, level):
+    def __init__(self, *, size, nHashFuncs, level):
         self.nHashFuncs = nHashFuncs
         self.size = size
         self.level = level
@@ -51,6 +55,7 @@ class Bloomer:
     def clear(self):
         self.bitarray.setall(False)
 
+    # Follows the bitarray.tofile parameter convention.
     def tofile(self, f):
         """Write the bloom filter to file object `f'. Underlying bits
         are written as machine values. This is much more space
@@ -63,7 +68,7 @@ class Bloomer:
     def filter_with_characteristics(cls, elements, falsePositiveRate, level=1):
         nHashFuncs = Bloomer.calc_n_hashes(falsePositiveRate)
         size = Bloomer.calc_size(nHashFuncs, elements, falsePositiveRate)
-        return Bloomer(size, nHashFuncs, level)
+        return Bloomer(size=size, nHashFuncs=nHashFuncs, level=level)
 
     @classmethod
     def calc_n_hashes(cls, falsePositiveRate):
@@ -84,7 +89,7 @@ class Bloomer:
             ba = bitarray.bitarray(endian="little")
             ba.frombytes(buf[12:12 + byte_count])
             buf = buf[12 + byte_count:]
-            bloomer = Bloomer(1, nHashFuncs, level)
+            bloomer = Bloomer(size=1, nHashFuncs=nHashFuncs, level=level)
             bloomer.size = size
             log.debug("Size is {}, level {}, nHashFuncs, {}".format(
                 size, level, nHashFuncs))
