@@ -140,14 +140,16 @@ def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
     log.debug("Filter cascade layers: {layers}, bit: {bits}".format(
         layers=cascade.layerCount(), bits=cascade.bitCount()))
     sw.end('mlbf')
+    return cascade
 
+
+def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
     # Verify generate filter
     sw.start('verify')
     if args.noVerify == False:
         log.info("Checking/verifying certs against MLBF")
         cascade.check(entries=revoked_certs, exclusions=nonrevoked_certs)
     sw.end('verify')
-    return cascade
 
 
 def saveMLBF(args, cascade):
@@ -256,32 +258,45 @@ def main():
     # Generate new filter
     mlbf = generateMLBF(
         args, revoked_certs=revoked_certs, nonrevoked_certs=nonrevoked_certs)
-    saveMLBF(args, mlbf)
+    if mlbf.bitCount() > 0:
+        verifyMLBF(
+            args,
+            mlbf,
+            revoked_certs=revoked_certs,
+            nonrevoked_certs=nonrevoked_certs)
+        saveMLBF(args, mlbf)
     sw.end('crlite')
     log.info(sw.format_last_report())
     # Generate diff filter
     sw.start('crlite')
     if args.previd != None:
-        args.diffMetaFile = os.path.join(args.certPath, args.previd,
-                                         "mlbf","filter.diff.meta")
-        args.diffBaseFile = os.path.join(args.certPath, args.previd,
-                                         "mlbf","filter.diff")
+        args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf",
+                                         "filter.diff.meta")
+        args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf",
+                                         "filter.diff")
         if not os.path.isfile(args.diffBaseFile):
             # The previous filter didn't have a diff, use the base
             args.diffMetaFile = os.path.join(args.certPath, args.previd,
-                                             "mlbf","filter.meta")
+                                             "mlbf", "filter.meta")
             args.diffBaseFile = os.path.join(args.certPath, args.previd,
-                                             "mlbf","filter")
-        args.patchFile = os.path.join(args.certPath, args.id,
-                                      "mlbf","filter.%s.patch" % args.previd)
-        args.outFile = os.path.join(args.certPath, args.id, "mlbf","filter.diff")
-        args.metaFile = os.path.join(args.certPath, args.id,
-                                     "mlbf","filter.diff.meta")
+                                             "mlbf", "filter")
+        args.patchFile = os.path.join(args.certPath, args.id, "mlbf",
+                                      "filter.%s.patch" % args.previd)
+        args.outFile = os.path.join(args.certPath, args.id, "mlbf",
+                                    "filter.diff")
+        args.metaFile = os.path.join(args.certPath, args.id, "mlbf",
+                                     "filter.diff.meta")
         mlbf = generateMLBF(
             args,
             revoked_certs=revoked_certs,
             nonrevoked_certs=nonrevoked_certs)
-        saveMLBF(args, mlbf)
+        if mlbf.bitCount() > 0:
+            verifyMLBF(
+                args,
+                mlbf,
+                revoked_certs=revoked_certs,
+                nonrevoked_certs=nonrevoked_certs)
+            saveMLBF(args, mlbf)
     sw.end('crlite')
     log.info(sw.format_last_report())
 
