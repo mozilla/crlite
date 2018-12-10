@@ -29,11 +29,13 @@ class FilterCascade:
             if depth > len(self.filters):
                 self.filters.append(
                     Bloomer.filter_with_characteristics(
-                        len(exclude), er, depth))
+                        int(len(include) * 1.1), er, depth))
 
-            log.debug("Initializing the {}-depth layer. err={}".format(
-                depth, er))
             filter = self.filters[depth - 1]
+            log.debug(
+                "Initializing the {}-depth layer. err={} include={} exclude={} size={} hashes={}"
+                .format(depth, er, len(include), len(exclude), filter.size,
+                        filter.nHashFuncs))
             # loop over the elements that *should* be there. Add them to the filter.
             for elem in include:
                 filter.add(elem)
@@ -52,9 +54,24 @@ class FilterCascade:
                     (endtime - starttime).seconds * 1000 +
                     (endtime - starttime).microseconds / 1000, depth,
                     len(filter.bitarray)))
-            if len(exclude) > 0:
-                include, exclude = false_positives, include
+            # Sanity check layer growth.  Bit count should be going down
+            # as false positive rate decreases.
+            if depth > 2:
+                if len(filter.bitarray) > len(
+                        self.filters[depth - 3].bitarray):
+                    log.error(
+                        "Increase in false positive rate detected. depth {} has {} bits and depth {} has {} bits"
+                        .format(depth, len(filter.bitarray), depth - 3,
+                                len(self.filters[depth - 3].bitarray)))
+                    self.filters.clear()
+                    return
+            include, exclude = false_positives, include
+            if len(include) > 0:
                 depth = depth + 1
+        # Filter characteristics loaded from meta file may result in unused layers.
+        # Remove them.
+        if depth < len(self.filters):
+            del self.filters[depth:]
 
     def __contains__(self, elem):
         for layer, filter in [(idx + 1, self.filters[idx])
