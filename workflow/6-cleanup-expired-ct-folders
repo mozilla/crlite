@@ -1,0 +1,3 @@
+#!/bin/bash
+
+python3 ~/go/src/github.com/jcjones/ct-mapreduce/python/ct-cleanup-expiredfolders.py --path /ct 
