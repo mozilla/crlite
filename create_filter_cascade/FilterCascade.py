@@ -14,7 +14,8 @@ class FilterCascade:
     def __init__(self, filters, error_rates=[0.02, 0.5]):
         self.filters = filters
         self.error_rates = error_rates
-        self.growthfactor = 1.1
+        self.growth_factor = 1.1
+        self.min_filter_length = 10000
 
     def initialize(self, *, include, exclude):
         log.debug("{} include and {} exclude".format(
@@ -29,11 +30,12 @@ class FilterCascade:
 
             if depth > len(self.filters):
                 self.filters.append(
-                    # Minimum filter size is set to 10K. Why?
-                    # Avoid unnecessary layer depth towards the end.
+                    # For growth-stability reasons, we force all layers to be at least
+                    # min_filter_length large. This is important for the deep layers near the end.
                     Bloomer.filter_with_characteristics(
-                        max(int(len(include) * self.growthfactor), 10000), er,
-                        depth))
+                        max(
+                            int(len(include) * self.growth_factor),
+                            self.min_filter_length), er, depth))
             else:
                 # Filter already created for this layer. Check size and resize if needed.
                 required_size = Bloomer.calc_size(
@@ -42,8 +44,8 @@ class FilterCascade:
                     # Resize filter
                     self.filters[depth -
                                  1] = Bloomer.filter_with_characteristics(
-                                     int(len(include) * self.growthfactor), er,
-                                     depth)
+                                     int(len(include) * self.growth_factor),
+                                     er, depth)
                     log.debug("Resized filter at {}-depth layer".format(depth))
             filter = self.filters[depth - 1]
             log.debug(

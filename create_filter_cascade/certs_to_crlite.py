@@ -163,7 +163,7 @@ def saveMLBF(args, cascade):
         log.info("Writing to meta file {}".format(args.metaFile))
         cascade.saveDiffMeta(mlbf_meta_file)
     if args.diffBaseFile != None:
-        log.info("Genderating patch file {patch} from {base} to {out}".format(
+        log.info("Generating patch file {patch} from {base} to {out}".format(
             patch=args.patchFile, base=args.diffBaseFile, out=args.outFile))
         bsdiff4.file_diff(args.diffBaseFile, args.outFile, args.patchFile)
     sw.end('save')
