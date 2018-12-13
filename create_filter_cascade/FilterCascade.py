@@ -46,7 +46,7 @@ class FilterCascade:
                                  1] = Bloomer.filter_with_characteristics(
                                      int(len(include) * self.growth_factor),
                                      er, depth)
-                    log.debug("Resized filter at {}-depth layer".format(depth))
+                    log.info("Resized filter at {}-depth layer".format(depth))
             filter = self.filters[depth - 1]
             log.debug(
                 "Initializing the {}-depth layer. err={} include={} exclude={} size={} hashes={}"
