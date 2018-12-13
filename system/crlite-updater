@@ -8,3 +8,5 @@ ${workflow}/1-ct-fetch
 ${workflow}/2-produce_revocation_data ${ID}
 ${workflow}/3-produce_known_data ${ID}
 ${workflow}/4-generate_mlbf ${ID}
+
+${workflow}/6-cleanup-expired-ct-folders
