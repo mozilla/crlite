@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -26,4 +27,12 @@ type CertDatabase interface {
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]string, error)
 	ReconstructIssuerMetadata(expDate string, issuer string) error
+}
+
+type AKI struct {
+	aki []byte
+}
+
+func (o AKI) ID() string {
+	return base64.URLEncoding.EncodeToString(o.aki)
 }

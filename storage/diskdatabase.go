@@ -310,11 +310,11 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	return &certLogObj, nil
 }
 
-func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI []byte) (string, string) {
+func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) (string, string) {
 	subdirName := aExpiration.Format(kExpirationFormat)
 	dirPath := filepath.Join(db.rootPath, subdirName)
 
-	issuerName := base64.URLEncoding.EncodeToString(aAKI)
+	issuerName := aAKI.ID()
 	fileName := fmt.Sprintf("%s%s", issuerName, kSuffixCertificates)
 	filePath := filepath.Join(dirPath, fileName)
 	return dirPath, filePath
@@ -345,8 +345,7 @@ func getSpki(aCert *x509.Certificate) []byte {
 
 func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
-
-	dirPath, filePath := db.getPathForID(&aCert.NotAfter, spki, aCert.AuthorityKeyId)
+	dirPath, filePath := db.getPathForID(&aCert.NotAfter, spki, AKI{aCert.AuthorityKeyId})
 	if !isDirectory(dirPath) {
 		err := os.MkdirAll(dirPath, os.ModeDir|0777)
 		if err != nil {
