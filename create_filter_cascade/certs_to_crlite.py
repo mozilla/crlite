@@ -258,13 +258,17 @@ def main():
 
     # Setup for diff if previous filter specified
     if args.previd != None:
-        # The previous filter didn't have a diff, use the base
-        args.diffMetaFile = os.path.join(args.certPath, args.previd, "mlbf",
-                                         "filter.meta")
-        args.diffBaseFile = os.path.join(args.certPath, args.previd, "mlbf",
-                                         "filter")
-        args.patchFile = os.path.join(args.certPath, args.id, "mlbf",
-                                      "filter.%s.patch" % args.previd)
+        diffMetaPath = os.path.join(args.certPath, args.previd, "mlbf",
+                                    "filter.meta")
+        diffBasePath = os.path.join(args.certPath, args.previd, "mlbf",
+                                    "filter")
+        if os.path.isfile(diffMetaPath) and os.path.isfile(diffBasePath):
+            args.diffMetaFile = diffMetaPath
+            args.diffBaseFile = diffBasePath
+            args.patchFile = os.path.join(args.certPath, args.id, "mlbf",
+                                          "filter.%s.patch" % args.previd)
+        else:
+            log.warning("Previous ID specified but no filter files found.")
     # Generate new filter
     mlbf = generateMLBF(
         args, revoked_certs=revoked_certs, nonrevoked_certs=nonrevoked_certs)
