@@ -144,23 +144,23 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 	}
 }
 
-func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *x509.Certificate) {
+func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *x509.Certificate) bool {
 	glog.Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
 		glog.Errorf("[%s] Error reading CRL, will not process revocations: %s", aPath, err)
-		return
+		return false
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
 		glog.Errorf("[%s] Error parsing, will not process revocations: %s", aPath, err)
-		return
+		return false
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
 		glog.Errorf("[%s] Invalid signature on CRL, will not process revocations: %s", aPath, err)
-		return
+		return false
 	}
 
 	if crl.HasExpired(time.Now()) {
@@ -176,6 +176,7 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 			glog.V(2).Infof("[%s] Newly seen revocation: [%v]", aPath, ent.SerialNumber)
 		}
 	}
+	return true
 }
 
 func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
@@ -186,6 +187,7 @@ func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, 
 	for tuple := range workChan {
 		outfile := filepath.Join(outPath, fmt.Sprintf("%s.revoked", tuple.Issuer))
 
+		issuerEnrolled := false
 		revokedCerts := storage.NewKnownCertificates(outfile, 0644)
 		if err := revokedCerts.Load(); err != nil {
 			glog.Infof("Making new revocation storage file %s", outfile)
@@ -194,8 +196,12 @@ func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, 
 		for _, crlPath := range tuple.CrlPaths {
 			select {
 			case <-quitChan:
-				if err := revokedCerts.Save(); err != nil {
-					glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+				if issuerEnrolled {
+					if err := revokedCerts.Save(); err != nil {
+						glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+					}
+				} else {
+					glog.Infof("Issuer %s not enrolled", tuple.Issuer)
 				}
 				return
 			default:
@@ -204,12 +210,20 @@ func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, 
 					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer, err)
 				}
 
-				processCRL(crlPath, revokedCerts, cert)
+				if processCRL(crlPath, revokedCerts, cert) {
+					// Issuer is considered enrolled if at least one CRL processed successfully
+					issuerEnrolled = true
+					mozIssuers.Enroll(tuple.Issuer)
+				}
 			}
 		}
 
-		if err := revokedCerts.Save(); err != nil {
-			glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+		if issuerEnrolled {
+			if err := revokedCerts.Save(); err != nil {
+				glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+			}
+		} else {
+			glog.Infof("Issuer %s not enrolled", tuple.Issuer)
 		}
 
 		progBar.IncrBy(1, time.Since(lastTime))
@@ -458,4 +472,8 @@ func main() {
 	crlPaths, count := downloadCRLs(display, mergedCrls, sigChan)
 
 	aggregateCRLs(display, mozIssuers, count, crlPaths, *outpath, sigChan)
+	enrolledPath := filepath.Join(*outpath, "enrolledIssuers.json")
+	if err = mozIssuers.SaveEnrolledIssuers(enrolledPath); err != nil {
+		glog.Fatalf("Unable to save the crlite enrolled intermediate issuers: %s", err)
+	}
 }
