@@ -166,7 +166,9 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 		return nil
 	}
 
-	os.Chtimes(path, lastMod, lastMod)
+	if err := os.Chtimes(path, lastMod, lastMod); err != nil {
+		glog.Warningf("Couldn't set modified time: %s", err)
+	}
 	return nil
 }
 

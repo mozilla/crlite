@@ -2,8 +2,10 @@ package rootprogram
 
 import (
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -23,6 +25,22 @@ const (
 type IssuerData struct {
 	cert      *x509.Certificate
 	subjectDN string
+	pemInfo   string
+	enrolled  bool
+}
+
+type EnrolledDetails struct {
+	Name    string `json:"name"`
+	Who     string `json:"who"`
+	Created string `json:"created"`
+	Why     string `json:"why"`
+}
+type EnrolledIssuer struct {
+	PubKeyHash string          `json:"pubKeyHash"`
+	Whitelist  bool            `json:"whitelist"`
+	Subject    string          `json:"subject"`
+	Detail     EnrolledDetails `json:"details"`
+	Pem        string          `json:"pem"`
 }
 
 type MozIssuers struct {
@@ -60,6 +78,62 @@ func (mi *MozIssuers) GetIssuers() []string {
 		i++
 	}
 	return issuers
+}
+
+func (mi *MozIssuers) SaveEnrolledIssuers(filePath string) error {
+	mi.mutex.Lock()
+	defer mi.mutex.Unlock()
+	enrolledCount := 0
+	for _, val := range mi.issuerMap {
+		if val.enrolled {
+			enrolledCount++
+		}
+	}
+	issuers := make([]EnrolledIssuer, enrolledCount)
+	i := 0
+	for _, val := range mi.issuerMap {
+		if val.enrolled {
+			pubKeyHash := sha256.Sum256(val.cert.RawSubjectPublicKeyInfo)
+			issuers[i] = EnrolledIssuer{
+				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
+				Whitelist:  false,
+				Subject:    base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
+				Detail:     EnrolledDetails{"", "", "", ""},
+				Pem:        val.pemInfo,
+			}
+			i++
+		}
+	}
+
+	glog.Infof("Saving %d enrolled issuers out of %d mozilla issuers", len(issuers), len(mi.issuerMap))
+	fd, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		glog.Errorf("Error opening enrolled issuer %s: %s", filePath, err)
+		return err
+	}
+
+	enc := json.NewEncoder(fd)
+
+	if err := enc.Encode(issuers); err != nil {
+		glog.Errorf("Error marshaling enrolled issuer %s: %s", filePath, err)
+	}
+
+	if err = fd.Close(); err != nil {
+		glog.Errorf("Error storing enrolled issuer %s: %s", filePath, err)
+	}
+
+	return err
+}
+
+func (mi *MozIssuers) Enroll(aIssuer string) {
+	mi.mutex.Lock()
+	defer mi.mutex.Unlock()
+
+	if _, ok := mi.issuerMap[aIssuer]; ok {
+		data := mi.issuerMap[aIssuer]
+		data.enrolled = true
+		mi.issuerMap[aIssuer] = data
+	}
 }
 
 func (mi *MozIssuers) IsIssuerInProgram(aIssuer string) bool {
@@ -145,6 +219,8 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 		mi.issuerMap[issuerID] = IssuerData{
 			cert:      cert,
 			subjectDN: cert.Subject.String(),
+			pemInfo:   strings.Trim(row[columnMap["PEM Info"]], "'"),
+			enrolled:  false,
 		}
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
 	}
