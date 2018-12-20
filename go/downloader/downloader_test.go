@@ -91,7 +91,7 @@ func Test_DownloadResumeNotSupported(t *testing.T) {
 
 	// Server always returns the whole file
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(testcontent)
+		_, _ = w.Write(testcontent)
 	}))
 	defer ts.Close()
 
@@ -199,7 +199,7 @@ func Test_GetSizeAndDateOfFile(t *testing.T) {
 
 	// Check that dates shift
 	earlyDate := time.Now().AddDate(-1, 0, 0)
-	os.Chtimes(tmpfile.Name(), earlyDate, earlyDate)
+	_ = os.Chtimes(tmpfile.Name(), earlyDate, earlyDate)
 
 	size, date, err = GetSizeAndDateOfFile(tmpfile.Name())
 	if err != nil {

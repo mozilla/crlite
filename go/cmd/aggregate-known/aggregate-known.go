@@ -51,20 +51,28 @@ func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-c
 		for _, expDate := range tuple.expDates {
 			select {
 			case <-quitChan:
-				aggKnownCerts.Save()
+				if err := aggKnownCerts.Save(); err != nil {
+					glog.Fatalf("[%s] Could not save known certificates file: %s", aggKnownPath, err)
+				}
 				return
 			default:
 				known := storage.GetKnownCertificates(*ctconfig.CertPath, expDate, tuple.issuer, permMode)
-				known.Load()
+				if err := known.Load(); err != nil {
+					glog.Errorf("[%s] Could not load known certificates : %s", filepath.Join(*ctconfig.CertPath, expDate, tuple.issuer), err)
+				}
 
-				aggKnownCerts.Merge(known)
+				if err := aggKnownCerts.Merge(known); err != nil {
+					glog.Errorf("[%s] Could not merge known certificates : %s", filepath.Join(*ctconfig.CertPath, expDate, tuple.issuer), err)
+				}
 
 				progBar.IncrBy(1, time.Since(lastTime))
 				lastTime = time.Now()
 			}
 		}
 
-		aggKnownCerts.Save()
+		if err := aggKnownCerts.Save(); err != nil {
+			glog.Fatalf("[%s] Could not save known certificates file: %s", aggKnownPath, err)
+		}
 	}
 
 }
@@ -91,9 +99,13 @@ func main() {
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
-		err = mozIssuers.LoadFromDisk(*inccadb)
+		if err := mozIssuers.LoadFromDisk(*inccadb); err != nil {
+			glog.Fatalf("Failed to load issuers from disk: %s", err)
+		}
 	} else {
-		err = mozIssuers.Load()
+		if err := mozIssuers.Load(); err != nil {
+			glog.Fatalf("Failed to load issuers: %s", err)
+		}
 	}
 
 	var wg sync.WaitGroup
