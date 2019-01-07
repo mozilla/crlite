@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/bin/bash -xe
 
 workflow=~/go/src/github.com/mozilla/crlite/workflow
 
-ID=$(${workflow}/0-allocate_identifier)
-
 # TODO: renumber
 ${workflow}/6-cleanup-expired-ct-folders
-$(workflow)/7-cleanup-expired-processing-folders
+${workflow}/7-cleanup-expired-processing-folders
+
+ID=$(${workflow}/0-allocate_identifier)
 
 ${workflow}/1-ct-fetch
 ${workflow}/2-produce_revocation_data ${ID}
