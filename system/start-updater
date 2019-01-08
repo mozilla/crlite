@@ -1,0 +1,6 @@
+systemctl --user start crlite-updater.timer
+
+systemctl --user status crlite-updater.timer
+systemctl --user status crlite-updater.service
+
+
