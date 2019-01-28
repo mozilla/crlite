@@ -9,6 +9,7 @@ import sys
 import uuid
 
 from datetime import datetime
+from requests.auth import HTTPBasicAuth
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 
@@ -29,7 +30,22 @@ args = parser.parse_args()
 if not os.path.exists(args.mblfpath):
   raise Exception("You must provide an input MLBF file as the --in argument.")
 
-auth = BearerTokenAuth(settings.KINTO_AUTH_TOKEN)
+def ensureNonBlank(settingNames):
+    for setting in settingNames:
+        if getattr(settings, setting) == "":
+            raise Exception("{} must not be blank.".format(setting))
+
+auth = {}
+try:
+  ensureNonBlank(["KINTO_AUTH_TOKEN"])
+  auth = BearerTokenAuth(settings.KINTO_AUTH_TOKEN)
+  log.info("Using authentication bearer token")
+except:
+  ensureNonBlank(["KINTO_AUTH_USER", "KINTO_AUTH_PASSWORD"])
+  auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
+  log.info("Using username/password authentication. Username={}".format(settings.KINTO_AUTH_USER))
+
+log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
 
 client = Client(
   server_url=settings.KINTO_SERVER_URL,
