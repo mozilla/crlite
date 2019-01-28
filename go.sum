@@ -22,6 +22,8 @@ github.com/smartystreets/goconvey v0.0.0-20181108003508-044398e4856c h1:Ho+uVpke
 github.com/smartystreets/goconvey v0.0.0-20181108003508-044398e4856c/go.mod h1:XDJAKZRPZ1CvBcN2aX5YOUTYGHki24fSF0Iv48Ibg0s=
 github.com/vbauerster/mpb v3.3.2+incompatible h1:IAXNkJBpRdoXCjjReAELWPon+JDp+7wpDUKKh6MyJdQ=
 github.com/vbauerster/mpb v3.3.2+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
+github.com/vbauerster/mpb v3.3.4+incompatible h1:DDIhnwmgTQIDZo+SWlEr5d6mJBxkOLBwCXPzunhEfJ4=
+github.com/vbauerster/mpb v3.3.4+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
 golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd h1:cC/2DaX1wcQTuG22GhVYD0kedx0WJnOgKmrxsb3yS+4=
 golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/net v0.0.0-20180314180242-e0c57d8f86c1 h1:bvdOgH8RHIWcCP5Scuwy/MvK15H8DM6SR1kyLdGfV/4=

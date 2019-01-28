@@ -12,7 +12,7 @@ require (
 	github.com/mattn/go-isatty v0.0.4 // indirect
 	github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d // indirect
 	github.com/smartystreets/goconvey v0.0.0-20181108003508-044398e4856c // indirect
-	github.com/vbauerster/mpb v3.3.2+incompatible
+	github.com/vbauerster/mpb v3.3.4+incompatible
 	golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd // indirect
 	golang.org/x/net v0.0.0-20180314180242-e0c57d8f86c1
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
