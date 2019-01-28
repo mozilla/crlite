@@ -21,102 +21,117 @@ class BearerTokenAuth(requests.auth.AuthBase):
     r.headers['Authorization'] = 'Bearer ' + self.token
     return r
 
-parser = argparse.ArgumentParser(description='Upload MLBF files to Kinto as records')
-parser.add_argument('--in', help="MLBF file", dest="mblfpath", required=True)
-parser.add_argument('--diff', help="True if incremental", action='store_true')
-
-args = parser.parse_args()
-
-if not os.path.exists(args.mblfpath):
-  raise Exception("You must provide an input MLBF file as the --in argument.")
-
 def ensureNonBlank(settingNames):
     for setting in settingNames:
         if getattr(settings, setting) == "":
             raise Exception("{} must not be blank.".format(setting))
 
-auth = {}
-try:
-  ensureNonBlank(["KINTO_AUTH_TOKEN"])
-  auth = BearerTokenAuth(settings.KINTO_AUTH_TOKEN)
-  log.info("Using authentication bearer token")
-except:
-  ensureNonBlank(["KINTO_AUTH_USER", "KINTO_AUTH_PASSWORD"])
-  auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
-  log.info("Using username/password authentication. Username={}".format(settings.KINTO_AUTH_USER))
+def main():
+  parser = argparse.ArgumentParser(description='Upload MLBF files to Kinto as records')
+  parser.add_argument('--in', help="file to upload", dest="inpath", required=True)
+  parser.add_argument('--intermediates', help="True if this is an update of intermediates", action='store_true')
+  parser.add_argument('--crlite', help="True if this is a CRLite update", action='store_true')
+  parser.add_argument('--diff', help="True if incremental (only valid for CRLite)", action='store_true')
 
-log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
+  args = parser.parse_args()
 
-client = Client(
-  server_url=settings.KINTO_SERVER_URL,
-  auth=auth,
-  collection=settings.KINTO_COLLECTION,
-  bucket=settings.KINTO_BUCKET,
-  retry=5,
-)
+  if not args.intermediates ^ args.crlite:
+    parser.print_help()
+    raise Exception("You must select either --intermediates or --crlite")
 
-stale_records=[]
+  if not os.path.exists(args.inpath):
+    parser.print_help()
+    raise Exception("You must provide an input file as the --in argument.")
 
-if not args.diff:
-  # New base image, so we need to clear out the old records when we're done
-  for record in client.get_records():
-    stale_records.append(record['id'])
-  log.info("New base image indicated. The following MLBF records will be cleaned up at the end: {}".format(stale_records))
+  auth = {}
+  try:
+    ensureNonBlank(["KINTO_AUTH_TOKEN"])
+    auth = BearerTokenAuth(settings.KINTO_AUTH_TOKEN)
+    log.info("Using authentication bearer token")
+  except:
+    ensureNonBlank(["KINTO_AUTH_USER", "KINTO_AUTH_PASSWORD"])
+    auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
+    log.info("Using username/password authentication. Username={}".format(settings.KINTO_AUTH_USER))
 
-identifier = "{}Z-{}".format(
-  datetime.utcnow().isoformat(timespec="seconds"),
-  "diff" if args.diff else "full",
-)
+  log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
 
-attributes = {
-    'details': {'name': identifier },
-    'incremental': args.diff
-}
-perms = {"read": ["system.Everyone"]}
+  client = Client(
+    server_url=settings.KINTO_SERVER_URL,
+    auth=auth,
+    collection=settings.KINTO_COLLECTION,
+    bucket=settings.KINTO_BUCKET,
+    retry=5,
+  )
 
-payload = {"data": json.dumps(attributes), "permissions": json.dumps(perms)}
+  if args.crlite:
+    publish_crlite(args=args, auth=auth, client=client)
 
-record = client.create_record(
-  data=attributes,
-  permissions=perms,
-)
-recordid = record['data']['id']
+def publish_crlite(*, args=None, auth=None, client=None):
+  stale_records=[]
 
-files = [("attachment", (os.path.basename(args.mblfpath), open(args.mblfpath, "rb"), "application/octet-stream"))]
-attachmentEnd = "buckets/{}/collections/{}/records/{}/attachment".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION, recordid)
-try:
-  response = requests.post(settings.KINTO_SERVER_URL + attachmentEnd, files=files, auth=auth)
-  response.raise_for_status()
-except:
-  log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
-  client.delete_record(id=recordid)
-  log.error("Stale record deleted.")
-  sys.exit(1)
+  if not args.diff:
+    # New base image, so we need to clear out the old records when we're done
+    for record in client.get_records():
+      stale_records.append(record['id'])
+    log.info("New base image indicated. The following MLBF records will be cleaned up at the end: {}".format(stale_records))
 
-record = client.get_record(id=recordid)
-log.info("Successfully uploaded MLBF record.")
-log.info(json.dumps(record, indent=" "))
+  identifier = "{}Z-{}".format(
+    datetime.utcnow().isoformat(timespec="seconds"),
+    "diff" if args.diff else "full",
+  )
 
-for recordid in stale_records:
-  log.info("Cleaning up stale MLBF record {}.".format(recordid))
-  client.delete_record(id=recordid)
+  attributes = {
+      'details': {'name': identifier },
+      'incremental': args.diff
+  }
+  perms = {"read": ["system.Everyone"]}
 
-collectionEnd = "buckets/{}/collections/{}".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION)
+  payload = {"data": json.dumps(attributes), "permissions": json.dumps(perms)}
 
-log.info("Set for review")
-response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-review"}}, auth=auth)
-try:
-  response.raise_for_status()
-except:
-  log.error("Failed to request signature.")
-  log.error(response.text)
-  sys.exit(1)
+  record = client.create_record(
+    data=attributes,
+    permissions=perms,
+  )
+  recordid = record['data']['id']
 
-# Todo - use different credentials, as editor cannot review.
-log.info("Requesting signature")
-response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-sign"}}, auth=auth)
-try:
-  response.raise_for_status()
-except:
-  log.error("Failed to request signature")
-  log.error(response.text)
+  files = [("attachment", (os.path.basename(args.inpath), open(args.inpath, "rb"), "application/octet-stream"))]
+  attachmentEnd = "buckets/{}/collections/{}/records/{}/attachment".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION, recordid)
+  try:
+    response = requests.post(settings.KINTO_SERVER_URL + attachmentEnd, files=files, auth=auth)
+    response.raise_for_status()
+  except:
+    log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
+    client.delete_record(id=recordid)
+    log.error("Stale record deleted.")
+    sys.exit(1)
+
+  record = client.get_record(id=recordid)
+  log.info("Successfully uploaded MLBF record.")
+  log.info(json.dumps(record, indent=" "))
+
+  for recordid in stale_records:
+    log.info("Cleaning up stale MLBF record {}.".format(recordid))
+    client.delete_record(id=recordid)
+
+  collectionEnd = "buckets/{}/collections/{}".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION)
+
+  log.info("Set for review")
+  response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-review"}}, auth=auth)
+  try:
+    response.raise_for_status()
+  except:
+    log.error("Failed to request signature.")
+    log.error(response.text)
+    sys.exit(1)
+
+  # Todo - use different credentials, as editor cannot review.
+  log.info("Requesting signature")
+  response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-sign"}}, auth=auth)
+  try:
+    response.raise_for_status()
+  except:
+    log.error("Failed to request signature")
+    log.error(response.text)
+
+if __name__ == "__main__":
+    main()
