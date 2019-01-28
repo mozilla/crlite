@@ -71,7 +71,7 @@ type LogSyncEngine struct {
 	entryChan           chan CtLogEntry
 	logWorkers          []*LogWorker
 	display             mpb.Progress
-	cancelChan          chan<- struct{}
+	cancelTrigger       context.CancelFunc
 }
 
 // Operates on a single log
@@ -88,12 +88,12 @@ type LogWorker struct {
 }
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
-	cancelChan := make(chan struct{}, 0)
+	ctx, cancel := context.WithCancel(context.Background())
 	twg := new(sync.WaitGroup)
 
 	display := mpb.New(
 		mpb.WithWaitGroup(twg),
-		mpb.WithCancel(cancelChan),
+		mpb.WithContext(ctx),
 	)
 
 	return &LogSyncEngine{
@@ -103,7 +103,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		entryChan:           make(chan CtLogEntry, 1024),
 		logWorkers:          make([]*LogWorker, 1),
 		display:             *display,
-		cancelChan:          cancelChan,
+		cancelTrigger:       cancel,
 	}
 }
 
@@ -126,7 +126,7 @@ func (ld *LogSyncEngine) SyncLog(logURL string) error {
 
 func (ld *LogSyncEngine) Stop() {
 	close(ld.entryChan)
-	close(ld.cancelChan)
+	ld.cancelTrigger()
 	ld.display.Wait()
 }
 
