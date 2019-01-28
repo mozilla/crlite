@@ -36,6 +36,7 @@ client = Client(
   auth=auth,
   collection=settings.KINTO_COLLECTION,
   bucket=settings.KINTO_BUCKET,
+  retry=5,
 )
 
 stale_records=[]
@@ -66,9 +67,9 @@ record = client.create_record(
 recordid = record['data']['id']
 
 files = [("attachment", (os.path.basename(args.mblfpath), open(args.mblfpath, "rb"), "application/octet-stream"))]
-endpoint = "buckets/{}/collections/{}/records/{}/attachment".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION, recordid)
+attachmentEnd = "buckets/{}/collections/{}/records/{}/attachment".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION, recordid)
 try:
-  response = requests.post(settings.KINTO_SERVER_URL + endpoint, files=files, auth=auth)
+  response = requests.post(settings.KINTO_SERVER_URL + attachmentEnd, files=files, auth=auth)
   response.raise_for_status()
 except:
   log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
@@ -84,3 +85,22 @@ for recordid in stale_records:
   log.info("Cleaning up stale MLBF record {}.".format(recordid))
   client.delete_record(id=recordid)
 
+collectionEnd = "buckets/{}/collections/{}".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION)
+
+log.info("Set for review")
+response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-review"}}, auth=auth)
+try:
+  response.raise_for_status()
+except:
+  log.error("Failed to request signature.")
+  log.error(response.text)
+  sys.exit(1)
+
+# Todo - use different credentials, as editor cannot review.
+log.info("Requesting signature")
+response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-sign"}}, auth=auth)
+try:
+  response.raise_for_status()
+except:
+  log.error("Failed to request signature")
+  log.error(response.text)
