@@ -4,5 +4,10 @@
     - id: go-fmt
     - id: go-vet
     - id: validate-toml
-    - id: golangci-lint
+- repo: local
+  hooks:
     - id: go-unit-tests
+      name: Go unit tests
+      language: script
+      entry: hooks/go-unit-tests.sh
+      files: '\.go$'
