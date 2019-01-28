@@ -11,6 +11,8 @@ github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e h1:JKmoR8x90Iww1
 github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e/go.mod h1:wJfORRmW1u3UXTncJ5qlYoELFm8eSnnEO6hX4iZ3EWY=
 github.com/jcjones/ct-mapreduce v1.0.1-0.20181218041123-b9ea805dcbfc h1:A6NAGwLfp1ZsRqD4kcppilykX8jHsxr/tVeIgsKyYzQ=
 github.com/jcjones/ct-mapreduce v1.0.1-0.20181218041123-b9ea805dcbfc/go.mod h1:SMZeYd/pLN5yM900O+iK+RKyHYizXq3wNJ5yBPJWLE4=
+github.com/jcjones/ct-mapreduce v1.0.1 h1:LMihkpvyvC4GQWS3FJBvxWIg5XigP0paege3KDZ0+qw=
+github.com/jcjones/ct-mapreduce v1.0.1/go.mod h1:t7OLRbyAXiG/2zAgbTbm3Pfi1Wp5iisAjece7ccuJ88=
 github.com/jpillora/backoff v0.0.0-20170918002102-8eab2debe79d/go.mod h1:2iMrUgbbvHEiQClaW2NsSzMyGHqN+rDFqY705q49KG0=
 github.com/jtolds/gls v4.2.1+incompatible h1:fSuqC+Gmlu6l/ZYAoZzx2pyucC8Xza35fpRVWLVmUEE=
 github.com/jtolds/gls v4.2.1+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
@@ -24,6 +26,7 @@ github.com/vbauerster/mpb v3.3.2+incompatible h1:IAXNkJBpRdoXCjjReAELWPon+JDp+7w
 github.com/vbauerster/mpb v3.3.2+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
 github.com/vbauerster/mpb v3.3.3+incompatible h1:4Z/exoN1+T4SKkYQbv5gcszEKnbw3IJ75q3OkoRvu1E=
 github.com/vbauerster/mpb v3.3.3+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
+github.com/vbauerster/mpb v3.3.4+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
 golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20181203042331-505ab145d0a9 h1:mKdxBk7AujPs8kU4m80U72y/zjbZ3UcXC7dClwKbUI0=
 golang.org/x/crypto v0.0.0-20181203042331-505ab145d0a9/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
