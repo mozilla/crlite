@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	kMozCCADBReport = "https://ccadb-public.secure.force.com/mozilla/PublicAllInterCertsIncTechConsWithPEMCSV"
+	kMozCCADBReport = "https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport"
 )
 
 type IssuerData struct {
@@ -164,7 +164,7 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer string) (string, error) {
 }
 
 func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
-	p := strings.Trim(aRow[aColMap["PEM Info"]], "'")
+	p := strings.Trim(aRow[aColMap["PEM"]], "'")
 
 	block, rest := pem.Decode([]byte(p))
 
@@ -219,7 +219,7 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 		mi.issuerMap[issuerID] = IssuerData{
 			cert:      cert,
 			subjectDN: cert.Subject.String(),
-			pemInfo:   strings.Trim(row[columnMap["PEM Info"]], "'"),
+			pemInfo:   strings.Trim(row[columnMap["PEM"]], "'"),
 			enrolled:  false,
 		}
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
