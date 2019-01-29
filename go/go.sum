@@ -26,6 +26,7 @@ github.com/vbauerster/mpb v3.3.2+incompatible h1:IAXNkJBpRdoXCjjReAELWPon+JDp+7w
 github.com/vbauerster/mpb v3.3.2+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
 github.com/vbauerster/mpb v3.3.3+incompatible h1:4Z/exoN1+T4SKkYQbv5gcszEKnbw3IJ75q3OkoRvu1E=
 github.com/vbauerster/mpb v3.3.3+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
+github.com/vbauerster/mpb v3.3.4+incompatible h1:DDIhnwmgTQIDZo+SWlEr5d6mJBxkOLBwCXPzunhEfJ4=
 github.com/vbauerster/mpb v3.3.4+incompatible/go.mod h1:zAHG26FUhVKETRu+MWqYXcI70POlC6N8up9p1dID7SU=
 golang.org/x/crypto v0.0.0-20180314180259-21652f85b0fd/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20181203042331-505ab145d0a9 h1:mKdxBk7AujPs8kU4m80U72y/zjbZ3UcXC7dClwKbUI0=
