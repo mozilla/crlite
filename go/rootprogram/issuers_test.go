@@ -1,6 +1,7 @@
 package rootprogram
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -222,5 +223,38 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 	}
 	if subject != kFirstTwoLinesSubject {
 		t.Error("Unexpected certificate subject")
+	}
+}
+
+func Test_SaveIssuersList(t *testing.T) {
+	mi, err := loadSampleIssuers(kFirstTwoLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpfile, err := ioutil.TempFile("", "Test_SaveIssuersList")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	err = mi.SaveIssuersList(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bytes, err := ioutil.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list := make([]EnrolledIssuer, 0)
+	err = json.Unmarshal(bytes, &list)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(list) != 1 {
+		t.Errorf("Unexepcted issuers list length: %+v", list)
 	}
 }

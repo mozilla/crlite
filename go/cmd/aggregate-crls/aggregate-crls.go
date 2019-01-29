@@ -472,8 +472,8 @@ func main() {
 	crlPaths, count := downloadCRLs(display, mergedCrls, sigChan)
 
 	aggregateCRLs(display, mozIssuers, count, crlPaths, *outpath, sigChan)
-	enrolledPath := filepath.Join(*outpath, "enrolledIssuers.json")
-	if err = mozIssuers.SaveEnrolledIssuers(enrolledPath); err != nil {
-		glog.Fatalf("Unable to save the crlite enrolled intermediate issuers: %s", err)
+	issuersPath := filepath.Join(*outpath, "knownIssuers.json")
+	if err = mozIssuers.SaveIssuersList(issuersPath); err != nil {
+		glog.Fatalf("Unable to save the crlite-informed intermediate issuers: %s", err)
 	}
 }

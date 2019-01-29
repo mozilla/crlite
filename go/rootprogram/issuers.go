@@ -29,18 +29,12 @@ type IssuerData struct {
 	enrolled  bool
 }
 
-type EnrolledDetails struct {
-	Name    string `json:"name"`
-	Who     string `json:"who"`
-	Created string `json:"created"`
-	Why     string `json:"why"`
-}
 type EnrolledIssuer struct {
-	PubKeyHash string          `json:"pubKeyHash"`
-	Whitelist  bool            `json:"whitelist"`
-	Subject    string          `json:"subject"`
-	Detail     EnrolledDetails `json:"details"`
-	Pem        string          `json:"pem"`
+	PubKeyHash string `json:"pubKeyHash"`
+	Whitelist  bool   `json:"whitelist"`
+	Subject    string `json:"subject"`
+	Pem        string `json:"pem"`
+	Enrolled   bool   `json:"enrolled"`
 }
 
 type MozIssuers struct {
@@ -80,32 +74,29 @@ func (mi *MozIssuers) GetIssuers() []string {
 	return issuers
 }
 
-func (mi *MozIssuers) SaveEnrolledIssuers(filePath string) error {
+func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 	enrolledCount := 0
+
+	issuers := make([]EnrolledIssuer, len(mi.issuerMap))
+	i := 0
 	for _, val := range mi.issuerMap {
+		pubKeyHash := sha256.Sum256(val.cert.RawSubjectPublicKeyInfo)
+		issuers[i] = EnrolledIssuer{
+			PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
+			Whitelist:  false,
+			Subject:    base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
+			Pem:        val.pemInfo,
+			Enrolled:   val.enrolled,
+		}
 		if val.enrolled {
 			enrolledCount++
 		}
-	}
-	issuers := make([]EnrolledIssuer, enrolledCount)
-	i := 0
-	for _, val := range mi.issuerMap {
-		if val.enrolled {
-			pubKeyHash := sha256.Sum256(val.cert.RawSubjectPublicKeyInfo)
-			issuers[i] = EnrolledIssuer{
-				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
-				Whitelist:  false,
-				Subject:    base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
-				Detail:     EnrolledDetails{"", "", "", ""},
-				Pem:        val.pemInfo,
-			}
-			i++
-		}
+		i++
 	}
 
-	glog.Infof("Saving %d enrolled issuers out of %d mozilla issuers", len(issuers), len(mi.issuerMap))
+	glog.Infof("Saving %d issuers, of which %d are marked as enrolled", len(mi.issuerMap), enrolledCount)
 	fd, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		glog.Errorf("Error opening enrolled issuer %s: %s", filePath, err)
