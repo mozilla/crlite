@@ -26,6 +26,27 @@ def ensureNonBlank(settingNames):
         if getattr(settings, setting) == "":
             raise Exception("{} must not be blank.".format(setting))
 
+class PublisherClient(Client):
+  def attach_file(self, *, filePath=None, recordId=None):
+    files = [("attachment",
+            (os.path.basename(filePath), open(filePath, "rb"),
+              "application/octet-stream"))]
+    attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(self._bucket_name, self._collection_name, recordId)
+    response = requests.post(self.session.server_url + attachmentEndpoint, files=files, auth=self.session.auth)
+    response.raise_for_status()
+
+  def request_review_of_collection(self):
+    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, self._collection_name)
+    response = requests.patch(self.session.server_url + collectionEnd, json={"data": {"status": "to-review"}}, auth=self.session.auth)
+    if response.status_code > 200:
+      raise KintoException("Couldn't request review: {}".format(response.content.decode("utf-8")))
+
+  def sign_collection(self):
+    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, self._collection_name)
+    response = requests.patch(self.session.server_url + collectionEnd, json={"data": {"status": "to-sign"}}, auth=self.session.auth)
+    if response.status_code > 200:
+      raise KintoException("Couldn't sign: {}".format(response.content.decode("utf-8")))
+
 def main():
   parser = argparse.ArgumentParser(description='Upload MLBF files to Kinto as records')
   parser.add_argument('--in', help="file to upload", dest="inpath", required=True)
@@ -55,7 +76,7 @@ def main():
 
   log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
 
-  client = Client(
+  client = PublisherClient(
     server_url=settings.KINTO_SERVER_URL,
     auth=auth,
     collection=settings.KINTO_COLLECTION,
@@ -65,6 +86,16 @@ def main():
 
   if args.crlite:
     publish_crlite(args=args, auth=auth, client=client)
+
+  elif args.intermediates:
+    publish_intermediates(args=args, auth=auth, client=client)
+
+  else:
+    parser.print_help()
+
+
+def publish_intermediates(*, args=None, auth=None, client=None):
+  raise Exception("Not implemented")
 
 def publish_crlite(*, args=None, auth=None, client=None):
   stale_records=[]
@@ -94,11 +125,8 @@ def publish_crlite(*, args=None, auth=None, client=None):
   )
   recordid = record['data']['id']
 
-  files = [("attachment", (os.path.basename(args.inpath), open(args.inpath, "rb"), "application/octet-stream"))]
-  attachmentEnd = "buckets/{}/collections/{}/records/{}/attachment".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION, recordid)
   try:
-    response = requests.post(settings.KINTO_SERVER_URL + attachmentEnd, files=files, auth=auth)
-    response.raise_for_status()
+    client.attach_file(filePath=args.inpath, recordId=recordid)
   except:
     log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
     client.delete_record(id=recordid)
@@ -113,25 +141,19 @@ def publish_crlite(*, args=None, auth=None, client=None):
     log.info("Cleaning up stale MLBF record {}.".format(recordid))
     client.delete_record(id=recordid)
 
-  collectionEnd = "buckets/{}/collections/{}".format(settings.KINTO_BUCKET, settings.KINTO_COLLECTION)
-
   log.info("Set for review")
-  response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-review"}}, auth=auth)
   try:
-    response.raise_for_status()
-  except:
-    log.error("Failed to request signature.")
-    log.error(response.text)
+    client.request_review_of_collection()
+  except KintoException as e:
+    log.error("Failed to request signature: ", e)
     sys.exit(1)
 
   # Todo - use different credentials, as editor cannot review.
   log.info("Requesting signature")
-  response = requests.patch(settings.KINTO_SERVER_URL + collectionEnd, json={"data": {"status": "to-sign"}}, auth=auth)
   try:
-    response.raise_for_status()
-  except:
-    log.error("Failed to request signature")
-    log.error(response.text)
+    client.sign_collection()
+  except KintoException as e:
+    log.error("Failed to request signature: ", e)
 
 if __name__ == "__main__":
     main()
