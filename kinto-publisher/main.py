@@ -33,7 +33,8 @@ class PublisherClient(Client):
               "application/octet-stream"))]
     attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(self._bucket_name, self._collection_name, recordId)
     response = requests.post(self.session.server_url + attachmentEndpoint, files=files, auth=self.session.auth)
-    response.raise_for_status()
+    if response.status_code > 200:
+      raise KintoException("Couldn't attach file: {}".format(response.content.decode("utf-8")))
 
   def request_review_of_collection(self):
     collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, self._collection_name)
@@ -84,14 +85,17 @@ def main():
     retry=5,
   )
 
-  if args.crlite:
-    publish_crlite(args=args, auth=auth, client=client)
+  try:
+    if args.crlite:
+      publish_crlite(args=args, auth=auth, client=client)
 
-  elif args.intermediates:
-    publish_intermediates(args=args, auth=auth, client=client)
+    elif args.intermediates:
+      publish_intermediates(args=args, auth=auth, client=client)
 
-  else:
-    parser.print_help()
+    else:
+      parser.print_help()
+  except KintoException as ke:
+    log.error("An exception occurred: {}".format(ke))
 
 
 def publish_intermediates(*, args=None, auth=None, client=None):
@@ -127,11 +131,11 @@ def publish_crlite(*, args=None, auth=None, client=None):
 
   try:
     client.attach_file(filePath=args.inpath, recordId=recordid)
-  except:
+  except KintoException as ke:
     log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
     client.delete_record(id=recordid)
     log.error("Stale record deleted.")
-    sys.exit(1)
+    raise ke
 
   record = client.get_record(id=recordid)
   log.info("Successfully uploaded MLBF record.")
@@ -142,18 +146,11 @@ def publish_crlite(*, args=None, auth=None, client=None):
     client.delete_record(id=recordid)
 
   log.info("Set for review")
-  try:
-    client.request_review_of_collection()
-  except KintoException as e:
-    log.error("Failed to request signature: ", e)
-    sys.exit(1)
+  client.request_review_of_collection()
 
   # Todo - use different credentials, as editor cannot review.
   log.info("Requesting signature")
-  try:
-    client.sign_collection()
-  except KintoException as e:
-    log.error("Failed to request signature: ", e)
+  client.sign_collection()
 
 if __name__ == "__main__":
     main()
