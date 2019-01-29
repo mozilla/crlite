@@ -27,23 +27,23 @@ def ensureNonBlank(settingNames):
             raise Exception("{} must not be blank.".format(setting))
 
 class PublisherClient(Client):
-  def attach_file(self, *, filePath=None, recordId=None):
+  def attach_file(self, *, collection=None, filePath=None, recordId=None):
     files = [("attachment",
             (os.path.basename(filePath), open(filePath, "rb"),
               "application/octet-stream"))]
-    attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(self._bucket_name, self._collection_name, recordId)
+    attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(self._bucket_name, collection or self._collection_name, recordId)
     response = requests.post(self.session.server_url + attachmentEndpoint, files=files, auth=self.session.auth)
     if response.status_code > 200:
       raise KintoException("Couldn't attach file: {}".format(response.content.decode("utf-8")))
 
-  def request_review_of_collection(self):
-    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, self._collection_name)
+  def request_review_of_collection(self, *, collection=None):
+    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, collection or self._collection_name)
     response = requests.patch(self.session.server_url + collectionEnd, json={"data": {"status": "to-review"}}, auth=self.session.auth)
     if response.status_code > 200:
       raise KintoException("Couldn't request review: {}".format(response.content.decode("utf-8")))
 
-  def sign_collection(self):
-    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, self._collection_name)
+  def sign_collection(self, *, collection=None):
+    collectionEnd = "buckets/{}/collections/{}".format(self._bucket_name, collection or self._collection_name)
     response = requests.patch(self.session.server_url + collectionEnd, json={"data": {"status": "to-sign"}}, auth=self.session.auth)
     if response.status_code > 200:
       raise KintoException("Couldn't sign: {}".format(response.content.decode("utf-8")))
@@ -78,11 +78,10 @@ def main():
   log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
 
   client = PublisherClient(
-    server_url=settings.KINTO_SERVER_URL,
-    auth=auth,
-    collection=settings.KINTO_COLLECTION,
-    bucket=settings.KINTO_BUCKET,
-    retry=5,
+    server_url = settings.KINTO_SERVER_URL,
+    auth = auth,
+    bucket = settings.KINTO_BUCKET,
+    retry = 5,
   )
 
   try:
@@ -96,17 +95,22 @@ def main():
       parser.print_help()
   except KintoException as ke:
     log.error("An exception occurred: {}".format(ke))
+    raise ke
 
 
 def publish_intermediates(*, args=None, auth=None, client=None):
+  for record in client.get_records(collection = settings.KINTO_INTERMEDIATES_COLLECTION):
+    print(record)
+
   raise Exception("Not implemented")
 
 def publish_crlite(*, args=None, auth=None, client=None):
-  stale_records=[]
+
+  stale_records = []
 
   if not args.diff:
     # New base image, so we need to clear out the old records when we're done
-    for record in client.get_records():
+    for record in client.get_records(collection = settings.KINTO_CRLITE_COLLECTION):
       stale_records.append(record['id'])
     log.info("New base image indicated. The following MLBF records will be cleaned up at the end: {}".format(stale_records))
 
@@ -124,33 +128,48 @@ def publish_crlite(*, args=None, auth=None, client=None):
   payload = {"data": json.dumps(attributes), "permissions": json.dumps(perms)}
 
   record = client.create_record(
-    data=attributes,
-    permissions=perms,
+    collection = settings.KINTO_CRLITE_COLLECTION,
+    data = attributes,
+    permissions = perms,
   )
   recordid = record['data']['id']
 
   try:
-    client.attach_file(filePath=args.inpath, recordId=recordid)
+    client.attach_file(
+      collection = settings.KINTO_CRLITE_COLLECTION,
+      filePath = args.inpath,
+      recordId = recordid,
+    )
   except KintoException as ke:
     log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
-    client.delete_record(id=recordid)
+    client.delete_record(id = recordid)
     log.error("Stale record deleted.")
     raise ke
 
-  record = client.get_record(id=recordid)
+  record = client.get_record(
+    collection = settings.KINTO_CRLITE_COLLECTION,
+    id = recordid,
+  )
   log.info("Successfully uploaded MLBF record.")
-  log.info(json.dumps(record, indent=" "))
+  log.info(json.dumps(record, indent = " "))
 
   for recordid in stale_records:
     log.info("Cleaning up stale MLBF record {}.".format(recordid))
-    client.delete_record(id=recordid)
+    client.delete_record(
+      collection = settings.KINTO_CRLITE_COLLECTION,
+      id = recordid,
+    )
 
   log.info("Set for review")
-  client.request_review_of_collection()
+  client.request_review_of_collection(
+    collection = settings.KINTO_CRLITE_COLLECTION,
+  )
 
   # Todo - use different credentials, as editor cannot review.
   log.info("Requesting signature")
-  client.sign_collection()
+  client.sign_collection(
+    collection = settings.KINTO_CRLITE_COLLECTION,
+  )
 
 if __name__ == "__main__":
     main()
