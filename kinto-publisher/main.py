@@ -127,19 +127,22 @@ class AttachedPem:
     self.mimetype = kwargs['mimetype']
     self.hash = kwargs['hash']
 
+  def _get_attributes(self):
+    return {
+      'filename': self.filename,
+      'size': self.size,
+      'location': self.location,
+      'mimetype': self.mimetype,
+      'hash': self.hash,
+    }
+
   def verify(self, *, pemData=None):
     raise Exception("Not implemented a method to verify the attachment is correct")
 
 class Intermediate:
   def __init__(self, **kwargs):
     self.pubKeyHash = kwargs['pubKeyHash']
-
     self.subject = kwargs['subject']
-    try:
-      self.subject = base64.standard_b64decode(self.subject).decode("utf-8")
-    except:
-      pass
-
     self.whitelist = kwargs['whitelist']
 
     self.pemData = None
@@ -160,6 +163,9 @@ class Intermediate:
     if 'id' in kwargs:
       self.kinto_id = kwargs['id']
 
+    if 'details' in kwargs:
+      self.details = kwargs['details']
+
     if len(self.pubKeyHash) < 26:
       raise IntermediateRecordError("Invalid intermediate hash: {}".format(kwargs))
 
@@ -169,6 +175,31 @@ class Intermediate:
   def __str__(self):
     return "{} [h={} e={}]".format(self.subject, self.pubKeyHash, self.crlite_enrolled)
 
+  def _get_attributes(self, *, complete=False, new=False):
+    attributes = {
+      'subject': self.subject,
+      'pubKeyHash': self.pubKeyHash,
+      'whitelist': self.whitelist,
+      'crlite_enrolled': self.crlite_enrolled,
+    }
+
+    if complete:
+      if self.pemAttachment:
+        attributes['attachment'] = self.pemAttachment._get_attributes()
+
+      if not new and self.details:
+        attributes['details'] = self.details
+      else:
+        attributes['details'] = {
+          'name': getpass.getuser(),
+          'created': "{}Z".format(datetime.utcnow().isoformat(timespec="seconds"))
+        }
+
+    return attributes
+
+  def equals(self, other):
+    return self._get_attributes() == other._get_attributes()
+
   def delete_from_kinto(self, *, client=None):
     if self.kinto_id is None:
       raise IntermediateRecordError("Cannot delete a record not at Kinto: {}".format(self))
@@ -177,20 +208,26 @@ class Intermediate:
       id = self.kinto_id,
     )
 
+  def update_kinto(self, *, remote_record=None, client=None):
+    if self.pemData is None:
+      raise IntermediateRecordError("Cannot upload a record not local: {}".format(self))
+    if remote_record is None:
+      raise IntermediateRecordError("Must provide a remote record")
+
+    self.details = remote_record.details
+    self.pemAttachment = remote_record.pemAttachment
+
+    client.update_record(
+      collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+      data = self._get_attributes(complete=True),
+      id = remote_record.kinto_id,
+    )
+
   def add_to_kinto(self, *, client=None):
     if self.pemData is None:
       raise IntermediateRecordError("Cannot upload a record not local: {}".format(self))
 
-    attributes = {
-        'subject': self.subject,
-        'pubKeyHash': self.pubKeyHash,
-        'whitelist': self.whitelist,
-        'crlite_enrolled': self.crlite_enrolled,
-        'details': {
-          'name': getpass.getuser(),
-          'created': "{}Z".format(datetime.utcnow().isoformat(timespec="seconds"))
-        }
-    }
+    attributes = self._get_attributes(new=True)
 
     perms = {"read": ["system.Everyone"]}
     record = client.create_record(
@@ -217,7 +254,6 @@ class Intermediate:
       log.error("Stale record deleted.")
       raise ke
 
-
 def publish_intermediates(*, args=None, auth=None, client=None):
   local_intermediates = {}
   remote_intermediates = {}
@@ -226,11 +262,13 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   with open(args.inpath) as f:
     for entry in json.load(f):
       try:
+        decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
+        entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
         local_intermediates[entry['pubKeyHash']] = Intermediate(**entry)
-      except KeyError as ke:
-        log.error("Error importing file from {}: {}".format(args.inpath, ke))
+      except Exception as e:
+        log.error("Error importing file from {}: {}".format(args.inpath, e))
         log.error("Record: {}".format(entry))
-        raise ke
+        raise e
 
   for record in client.get_records(collection = settings.KINTO_INTERMEDIATES_COLLECTION):
     try:
@@ -245,6 +283,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
 
   to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
   to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
+  to_update = set(local_intermediates.keys()) & set(remote_intermediates.keys())
 
   if args.debug:
     print("Variables available:")
@@ -254,6 +293,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     print("")
     print("  to_upload")
     print("  to_delete")
+    print("  to_update")
     print("")
     print("Use 'continue' to proceed")
     print("")
@@ -273,12 +313,21 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   for pubKeyHash in to_delete:
     intermediate = remote_intermediates[pubKeyHash]
     log.debug("Deleting {} from Kinto".format(intermediate))
-    intermediate.delete_from_kinto(client=client)
+    intermediate.delete_from_kinto(client = client)
 
   for pubKeyHash in to_upload:
     intermediate = local_intermediates[pubKeyHash]
     log.debug("Uploading {} to Kinto".format(intermediate))
-    intermediate.add_to_kinto(client=client)
+    intermediate.add_to_kinto(client = client)
+
+  for pubKeyHash in to_update:
+    local_int = local_intermediates[pubKeyHash]
+    remote_int = remote_intermediates[pubKeyHash]
+    if not local_int.equals(remote_int):
+      local_int.update_kinto(
+        client = client,
+        remote_record = remote_int
+      )
 
   log.info("Verifying correctness...")
   verified_intermediates = {}
@@ -287,7 +336,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     try:
       verified_intermediates[record['pubKeyHash']] = Intermediate(**record)
     except IntermediateRecordError as ire:
-      log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
+      log.warning("Verification found broken intermediate record at Kinto: {}".format(ire))
       verification_error_records.append(record)
     except KeyError as ke:
       log.error("Critical error importing Kinto dataset: {}".format(ke))
@@ -307,8 +356,13 @@ def publish_intermediates(*, args=None, auth=None, client=None):
       log.error("{} does not exist at Kinto".format(d))
     for d in missing_local:
       log.error("{} exists at Kinto but should have been deleted (not locally)".format(d))
-
     raise KintoException("Local/Remote Verification Failed")
+
+  for pubKeyHash in verified_intermediates.keys():
+    local_int = local_intermediates[pubKeyHash]
+    remote_int = verified_intermediates[pubKeyHash]
+    if not local_int.equals(remote_int):
+      raise KintoException("Local/Remote mismatch for pubKeyHash={}".format(pubKeyHash))
 
   log.info("Set for review")
   client.request_review_of_collection(
@@ -316,11 +370,10 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   )
 
   # Todo - use different credentials, as editor cannot review.
-  log.info("Requesting signature")
-  client.sign_collection(
-    collection = settings.KINTO_INTERMEDIATES_COLLECTION,
-  )
-
+  # log.info("Requesting signature")
+  # client.sign_collection(
+  #   collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+  # )
 
 def publish_crlite(*, args=None, auth=None, client=None):
   stale_records = []
@@ -387,10 +440,10 @@ def publish_crlite(*, args=None, auth=None, client=None):
   )
 
   # Todo - use different credentials, as editor cannot review.
-  log.info("Requesting signature")
-  client.sign_collection(
-    collection = settings.KINTO_CRLITE_COLLECTION,
-  )
+  # log.info("Requesting signature")
+  # client.sign_collection(
+  #   collection = settings.KINTO_CRLITE_COLLECTION,
+  # )
 
 if __name__ == "__main__":
     main()
