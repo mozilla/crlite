@@ -1,4 +1,5 @@
 import argparse
+import base64
 import getpass
 import glog as log
 import json
@@ -27,10 +28,19 @@ def ensureNonBlank(settingNames):
             raise Exception("{} must not be blank.".format(setting))
 
 class PublisherClient(Client):
-  def attach_file(self, *, collection=None, filePath=None, recordId=None):
-    files = [("attachment",
-            (os.path.basename(filePath), open(filePath, "rb"),
-              "application/octet-stream"))]
+  def attach_file(self, *, collection=None, filePath=None, fileName="file", fileContents=None, mimeType="application/octet-stream", recordId=None):
+    if not filePath and not fileContents:
+      raise Exception("Must specify either filePath or fileContents")
+
+    if filePath:
+      files = [("attachment",
+               (fileName, open(filePath, "rb"), mimeType))]
+    elif fileContents:
+      files = [("attachment",
+               (fileName, fileContents, mimeType))]
+    else:
+      raise Exception("Unexpected state")
+
     attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(self._bucket_name, collection or self._collection_name, recordId)
     response = requests.post(self.session.server_url + attachmentEndpoint, files=files, auth=self.session.auth)
     if response.status_code > 200:
@@ -55,7 +65,6 @@ def main():
   parser.add_argument('--diff', help="True if incremental (only valid for CRLite)", action='store_true')
   parser.add_argument('--intermediates', help="True if this is an update of Intermediates", action='store_true')
   parser.add_argument('--debug', help="Enter a debugger during processing (only valid for Intermediates)", action='store_true')
-  parser.add_argument('--clean-broken-records', help='Clean broken remote Intermediate records', action='store_true')
   parser.add_argument('--verbose', '-v', help="Be more verbose", action='store_true')
 
   args = parser.parse_args()
@@ -126,11 +135,18 @@ class Intermediate:
     self.pubKeyHash = kwargs['pubKeyHash']
 
     self.subject = kwargs['subject']
+    try:
+      self.subject = base64.standard_b64decode(self.subject).decode("utf-8")
+    except:
+      pass
+
     self.whitelist = kwargs['whitelist']
 
+    self.pemData = None
     if 'pem' in kwargs:
       self.pemData = kwargs['pem']
 
+    self.pemAttachment = None
     if 'attachment' in kwargs:
       self.pemAttachment = AttachedPem(**kwargs['attachment'])
 
@@ -151,7 +167,7 @@ class Intermediate:
       raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
 
   def __str__(self):
-    return "{} e={}".format(self.pubKeyHash, self.crlite_enrolled)
+    return "{} [h={} e={}]".format(self.subject, self.pubKeyHash, self.crlite_enrolled)
 
   def delete_from_kinto(self, *, client=None):
     if self.kinto_id is None:
@@ -164,7 +180,43 @@ class Intermediate:
   def add_to_kinto(self, *, client=None):
     if self.pemData is None:
       raise IntermediateRecordError("Cannot upload a record not local: {}".format(self))
-    pass
+
+    attributes = {
+        'subject': self.subject,
+        'pubKeyHash': self.pubKeyHash,
+        'whitelist': self.whitelist,
+        'crlite_enrolled': self.crlite_enrolled,
+        'details': {
+          'name': getpass.getuser(),
+          'created': "{}Z".format(datetime.utcnow().isoformat(timespec="seconds"))
+        }
+    }
+
+    perms = {"read": ["system.Everyone"]}
+    record = client.create_record(
+      collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+      data = attributes,
+      permissions = perms,
+    )
+    recordid = record['data']['id']
+
+    try:
+      client.attach_file(
+        collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+        fileContents = self.pemData,
+        fileName = "{}.pem".format(self.pubKeyHash),
+        mimeType = "application/x-pem-file",
+        recordId = recordid,
+      )
+    except KintoException as ke:
+      log.error("Failed to upload attachment. Removing stale intermediate record {}.".format(recordid))
+      client.delete_record(
+        collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+        id = recordid,
+      )
+      log.error("Stale record deleted.")
+      raise ke
+
 
 def publish_intermediates(*, args=None, auth=None, client=None):
   local_intermediates = {}
@@ -191,19 +243,6 @@ def publish_intermediates(*, args=None, auth=None, client=None):
       log.error("Record: {}".format(record))
       raise ke
 
-  if len(remote_error_records) > 0:
-    log.info("There are {} broken records remotely. Consider running with --clean-broken-records".format(len(remote_error_records)))
-    if args.clean_broken_records:
-      log.info("Cleaning broken records")
-      for record in remote_error_records:
-        try:
-          client.delete_record(
-            collection = settings.KINTO_INTERMEDIATES_COLLECTION,
-            id = record['id'],
-          )
-        except KintoException as ke:
-          log.warning("Couldn't delete record id {}: {}".format(record['id'], ke))
-
   to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
   to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
 
@@ -216,7 +255,20 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     print("  to_upload")
     print("  to_delete")
     print("")
+    print("Use 'continue' to proceed")
+    print("")
     import pdb; pdb.set_trace()
+
+  if len(remote_error_records) > 0:
+    log.info("Cleaning {} broken records".format(len(remote_error_records)))
+    for record in remote_error_records:
+      try:
+        client.delete_record(
+          collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+          id = record['id'],
+        )
+      except KintoException as ke:
+        log.warning("Couldn't delete record id {}: {}".format(record['id'], ke))
 
   for pubKeyHash in to_delete:
     intermediate = remote_intermediates[pubKeyHash]
@@ -227,6 +279,48 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     intermediate = local_intermediates[pubKeyHash]
     log.debug("Uploading {} to Kinto".format(intermediate))
     intermediate.add_to_kinto(client=client)
+
+  log.info("Verifying correctness...")
+  verified_intermediates = {}
+  verification_error_records = []
+  for record in client.get_records(collection = settings.KINTO_INTERMEDIATES_COLLECTION):
+    try:
+      verified_intermediates[record['pubKeyHash']] = Intermediate(**record)
+    except IntermediateRecordError as ire:
+      log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
+      verification_error_records.append(record)
+    except KeyError as ke:
+      log.error("Critical error importing Kinto dataset: {}".format(ke))
+      log.error("Record: {}".format(record))
+      raise ke
+
+  if len(verification_error_records) > 0:
+    raise KintoException("There were {} broken intermediates. Re-run to fix.".format(len(verification_error_records)))
+
+  log.info("{} intermediates locally, {} at Kinto.".format(len(local_intermediates), len(verified_intermediates)))
+  if set(local_intermediates.keys()) != set(verified_intermediates.keys()):
+    log.error("The verified intermediates do not match the local set. Differences:")
+    missing_remote = set(local_intermediates.keys()) - set(verified_intermediates.keys())
+    missing_local = set(verified_intermediates.keys()) - set(local_intermediates.keys())
+
+    for d in missing_remote:
+      log.error("{} does not exist at Kinto".format(d))
+    for d in missing_local:
+      log.error("{} exists at Kinto but should have been deleted (not locally)".format(d))
+
+    raise KintoException("Local/Remote Verification Failed")
+
+  log.info("Set for review")
+  client.request_review_of_collection(
+    collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+  )
+
+  # Todo - use different credentials, as editor cannot review.
+  log.info("Requesting signature")
+  client.sign_collection(
+    collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+  )
+
 
 def publish_crlite(*, args=None, auth=None, client=None):
   stale_records = []
@@ -260,12 +354,16 @@ def publish_crlite(*, args=None, auth=None, client=None):
   try:
     client.attach_file(
       collection = settings.KINTO_CRLITE_COLLECTION,
+      fileName = os.path.basename(args.inpath),
       filePath = args.inpath,
       recordId = recordid,
     )
   except KintoException as ke:
     log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
-    client.delete_record(id = recordid)
+    client.delete_record(
+      collection = settings.KINTO_CRLITE_COLLECTION,
+      id = recordid,
+    )
     log.error("Stale record deleted.")
     raise ke
 
