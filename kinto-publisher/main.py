@@ -183,6 +183,9 @@ class Intermediate:
   def __str__(self):
     return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash, self.crlite_enrolled)
 
+  def unique_id(self):
+    return "{}-{}".format(self.pubKeyHash, self.subject)
+
   def _get_attributes(self, *, complete=False, new=False):
     attributes = {
       'subject': self.subject,
@@ -272,7 +275,8 @@ def publish_intermediates(*, args=None, auth=None, client=None):
       try:
         decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
         entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
-        local_intermediates[entry['pubKeyHash']] = Intermediate(**entry)
+        intObj = Intermediate(**entry)
+        local_intermediates[intObj.unique_id()] = intObj
       except Exception as e:
         log.error("Error importing file from {}: {}".format(args.inpath, e))
         log.error("Record: {}".format(entry))
@@ -280,7 +284,8 @@ def publish_intermediates(*, args=None, auth=None, client=None):
 
   for record in client.get_records(collection = settings.KINTO_INTERMEDIATES_COLLECTION):
     try:
-      remote_intermediates[record['pubKeyHash']] = Intermediate(**record)
+      intObj = Intermediate(**record)
+      remote_intermediates[intObj.unique_id()] = intObj
     except IntermediateRecordError as ire:
       log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
       remote_error_records.append(record)
@@ -318,19 +323,19 @@ def publish_intermediates(*, args=None, auth=None, client=None):
       except KintoException as ke:
         log.warning("Couldn't delete record id {}: {}".format(record['id'], ke))
 
-  for pubKeyHash in to_delete:
-    intermediate = remote_intermediates[pubKeyHash]
+  for unique_id in to_delete:
+    intermediate = remote_intermediates[unique_id]
     log.debug("Deleting {} from Kinto".format(intermediate))
     intermediate.delete_from_kinto(client = client)
 
-  for pubKeyHash in to_upload:
-    intermediate = local_intermediates[pubKeyHash]
+  for unique_id in to_upload:
+    intermediate = local_intermediates[unique_id]
     log.debug("Uploading {} to Kinto".format(intermediate))
     intermediate.add_to_kinto(client = client)
 
-  for pubKeyHash in to_update:
-    local_int = local_intermediates[pubKeyHash]
-    remote_int = remote_intermediates[pubKeyHash]
+  for unique_id in to_update:
+    local_int = local_intermediates[unique_id]
+    remote_int = remote_intermediates[unique_id]
     if not local_int.equals(remote_int):
       local_int.update_kinto(
         client = client,
@@ -342,7 +347,8 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   verification_error_records = []
   for record in client.get_records(collection = settings.KINTO_INTERMEDIATES_COLLECTION):
     try:
-      verified_intermediates[record['pubKeyHash']] = Intermediate(**record)
+      intObj = Intermediate(**record)
+      verified_intermediates[intObj.unique_id()] = intObj
     except IntermediateRecordError as ire:
       log.warning("Verification found broken intermediate record at Kinto: {}".format(ire))
       verification_error_records.append(record)
@@ -366,14 +372,14 @@ def publish_intermediates(*, args=None, auth=None, client=None):
       log.error("{} exists at Kinto but should have been deleted (not locally)".format(d))
     raise KintoException("Local/Remote Verification Failed")
 
-  for pubKeyHash in verified_intermediates.keys():
-    local_int = local_intermediates[pubKeyHash]
-    remote_int = verified_intermediates[pubKeyHash]
+  for unique_id in verified_intermediates.keys():
+    local_int = local_intermediates[unique_id]
+    remote_int = verified_intermediates[unique_id]
     if not local_int.equals(remote_int):
-      raise KintoException("Local/Remote metadata mismatch for pubKeyHash={}".format(pubKeyHash))
+      raise KintoException("Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
     if not remote_int.pemAttachment.verify(pemData = local_int.pemData):
-      raise KintoException("Local/Remote PEM mismatch for pubKeyHash={}".format(pubKeyHash))
+      raise KintoException("Local/Remote PEM mismatch for uniqueId={}".format(unique_id))
 
   log.info("Set for review")
   client.request_review_of_collection(
