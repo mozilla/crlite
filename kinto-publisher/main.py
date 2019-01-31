@@ -2,6 +2,7 @@ import argparse
 import base64
 import getpass
 import glog as log
+import hashlib
 import json
 import os
 import requests
@@ -137,7 +138,11 @@ class AttachedPem:
     }
 
   def verify(self, *, pemData=None):
-    raise Exception("Not implemented a method to verify the attachment is correct")
+    localHash = hashlib.sha256(pemData.encode("utf-8")).hexdigest()
+    if localHash != self.hash:
+      log.warning("PEM hash mismatch for {}; remote={} != local={}".format(self, self.hash, localHash))
+      return False
+    return True
 
 class Intermediate:
   def __init__(self, **kwargs):
@@ -362,7 +367,10 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     local_int = local_intermediates[pubKeyHash]
     remote_int = verified_intermediates[pubKeyHash]
     if not local_int.equals(remote_int):
-      raise KintoException("Local/Remote mismatch for pubKeyHash={}".format(pubKeyHash))
+      raise KintoException("Local/Remote metadata mismatch for pubKeyHash={}".format(pubKeyHash))
+
+    if not remote_int.pemAttachment.verify(pemData = local_int.pemData):
+      raise KintoException("Local/Remote PEM mismatch for pubKeyHash={}".format(pubKeyHash))
 
   log.info("Set for review")
   client.request_review_of_collection(
