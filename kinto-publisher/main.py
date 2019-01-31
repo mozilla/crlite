@@ -80,6 +80,8 @@ def main():
                         help="True if this is an update of Intermediates")
     parser.add_argument('--debug', action='store_true',
                         help="Enter a debugger during processing (only valid for Intermediates)")
+    parser.add_argument('--delete', action='store_true',
+                        help="Delete entries that are now missing (only valid for Intermediates)")
     parser.add_argument('--verbose', '-v', help="Be more verbose", action='store_true')
 
     args = parser.parse_args()
@@ -358,8 +360,9 @@ def publish_intermediates(*, args=None, auth=None, client=None):
 
     for unique_id in to_delete:
         intermediate = remote_intermediates[unique_id]
-        log.debug("Deleting {} from Kinto".format(intermediate))
-        intermediate.delete_from_kinto(client=client)
+        if args.delete:
+            log.info("Deleting {} from Kinto".format(intermediate))
+            intermediate.delete_from_kinto(client=client)
 
     for unique_id in to_upload:
         intermediate = local_intermediates[unique_id]
@@ -405,7 +408,8 @@ def publish_intermediates(*, args=None, auth=None, client=None):
 
     log.info("{} intermediates locally, {} at Kinto.".format(
         len(local_intermediates), len(verified_intermediates)))
-    if set(local_intermediates.keys()) != set(verified_intermediates.keys()):
+
+    if args.delete and set(local_intermediates.keys()) != set(verified_intermediates.keys()):
         log.error("The verified intermediates do not match the local set. Differences:")
         missing_remote = set(local_intermediates.keys()) - set(verified_intermediates.keys())
         missing_local = set(verified_intermediates.keys()) - set(local_intermediates.keys())
@@ -413,12 +417,25 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         for d in missing_remote:
             log.error("{} does not exist at Kinto".format(d))
         for d in missing_local:
-            log.error("{} exists at Kinto but should have been deleted (not locally)".format(d))
+            log.error(
+              "{} exists at Kinto but should have been deleted (not in local set)".format(d))
+        raise KintoException("Local/Remote Verification Failed")
+
+    elif not args.delete and set(local_intermediates.keys()) > set(verified_intermediates.keys()):
+        log.error("The verified intermediates do not match the local set. Differences:")
+        missing_remote = set(local_intermediates.keys()) - set(verified_intermediates.keys())
+        for d in missing_remote:
+            log.error("{} does not exist at Kinto".format(d))
         raise KintoException("Local/Remote Verification Failed")
 
     for unique_id in verified_intermediates.keys():
-        local_int = local_intermediates[unique_id]
         remote_int = verified_intermediates[unique_id]
+
+        if unique_id not in local_intermediates and not args.delete:
+            log.info("Remote {} has been deleted locally, but ignoring.".format(remote_int))
+            continue
+
+        local_int = local_intermediates[unique_id]
         if not local_int.equals(remote_record=remote_int):
             if not remote_int.pemAttachment.verify(pemData=local_int.pemData):
                 log.warning("PEM hash mismatch for {}; remote={} != local={}".format(
