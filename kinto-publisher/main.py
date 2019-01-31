@@ -1,6 +1,5 @@
 import argparse
 import base64
-import getpass
 import glog as log
 import hashlib
 import json
@@ -130,7 +129,7 @@ def main():
         raise ke
 
 
-class IntermediateRecordError(Exception):
+class IntermediateRecordError(KintoException):
     def __init__(self, message):
         self.message = message
 
@@ -190,18 +189,11 @@ class Intermediate:
         if 'id' in kwargs:
             self.kinto_id = kwargs['id']
 
-        self.details = None
-        if 'details' in kwargs:
-            self.details = kwargs['details']
-
         if len(self.pubKeyHash) < 26:
             raise IntermediateRecordError("Invalid intermediate hash: {}".format(kwargs))
 
         if not self.pemData and not self.pemAttachment:
             raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
-
-        if self.pemAttachment and not self.details:
-            raise IntermediateRecordError("Remote record without details: {}".format(kwargs))
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
@@ -218,17 +210,8 @@ class Intermediate:
           'crlite_enrolled': self.crlite_enrolled,
         }
 
-        if complete:
-            if self.pemAttachment:
-                attributes['attachment'] = self.pemAttachment._get_attributes()
-
-            if not new and self.details:
-                attributes['details'] = self.details
-            else:
-                attributes['details'] = {
-                  'name': getpass.getuser(),
-                  'created': "{}Z".format(datetime.utcnow().isoformat(timespec="seconds"))
-                }
+        if complete and self.pemAttachment:
+            attributes['attachment'] = self.pemAttachment._get_attributes()
 
         return attributes
 
@@ -262,11 +245,17 @@ class Intermediate:
 
         if remote_record.kinto_id is None:
             raise IntermediateRecordError("No kinto ID available {}".format(remote_record))
-        if remote_record.details is None:
-            raise IntermediateRecordError(
-                    "No details attached {} id=".format(remote_record, remote_record.kinto_id))
 
-        self.details = remote_record.details
+        if not remote_record.pemAttachment.verify(pemData=self.pemData):
+            log.warning("Attachment update needed for {}".format(self))
+            log.warning("New: {}".format(self.pemData))
+
+            # TODO: Do we delete the record? Right now it'll get caught at the end but
+            # not get fixed.
+            raise IntermediateRecordError(
+                    "Attachment is incorrect for ID {}".format(remote_record.kinto_id))
+
+        # Make sure to put back the existing PEM attachment data
         self.pemAttachment = remote_record.pemAttachment
 
         client.update_record(
@@ -274,11 +263,6 @@ class Intermediate:
           data=self._get_attributes(complete=True),
           id=remote_record.kinto_id,
         )
-        if not remote_record.pemAttachment.verify(pemData=self.pemData):
-            log.warning("Attachment update needed for {}".format(self))
-            log.warning("{}".format(self.pemData))
-            # TODO: Do we delete the record? Right now it'll get caught at the end but
-            # not get fixed.
 
     def add_to_kinto(self, *, client=None):
         if self.pemData is None:
@@ -377,14 +361,22 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         log.debug("Uploading {} to Kinto".format(intermediate))
         intermediate.add_to_kinto(client=client)
 
+    update_error_records = []
     for unique_id in to_update:
         local_int = local_intermediates[unique_id]
         remote_int = remote_intermediates[unique_id]
         if not local_int.equals(remote_record=remote_int):
-            local_int.update_kinto(
-              client=client,
-              remote_record=remote_int,
-            )
+            try:
+                local_int.update_kinto(
+                  client=client,
+                  remote_record=remote_int,
+                )
+            except KintoException as ke:
+                update_error_records.append((local_int, remote_int, ke))
+
+    for (local_int, remote_int, ke) in update_error_records:
+        log.warning(
+            "Failed to update local={} remote={} exception={}".format(local_int, remote_int, ke))
 
     log.info("Verifying correctness...")
     verified_intermediates = {}
