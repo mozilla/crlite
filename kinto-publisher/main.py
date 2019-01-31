@@ -137,6 +137,9 @@ class AttachedPem:
       'hash': self.hash,
     }
 
+  def __str__(self):
+    return "{{PEM: {} [h={} s={}]}}".format(self.filename, self.hash, self.size)
+
   def verify(self, *, pemData=None):
     localHash = hashlib.sha256(pemData.encode("utf-8")).hexdigest()
     if localHash != self.hash:
@@ -178,7 +181,7 @@ class Intermediate:
       raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
 
   def __str__(self):
-    return "{} [h={} e={}]".format(self.subject, self.pubKeyHash, self.crlite_enrolled)
+    return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash, self.crlite_enrolled)
 
   def _get_attributes(self, *, complete=False, new=False):
     attributes = {
