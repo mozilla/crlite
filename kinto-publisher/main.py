@@ -73,14 +73,14 @@ class PublisherClient(Client):
 def main():
     parser = argparse.ArgumentParser(description='Upload MLBF files to Kinto as records')
     parser.add_argument('--in', help="file to upload", dest="inpath", required=True)
-    parser.add_argument('--crlite', help="True if this is a CRLite update", action='store_true')
-    parser.add_argument(
-        '--diff', help="True if incremental (only valid for CRLite)", action='store_true')
-    parser.add_argument('--intermediates',
-                        help="True if this is an update of Intermediates", action='store_true')
-    parser.add_argument(
-        '--debug', help="Enter a debugger during processing (only valid for Intermediates)",
-        action='store_true')
+    parser.add_argument('--crlite', action='store_true',
+                        help="True if this is a CRLite update")
+    parser.add_argument('--diff', action='store_true',
+                        help="True if incremental (only valid for CRLite)")
+    parser.add_argument('--intermediates', action='store_true',
+                        help="True if this is an update of Intermediates")
+    parser.add_argument('--debug', action='store_true',
+                        help="Enter a debugger during processing (only valid for Intermediates)")
     parser.add_argument('--verbose', '-v', help="Be more verbose", action='store_true')
 
     args = parser.parse_args()
@@ -161,8 +161,6 @@ class AttachedPem:
     def verify(self, *, pemData=None):
         localHash = hashlib.sha256(pemData.encode("utf-8")).hexdigest()
         if localHash != self.hash:
-            log.warning("PEM hash mismatch for {}; remote={} != local={}".format(
-                self, self.hash, localHash))
             return False
         return True
 
@@ -188,9 +186,11 @@ class Intermediate:
         else:
             self.crlite_enrolled = False
 
+        self.kinto_id = None
         if 'id' in kwargs:
             self.kinto_id = kwargs['id']
 
+        self.details = None
         if 'details' in kwargs:
             self.details = kwargs['details']
 
@@ -199,6 +199,9 @@ class Intermediate:
 
         if not self.pemData and not self.pemAttachment:
             raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
+
+        if self.pemAttachment and not self.details:
+            raise IntermediateRecordError("Remote record without details: {}".format(kwargs))
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
@@ -257,6 +260,12 @@ class Intermediate:
         if remote_record is None:
             raise IntermediateRecordError("Must provide a remote record")
 
+        if remote_record.kinto_id is None:
+            raise IntermediateRecordError("No kinto ID available {}".format(remote_record))
+        if remote_record.details is None:
+            raise IntermediateRecordError(
+                    "No details attached {} id=".format(remote_record, remote_record.kinto_id))
+
         self.details = remote_record.details
         self.pemAttachment = remote_record.pemAttachment
 
@@ -265,9 +274,11 @@ class Intermediate:
           data=self._get_attributes(complete=True),
           id=remote_record.kinto_id,
         )
-
         if not remote_record.pemAttachment.verify(pemData=self.pemData):
-            self._upload_pem(client=client, kinto_id=remote_record.kinto_id)
+            log.warning("Attachment update needed for {}".format(self))
+            log.warning("{}".format(self.pemData))
+            # TODO: Do we delete the record? Right now it'll get caught at the end but
+            # not get fixed.
 
     def add_to_kinto(self, *, client=None):
         if self.pemData is None:
@@ -372,7 +383,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         if not local_int.equals(remote_record=remote_int):
             local_int.update_kinto(
               client=client,
-              remote_record=remote_int
+              remote_record=remote_int,
             )
 
     log.info("Verifying correctness...")
@@ -412,11 +423,13 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         local_int = local_intermediates[unique_id]
         remote_int = verified_intermediates[unique_id]
         if not local_int.equals(remote_record=remote_int):
-            raise KintoException(
-                "Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
-
-        if not remote_int.pemAttachment.verify(pemData=local_int.pemData):
-            raise KintoException("Local/Remote PEM mismatch for uniqueId={}".format(unique_id))
+            if not remote_int.pemAttachment.verify(pemData=local_int.pemData):
+                log.warning("PEM hash mismatch for {}; remote={} != local={}".format(
+                    unique_id, remote_int, local_int))
+                raise KintoException("Local/Remote PEM mismatch for uniqueId={}".format(unique_id))
+            else:
+                raise KintoException(
+                                "Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
     log.info("Set for review")
     client.request_review_of_collection(
