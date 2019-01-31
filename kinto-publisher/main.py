@@ -208,8 +208,19 @@ class Intermediate:
 
     return attributes
 
-  def equals(self, other):
-    return self._get_attributes() == other._get_attributes()
+  def _upload_pem(self, *, kinto_id = None):
+    client.attach_file(
+      collection = settings.KINTO_INTERMEDIATES_COLLECTION,
+      fileContents = self.pemData,
+      fileName = "{}.pem".format(self.pubKeyHash),
+      mimeType = "application/x-pem-file",
+      recordId = kinto_id or self.kinto_id,
+    )
+
+  def equals(self, *, remote_record = None):
+    sameAttributes = self._get_attributes() == remote_record._get_attributes()
+    sameAttachment = remote_record.pemAttachment.verify(pemData = self.pemData)
+    return sameAttributes and sameAttachment
 
   def delete_from_kinto(self, *, client=None):
     if self.kinto_id is None:
@@ -219,7 +230,7 @@ class Intermediate:
       id = self.kinto_id,
     )
 
-  def update_kinto(self, *, remote_record=None, client=None):
+  def update_kinto(self, *, remote_record = None, client=None):
     if self.pemData is None:
       raise IntermediateRecordError("Cannot upload a record not local: {}".format(self))
     if remote_record is None:
@@ -234,6 +245,9 @@ class Intermediate:
       id = remote_record.kinto_id,
     )
 
+    if not remote_record.pemAttachment.verify(pemData = self.pemData):
+      self._upload_pem(kinto_id = remote_record.kinto_id)
+
   def add_to_kinto(self, *, client=None):
     if self.pemData is None:
       raise IntermediateRecordError("Cannot upload a record not local: {}".format(self))
@@ -246,21 +260,15 @@ class Intermediate:
       data = attributes,
       permissions = perms,
     )
-    recordid = record['data']['id']
+    self.kinto_id = record['data']['id']
 
     try:
-      client.attach_file(
-        collection = settings.KINTO_INTERMEDIATES_COLLECTION,
-        fileContents = self.pemData,
-        fileName = "{}.pem".format(self.pubKeyHash),
-        mimeType = "application/x-pem-file",
-        recordId = recordid,
-      )
+      self._upload_pem()
     except KintoException as ke:
-      log.error("Failed to upload attachment. Removing stale intermediate record {}.".format(recordid))
+      log.error("Failed to upload attachment. Removing stale intermediate record {}.".format(self.kinto_id))
       client.delete_record(
         collection = settings.KINTO_INTERMEDIATES_COLLECTION,
-        id = recordid,
+        id = self.kinto_id,
       )
       log.error("Stale record deleted.")
       raise ke
@@ -336,7 +344,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   for unique_id in to_update:
     local_int = local_intermediates[unique_id]
     remote_int = remote_intermediates[unique_id]
-    if not local_int.equals(remote_int):
+    if not local_int.equals(remote_record = remote_int):
       local_int.update_kinto(
         client = client,
         remote_record = remote_int
@@ -375,7 +383,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   for unique_id in verified_intermediates.keys():
     local_int = local_intermediates[unique_id]
     remote_int = verified_intermediates[unique_id]
-    if not local_int.equals(remote_int):
+    if not local_int.equals(remote_record = remote_int):
       raise KintoException("Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
     if not remote_int.pemAttachment.verify(pemData = local_int.pemData):
@@ -392,7 +400,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
   #   collection = settings.KINTO_INTERMEDIATES_COLLECTION,
   # )
 
-def publish_crlite(*, args=None, auth=None, client=None):
+def publish_crlite(*, args = None, auth = None, client = None):
   stale_records = []
 
   if not args.diff:
