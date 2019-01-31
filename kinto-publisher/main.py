@@ -158,6 +158,7 @@ class AttachedPem:
         return "{{PEM: {} [h={} s={}]}}".format(self.filename, self.hash, self.size)
 
     def verify(self, *, pemData=None):
+        # TODO: move to Intermediate which has self.certHash handy
         localHash = hashlib.sha256(pemData.encode("utf-8")).hexdigest()
         if localHash != self.hash:
             return False
@@ -192,7 +193,11 @@ class Intermediate:
         if len(self.pubKeyHash) < 26:
             raise IntermediateRecordError("Invalid intermediate hash: {}".format(kwargs))
 
-        if not self.pemData and not self.pemAttachment:
+        if self.pemAttachment:
+            self.certHash = self.pemAttachment.hash
+        elif self.pemData:
+            self.certHash = hashlib.sha256(self.pemData.encode("utf-8")).hexdigest()
+        else:
             raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
 
     def __str__(self):
@@ -200,7 +205,7 @@ class Intermediate:
                                                 self.crlite_enrolled)
 
     def unique_id(self):
-        return "{}-{}".format(self.pubKeyHash, self.subject)
+        return "{}-{}-{}".format(self.pubKeyHash, self.subject, self.certHash)
 
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
