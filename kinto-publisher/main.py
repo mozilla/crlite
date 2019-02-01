@@ -310,6 +310,10 @@ def publish_intermediates(*, args=None, auth=None, client=None):
                 decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
                 entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
                 intObj = Intermediate(**entry)
+
+                if intObj.unique_id() in local_intermediates:
+                    raise Exception("Local collision: {}".format(intObj))
+
                 local_intermediates[intObj.unique_id()] = intObj
             except Exception as e:
                 log.error("Error importing file from {}: {}".format(args.inpath, e))
