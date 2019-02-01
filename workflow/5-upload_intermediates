@@ -1,0 +1,22 @@
+#!/bin/bash
+
+export HTTPS_PROXY=socks5://localhost:32547/
+
+if [ "$KINTO_AUTH_USER" == "" ] ; then
+  echo "You'll need to export or set KINTO_AUTH_USER and KINTO_AUTH_PASSWORD before calling this."
+  echo "Example: "
+  echo "   KINTO_AUTH_PASSWORD=password KINTO_AUTH_USER=username $0"
+  exit 1
+fi
+
+if [ $# -lt 1 ] ; then
+   echo "Usage: $0 /ct/processing/{IDENTIFIER}"
+   exit 1
+fi
+
+if [ ! -d ${1} ] ; then
+  echo "${1} is not a path."
+  exit 1
+fi
+
+python3 ~/crlite/kinto-publisher/main.py --intermediates --in ${1}/revoked/knownIssuers.json
