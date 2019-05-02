@@ -48,8 +48,8 @@ class PublisherClient(Client):
         response = requests.post(self.session.server_url + attachmentEndpoint,
                                  files=files, auth=self.session.auth)
         if response.status_code > 200:
-            raise KintoException("Couldn't attach file: {}".format(
-                response.content.decode("utf-8")))
+            raise KintoException("Couldn't attach file at endpoint {}: {}".format(
+                self.session.server_url + attachmentEndpoint, response.content.decode("utf-8")))
 
     def request_review_of_collection(self, *, collection=None):
         collectionEnd = "buckets/{}/collections/{}".format(
