@@ -12,9 +12,7 @@ import argparse
 import bsdiff4
 import logging
 import stopwatch
-
-# Local modules
-from FilterCascade import FilterCascade
+from filtercascade import FilterCascade
 
 sw = stopwatch.StopWatch()
 
@@ -136,6 +134,7 @@ def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
         cascade = FilterCascade.cascade_with_characteristics(
             int(len(revoked_certs) * args.capacity), args.errorrate)
 
+    cascade.version = 1
     cascade.initialize(include=revoked_certs, exclude=nonrevoked_certs)
 
     log.debug("Filter cascade layers: {layers}, bit: {bits}".format(
