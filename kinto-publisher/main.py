@@ -4,6 +4,7 @@ import glog as log
 import hashlib
 import json
 import os
+import re
 import requests
 import settings
 
@@ -26,6 +27,12 @@ def ensureNonBlank(settingNames):
     for setting in settingNames:
         if getattr(settings, setting) == "":
             raise Exception("{} must not be blank.".format(setting))
+
+
+def asciiPemToBinaryDer(pem: str) -> bytes:
+    matches = re.search(r'(?<=-----BEGIN CERTIFICATE-----).*?(?=-----END CERTIFICATE-----)',
+                        pem, flags=re.DOTALL)
+    return base64.b64decode(matches.group(0))
 
 
 class PublisherClient(Client):
@@ -193,14 +200,29 @@ class Intermediate:
             self.kinto_id = kwargs['id']
 
         if len(self.pubKeyHash) < 26:
-            raise IntermediateRecordError("Invalid intermediate hash: {}".format(kwargs))
+            raise IntermediateRecordError(f"Invalid intermediate hash: {kwargs}")
 
         if self.pemAttachment:
             self.certHash = self.pemAttachment.hash
+            if len(self.certHash) < 26:
+                raise IntermediateRecordError(f"Invalid Cert hash. {kwargs}")
         elif self.pemData:
             self.certHash = hashlib.sha256(self.pemData.encode("utf-8")).hexdigest()
         else:
-            raise IntermediateRecordError("No PEM data for this record: {}".format(kwargs))
+            raise IntermediateRecordError(f"No PEM data for this record: {kwargs}")
+
+        # Added 2019-05 (Bug 1552304)
+        self.subjectDN = None
+        if 'subjectDN' in kwargs:
+            self.subjectDN = kwargs['subjectDN']
+
+        self.derHash = None
+        if 'derHash' in kwargs:
+            self.derHash = kwargs['derHash']
+            if len(self.derHash) < 26:
+                raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
+        elif self.pemData:
+            self.derHash = hashlib.sha256(asciiPemToBinaryDer(self.pemData)).hexdigest()
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
@@ -212,6 +234,8 @@ class Intermediate:
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
           'subject': self.subject,
+          'subjectDN': self.subjectDN,
+          'derHash': self.derHash,
           'pubKeyHash': self.pubKeyHash,
           'whitelist': self.whitelist,
           'crlite_enrolled': self.crlite_enrolled,
@@ -307,6 +331,9 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     with open(args.inpath) as f:
         for entry in json.load(f):
             try:
+                # We keep the asn.1-encoded subject in 'subjectDN' and use
+                # 'subject' to hold the utf-8 version
+                entry['subjectDN'] = entry['subject']
                 decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
                 entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
                 intObj = Intermediate(**entry)
@@ -348,8 +375,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         print("")
         print("Use 'continue' to proceed")
         print("")
-        import pdb
-        pdb.set_trace()
+        breakpoint()
 
     if len(remote_error_records) > 0:
         log.info("Cleaning {} broken records".format(len(remote_error_records)))
