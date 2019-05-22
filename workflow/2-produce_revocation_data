@@ -5,4 +5,10 @@ if [ $# -ne 1 ] ; then
   exit 1
 fi
 
-~/go/bin/aggregate-crls -crls /ct/crls/ -out ${1}/revoked -log_dir /tmp/
+# Note: This should 'expire' periodically, but for now we'll just manually remove
+# it and let it get redownloaded whenever we want to update things.
+if [ ! -r /ct/ccadb-intermediates.csv ] ; then
+  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport --output /ct/ccadb-intermediates.csv
+fi
+
+~/go/bin/aggregate-crls -crls /ct/crls/ -out ${1}/revoked -log_dir /tmp/ -ccadb /ct/ccadb-intermediates.csv
