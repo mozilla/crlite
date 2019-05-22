@@ -40,14 +40,7 @@ func main() {
 		return
 	}
 
-	f, err := os.OpenFile(*outfile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	defer f.Close()
-
-	enc := json.NewEncoder(f)
-	if err = enc.Encode(mozIssuers.GetIssuers()); err != nil {
+	if err = mozIssuers.SaveIssuersList(*outfile); err != nil {
 		glog.Fatal(err)
 	}
 }
