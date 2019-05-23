@@ -218,6 +218,13 @@ class Intermediate:
         if 'subjectDN' in kwargs:
             self.subjectDN = kwargs['subjectDN']
 
+        if self.pemData:
+            self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
+                                                       default_backend())
+            self.subjectDN = base64.urlsafe_b64encode(
+                                self.cert.subject.public_bytes(
+                                    backend=default_backend())).decode("utf-8")
+
         self.derHash = None  # Equivalent to `openssl x509 -fingerprint -sha256`
         if 'derHash' in kwargs:
             self.derHash = kwargs['derHash']
@@ -225,10 +232,6 @@ class Intermediate:
                 raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
         elif self.pemData:
             self.derHash = hashlib.sha256(self._get_binary_der()).hexdigest()
-
-        if debug and self.pemData:
-            self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
-                                                       default_backend())
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
@@ -340,9 +343,6 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     with open(args.inpath) as f:
         for entry in json.load(f):
             try:
-                # We keep the asn.1-encoded subject in 'subjectDN' and use
-                # 'subject' to hold the utf-8 version
-                entry['subjectDN'] = entry['subject']
                 decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
                 entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
                 intObj = Intermediate(**entry, debug=args.debug)
@@ -497,6 +497,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
                     unique_id, remote_int, local_int))
                 raise KintoException("Local/Remote PEM mismatch for uniqueId={}".format(unique_id))
             else:
+                breakpoint()
                 raise KintoException(
                                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
