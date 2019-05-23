@@ -225,13 +225,14 @@ class Intermediate:
                                 self.cert.subject.public_bytes(
                                     backend=default_backend())).decode("utf-8")
 
-        self.derHash = None  # Equivalent to `openssl x509 -fingerprint -sha256`
+        self.derHash = None  # Base64 of `openssl x509 -fingerprint -sha256`
         if 'derHash' in kwargs:
             self.derHash = kwargs['derHash']
             if len(self.derHash) < 26:
                 raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
         elif self.pemData:
-            self.derHash = hashlib.sha256(self._get_binary_der()).hexdigest()
+            self.derHash = base64.urlsafe_b64encode(
+                             hashlib.sha256(self._get_binary_der()).digest()).decode("utf-8")
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
@@ -370,7 +371,10 @@ def publish_intermediates(*, args=None, auth=None, client=None):
 
     to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
     to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
-    to_update = set(local_intermediates.keys()) & set(remote_intermediates.keys())
+    to_update = set()
+    for i in set(local_intermediates.keys()) & set(remote_intermediates.keys()):
+        if not local_intermediates[i].equals(remote_record=remote_intermediates[i]):
+            to_update.append(i)
 
     delete_pubkeys = {remote_intermediates[i].pubKeyHash for i in to_delete}
     upload_pubkeys = {local_intermediates[i].pubKeyHash for i in to_upload}
