@@ -12,6 +12,8 @@ from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 
 class BearerTokenAuth(requests.auth.AuthBase):
@@ -175,8 +177,8 @@ class AttachedPem:
 
 
 class Intermediate:
-    def __init__(self, **kwargs):
-        self.pubKeyHash = kwargs['pubKeyHash']
+    def __init__(self, debug=False, **kwargs):
+        self.pubKeyHash = kwargs['pubKeyHash']  # sha256 of the SPKI
         self.subject = kwargs['subject']
         self.whitelist = kwargs['whitelist']
 
@@ -216,20 +218,24 @@ class Intermediate:
         if 'subjectDN' in kwargs:
             self.subjectDN = kwargs['subjectDN']
 
-        self.derHash = None
+        self.derHash = None  # Equivalent to `openssl x509 -fingerprint -sha256`
         if 'derHash' in kwargs:
             self.derHash = kwargs['derHash']
             if len(self.derHash) < 26:
                 raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
         elif self.pemData:
-            self.derHash = hashlib.sha256(asciiPemToBinaryDer(self.pemData)).hexdigest()
+            self.derHash = hashlib.sha256(self._get_binary_der()).hexdigest()
+
+        if debug and self.pemData:
+            self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
+                                                       default_backend())
 
     def __str__(self):
         return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
                                                 self.crlite_enrolled)
 
     def unique_id(self):
-        return "{}-{}-{}".format(self.pubKeyHash, self.subject, self.certHash)
+        return f"{self.pubKeyHash}-{self.subject}-{self.certHash}"
 
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
@@ -254,6 +260,9 @@ class Intermediate:
           mimeType="application/x-pem-file",
           recordId=kinto_id or self.kinto_id,
         )
+
+    def _get_binary_der(self) -> bytes:
+        return asciiPemToBinaryDer(self.pemData)
 
     def equals(self, *, remote_record=None):
         sameAttributes = self._get_attributes() == remote_record._get_attributes()
@@ -336,7 +345,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
                 entry['subjectDN'] = entry['subject']
                 decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
                 entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
-                intObj = Intermediate(**entry)
+                intObj = Intermediate(**entry, debug=args.debug)
 
                 if intObj.unique_id() in local_intermediates:
                     raise Exception("Local collision: {}".format(intObj))
@@ -363,7 +372,17 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
     to_update = set(local_intermediates.keys()) & set(remote_intermediates.keys())
 
+    delete_pubkeys = {remote_intermediates[i].pubKeyHash for i in to_delete}
+    upload_pubkeys = {local_intermediates[i].pubKeyHash for i in to_upload}
+
+    print(f"To delete: {len(to_delete)} (Deletion enabled: {args.delete})")
+    print(f"To add: {len(to_upload)}")
+    print(f"Certificates updated (without a key change): {len(delete_pubkeys & upload_pubkeys)}")
+    print(f"Total entries updated: {len(to_update)}")
+    print("")
+
     if args.debug:
+
         print("Variables available:")
         print("  local_intermediates")
         print("  remote_intermediates")
@@ -372,6 +391,12 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         print("  to_upload")
         print("  to_delete")
         print("  to_update")
+        print("")
+        print("  delete_pubkeys")
+        print("  upload_pubkeys")
+        print("  delete_pubkeys & upload_pubkeys # certs updated without changing the key")
+        print("")
+        print("  local_intermediates[to_update.pop()].cert # get cert object")
         print("")
         print("Use 'continue' to proceed")
         print("")
