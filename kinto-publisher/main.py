@@ -374,7 +374,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     to_update = set()
     for i in set(local_intermediates.keys()) & set(remote_intermediates.keys()):
         if not local_intermediates[i].equals(remote_record=remote_intermediates[i]):
-            to_update.append(i)
+            to_update.add(i)
 
     delete_pubkeys = {remote_intermediates[i].pubKeyHash for i in to_delete}
     upload_pubkeys = {local_intermediates[i].pubKeyHash for i in to_upload}
