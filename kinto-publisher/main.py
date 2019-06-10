@@ -221,7 +221,7 @@ class Intermediate:
         if self.pemData:
             self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
                                                        default_backend())
-            self.subjectDN = base64.urlsafe_b64encode(
+            self.subjectDN = base64.standard_b64encode(
                                 self.cert.subject.public_bytes(
                                     backend=default_backend())).decode("utf-8")
 
@@ -231,7 +231,7 @@ class Intermediate:
             if len(self.derHash) < 26:
                 raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
         elif self.pemData:
-            self.derHash = base64.urlsafe_b64encode(
+            self.derHash = base64.standard_b64encode(
                              hashlib.sha256(self._get_binary_der()).digest()).decode("utf-8")
 
     def __str__(self):
