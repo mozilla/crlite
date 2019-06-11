@@ -24,7 +24,6 @@ class BearerTokenAuth(requests.auth.AuthBase):
         r.headers['Authorization'] = 'Bearer ' + self.token
         return r
 
-
 def ensureNonBlank(settingNames):
     for setting in settingNames:
         if getattr(settings, setting) == "":
@@ -177,8 +176,18 @@ class AttachedPem:
 
 
 class Intermediate:
+    subject: str
+    kinto_id: str
+    whitelist: bool
+    crlite_enrolled: bool
+    pemAttachment: AttachedPem
+    certHash: str
+    subjectDN: bytes
+    derHash: bytes
+    pubKeyHash: bytes
+
     def __init__(self, debug=False, **kwargs):
-        self.pubKeyHash = kwargs['pubKeyHash']  # sha256 of the SPKI
+        self.pubKeyHash = base64.b64decode(kwargs['pubKeyHash'], altchars="-_", validate=True)  # sha256 of the SPKI
         self.subject = kwargs['subject']
         self.whitelist = kwargs['whitelist']
 
@@ -216,38 +225,33 @@ class Intermediate:
         # Added 2019-05 (Bug 1552304)
         self.subjectDN = None
         if 'subjectDN' in kwargs:
-            self.subjectDN = kwargs['subjectDN']
+            self.subjectDN = base64.b64decode(kwargs['subjectDN'], altchars="-_", validate=True)
 
         if self.pemData:
             self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
                                                        default_backend())
-            self.subjectDN = base64.standard_b64encode(
-                                self.cert.subject.public_bytes(
-                                    backend=default_backend())).decode("utf-8")
+            self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
 
         self.derHash = None  # Base64 of `openssl x509 -fingerprint -sha256`
         if 'derHash' in kwargs:
-            self.derHash = kwargs['derHash']
+            self.derHash = base64.b64decode(kwargs['derHash'], altchars="-_", validate=True)
             if len(self.derHash) < 26:
                 raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
         elif self.pemData:
-            self.derHash = base64.standard_b64encode(
-                             hashlib.sha256(self._get_binary_der()).digest()).decode("utf-8")
+            self.derHash = hashlib.sha256(self._get_binary_der()).digest()
 
     def __str__(self):
-        return "{{Int: {} [h={} e={}]}}".format(self.subject, self.pubKeyHash,
-                                                self.crlite_enrolled)
+        return f"{{Int: {self.subject} [h={base64.b85encode(self.pubKeyHash).decode('utf-8')} e={self.crlite_enrolled}]}}"
 
     def unique_id(self):
-        h=base64.urlsafe_b64decode(self.pubKeyHash)
-        return f"{base64.b85encode(h).decode('utf-8')}-{self.subject}-{self.certHash}"
+        return f"{base64.b85encode(self.pubKeyHash).decode('utf-8')}-{self.subject}-{self.certHash}"
 
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
           'subject': self.subject,
-          'subjectDN': self.subjectDN,
-          'derHash': self.derHash,
-          'pubKeyHash': base64.standard_b64encode(base64.urlsafe_b64decode(self.pubKeyHash)).decode("utf-8"),
+          'subjectDN': base64.standard_b64encode(self.subjectDN).decode("utf-8"),
+          'derHash': base64.standard_b64encode(self.derHash).decode("utf-8"),
+          'pubKeyHash': base64.standard_b64encode(self.pubKeyHash).decode("utf-8"),
           'whitelist': self.whitelist,
           'crlite_enrolled': self.crlite_enrolled,
         }
@@ -261,7 +265,7 @@ class Intermediate:
         client.attach_file(
           collection=settings.KINTO_INTERMEDIATES_COLLECTION,
           fileContents=self.pemData,
-          fileName="{}.pem".format(self.pubKeyHash),
+          fileName=f"{base64.urlsafe_base64(self.pubKeyHash).decode('utf-8')}.pem",
           mimeType="application/x-pem-file",
           recordId=kinto_id or self.kinto_id,
         )
@@ -442,9 +446,8 @@ def publish_intermediates(*, args=None, auth=None, client=None):
             except KintoException as ke:
                 update_error_records.append((local_int, remote_int, ke))
 
-    for (local_int, remote_int, ke) in update_error_records:
-        log.warning(
-            "Failed to update local={} remote={} exception={}".format(local_int, remote_int, ke))
+    for (local_int, remote_int, ex) in update_error_records:
+        log.warning(f"Failed to update local={local_int} remote={remote_int} exception={ex}")
 
     log.info("Verifying correctness...")
     verified_intermediates = {}
