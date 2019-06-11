@@ -239,14 +239,15 @@ class Intermediate:
                                                 self.crlite_enrolled)
 
     def unique_id(self):
-        return f"{self.pubKeyHash}-{self.subject}-{self.certHash}"
+        h=base64.urlsafe_b64decode(self.pubKeyHash)
+        return f"{base64.b85encode(h).decode('utf-8')}-{self.subject}-{self.certHash}"
 
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
           'subject': self.subject,
           'subjectDN': self.subjectDN,
           'derHash': self.derHash,
-          'pubKeyHash': self.pubKeyHash,
+          'pubKeyHash': base64.standard_b64encode(base64.urlsafe_b64decode(self.pubKeyHash)).decode("utf-8"),
           'whitelist': self.whitelist,
           'crlite_enrolled': self.crlite_enrolled,
         }
