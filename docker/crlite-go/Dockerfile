@@ -10,11 +10,14 @@ RUN go build -o bin/ct-fetch github.com/jcjones/ct-mapreduce/cmd/ct-fetch
 
 #FROM alpine
 FROM debian:stretch-slim
-RUN apt update && apt install -y ca-certificates && apt -y upgrade
+RUN apt update && apt install -y ca-certificates && \
+    apt -y upgrade && apt-get autoremove --purge -y && \
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN adduser --system --home /app appuser
 USER appuser
 COPY --from=builder /build/bin /app/
 WORKDIR /app
-CMD ["./get-mozilla-issuers"]
 
 VOLUME /var/log /ctdata /processing /config
