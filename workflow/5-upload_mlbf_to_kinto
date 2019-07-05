@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export HTTPS_PROXY=socks5://localhost:32547/ 
+export HTTPS_PROXY=socks5://localhost:32547/
 
 validateMLBF() {
   mlbf="${1}"
@@ -39,14 +39,14 @@ if [ $# -gt 1 ] ; then
 fi
 
 identifier="$(basename ${1})"
-currentMLBF="/ct/processing/${identifier}/mlbf/filter"
+currentMLBF="${crlite_processing:-/ct/processing}/${identifier}/mlbf/filter"
 validateMLBF "${currentMLBF}"
 
 previousIdentifier=$(basename $(find /ct/processing -maxdepth 1 -type d | grep -v "${identifier}" | tail -n 1))
-previousMLBF="/ct/processing/${previousIdentifier}/mlbf/filter"
+previousMLBF="${crlite_processing:-/ct/processing}/${previousIdentifier}/mlbf/filter"
 validateMLBF "${previousMLBF}"
 
-patchMLBF="$(ls /ct/processing/${identifier}/mlbf/filter*patch | head -n1)"
+patchMLBF="$(ls ${crlite_processing:-/ct/processing}/${identifier}/mlbf/filter*patch | head -n1)"
 
 ls -la "${patchMLBF}" "${currentMLBF}"
 
@@ -73,10 +73,9 @@ echo "  3) You'll need OpenSSH 6.7 or later."
 
 if (( $(echo "${ratio} > 0.4" | bc -l) )) ; then
   echo "Making a new base filter."
-  python3 ~/crlite/kinto-publisher/main.py --crlite --in "${currentMLBF}"
+  python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --in "${currentMLBF}"
 
 else
   echo "Posting a new incremental filter patch."
-  python3 ~/crlite/kinto-publisher/main.py --crlite --diff --in "${patchMLBF}"
+  python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --diff --in "${patchMLBF}"
 fi
-

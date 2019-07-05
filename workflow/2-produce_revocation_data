@@ -5,10 +5,15 @@ if [ $# -ne 1 ] ; then
   exit 1
 fi
 
-# Note: This should 'expire' periodically, but for now we'll just manually remove
-# it and let it get redownloaded whenever we want to update things.
-if [ ! -r /ct/ccadb-intermediates.csv ] ; then
-  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport --output /ct/ccadb-intermediates.csv
+if [ ! -d ${1} ] ; then
+  echo "Not a directory: ${1}"
+  exit 1
 fi
 
-~/go/bin/aggregate-crls -crls /ct/crls/ -out ${1}/revoked -log_dir /tmp/ -ccadb /ct/ccadb-intermediates.csv
+# Note: This should 'expire' periodically, but for now we'll just manually remove
+# it and let it get redownloaded whenever we want to update things.
+if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
+  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
+fi
+
+${crlite_bin:-~/go/bin}/aggregate-crls -crls ${crlite_processing:-/ct}/crls -out ${1}/revoked -log_dir ${crlite_log:-/tmp} -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv

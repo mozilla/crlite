@@ -5,4 +5,9 @@ if [ $# -ne 1 ] ; then
   exit 1
 fi
 
-~/go/bin/aggregate-known -outpath ${1}/known -log_dir /tmp/
+if [ ! -d ${1} ] ; then
+  echo "Not a directory: ${1}"
+  exit 1
+fi
+
+${crlite_bin:-~/go/bin}/aggregate-known -outpath ${1}/known -log_dir ${crlite_log:-/tmp}

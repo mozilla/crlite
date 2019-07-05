@@ -1,22 +1,30 @@
-#!/usr/bin/python3
+#!/usr/local/bin/python3
 
 import os
+import sys
+import argparse
 from datetime import datetime
 
-workdir="/ct/processing/"
+parser = argparse.ArgumentParser()
+parser.add_argument("--path", help="Path to folder on disk to store certs")
+
+args = parser.parse_args()
+
+if not args.path:
+    parser.print_usage()
+    sys.exit(0)
 
 dateprefix = datetime.utcnow().date().strftime("%Y%m%d")
 
-existing=[]
+existing = []
 
-for path, dirs, files in os.walk(workdir):
-  for d in dirs:
-    if d.startswith(dateprefix):
-        existing.append(d)
+for path, dirs, files in os.walk(args.path):
+    for d in dirs:
+        if d.startswith(dateprefix):
+            existing.append(d)
 
 allocatedName = "{}-{}".format(dateprefix, len(existing))
-allocatedPath = os.path.join(workdir, allocatedName)
+allocatedPath = os.path.join(args.path, allocatedName)
 
 os.mkdir(allocatedPath)
 print(allocatedPath)
-

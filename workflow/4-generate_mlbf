@@ -4,6 +4,12 @@ if [ $# -ne 1 ] ; then
   echo "Usage: $0 /ct/processing/{IDENTIFIER}"
   exit 1
 fi
+
+if [ ! -d ${1} ] ; then
+  echo "Not a directory: ${1}"
+  exit 1
+fi
+
 WORKDIR="$(dirname ${1})"
 ID="$(basename ${1})"
 PREVID=""
@@ -21,8 +27,7 @@ do
   fi
 done
 if [ "$PREVID" != "" ]; then
-  python3 ~/crlite/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
+  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
 else
-  python3 ~/crlite/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
+  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
 fi
-

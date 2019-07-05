@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# TODO: Remove when going onto real hardware
 export HTTPS_PROXY=socks5://localhost:32547/
 
 if [ "$KINTO_AUTH_USER" == "" ] ; then
@@ -19,4 +20,4 @@ if [ ! -d ${1} ] ; then
   exit 1
 fi
 
-python3 ~/crlite/kinto-publisher/main.py --intermediates --in ${1}/revoked/knownIssuers.json
+python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --intermediates --in ${1}/revoked/knownIssuers.json

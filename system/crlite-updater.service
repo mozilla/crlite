@@ -5,9 +5,8 @@ After=syslog.target network.target
 [Service]
 Type=oneshot
 WorkingDirectory=/ct/
-ExecStart=%h/go/src/github.com/mozilla/crlite/system/crlite-updater
+ExecStart=%h/go/src/github.com/mozilla/crlite/system/crlite-fullrun
 TimeoutStartSec=infinity
 LimitNOFILE=4096
 
 #User=ubuntu
-

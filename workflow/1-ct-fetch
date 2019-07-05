@@ -14,4 +14,10 @@ if [ "${remaining}" != "" ] ; then
   echo "WARNING: There may still be running ct-fetch instances at these PIDs: ${remaining}"
 fi
 
-/usr/bin/time ~/go/bin/ct-fetch -log_dir /tmp/
+cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -config ${crlite_config:-~/.ct-fetch.ini}"
+
+if [ -x /usr/bin/time ] ; then
+  /usr/bin/time ${cmd}
+else
+  ${cmd}
+fi
