@@ -16,4 +16,4 @@ if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
   curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
 fi
 
-${crlite_bin:-~/go/bin}/aggregate-crls -crls ${crlite_processing:-/ct}/crls -out ${1}/revoked -log_dir ${crlite_log:-/tmp} -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv
+${crlite_bin:-~/go/bin}/aggregate-crls -config ${crlite_config:-~/.ct-fetch.ini} -crls ${crlite_processing:-/ct}/crls -out ${1}/revoked -log_dir ${crlite_log:-/tmp} -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv
