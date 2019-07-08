@@ -23,6 +23,7 @@ type CTConfig struct {
 	PollingDelay      *int
 	IssuerCNFilter    *string
 	LogExpiredEntries *bool
+	OutputRefreshMs   *uint64
 	Config            *string
 }
 
@@ -41,10 +42,11 @@ func NewCTConfig() *CTConfig {
 		NumThreads:        new(int),
 		CacheSize:         new(int),
 		LogExpiredEntries: new(bool),
-		RunForever:        flag.Bool("forever", false, "Poll for updates forever"),
+		RunForever:        flag.Bool("forever", false, "poll for updates forever"),
 		PollingDelay:      new(int),
 		IssuerCNFilter:    new(string),
 		CertPath:          new(string),
+		OutputRefreshMs:   flag.Uint64("output_refresh_ms", 125, "Speed for refreshing progress"),
 	}
 	flag.Parse()
 

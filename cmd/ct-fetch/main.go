@@ -91,9 +91,14 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 	twg := new(sync.WaitGroup)
 
+	refreshDur := time.Duration(*ctconfig.OutputRefreshMs) * time.Millisecond
+
+	glog.Infof("Progress bar refresh rate is every %v.\n", refreshDur)
+
 	display := mpb.New(
 		mpb.WithWaitGroup(twg),
 		mpb.WithContext(ctx),
+		mpb.WithRefreshRate(refreshDur),
 	)
 
 	return &LogSyncEngine{
@@ -252,7 +257,9 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	if lw.StartPos == lw.EndPos {
 		glog.Infof("[%s] Nothing to do", lw.LogURL)
-		lw.Bar.SetTotal((int64)(lw.EndPos), true)
+		if lw.Bar != nil {
+			lw.Bar.SetTotal((int64)(lw.EndPos), true)
+		}
 		return nil
 	}
 
@@ -307,7 +314,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 		for _, entry := range resp.Entries {
 			index++
-			lw.Bar.IncrBy(1, time.Since(cycleTime))
+			if lw.Bar != nil {
+				lw.Bar.IncrBy(1, time.Since(cycleTime))
+			}
 			cycleTime = time.Now()
 
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
