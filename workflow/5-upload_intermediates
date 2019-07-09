@@ -20,4 +20,7 @@ if [ ! -d ${1} ] ; then
   exit 1
 fi
 
-python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --intermediates --in ${1}/revoked/knownIssuers.json
+path=${1}
+shift
+
+python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --intermediates --in ${path}/revoked/knownIssuers.json --delete $@
