@@ -5,9 +5,11 @@ WORKDIR /build
 RUN mkdir bin gopath
 ENV GOPATH /build/gopath
 
+# Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go build -o bin/get-mozilla-issuers /build/cmd/get-mozilla-issuers
+# Pull a specific version of ct-mapreduce's ct-fetch
 RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@v1.0.2
 
 FROM python:3.7-stretch
@@ -25,6 +27,7 @@ ENV crlite_processing /processing
 ENV crlite_config /config/ct-fetch.ini
 ENV crlite_workflow /app/workflow
 ENV crlite_bin /app
+ENV crlite_refresh_ms 60000
 
 COPY requirements.txt /app/
 RUN pip3 install -r /app/requirements.txt
