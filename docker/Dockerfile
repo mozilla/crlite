@@ -2,11 +2,13 @@ FROM golang:1.12-stretch as builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
-RUN mkdir bin
+RUN mkdir bin gopath
+ENV GOPATH /build/gopath
+
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go build -o bin/get-mozilla-issuers /build/cmd/get-mozilla-issuers
-RUN go build -o bin/ct-fetch github.com/jcjones/ct-mapreduce/cmd/ct-fetch
+RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@v1.0.2
 
 FROM python:3.7-stretch
 RUN apt update && apt install -y ca-certificates && \
@@ -27,6 +29,7 @@ ENV crlite_bin /app
 COPY requirements.txt /app/
 RUN pip3 install -r /app/requirements.txt
 COPY --from=builder /build/bin /app/
+COPY --from=builder /build/gopath/bin /app/
 
 USER appuser
 COPY create_filter_cascade /app/create_filter_cascade
