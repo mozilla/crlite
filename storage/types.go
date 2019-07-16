@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
@@ -17,6 +18,13 @@ type CertificateLog struct {
 
 func (o *CertificateLog) String() string {
 	return fmt.Sprintf("LogID=%d MaxEntry=%d, LastEntryTime=%s, URL=%s", o.LogID, o.MaxEntry, o.LastEntryTime, o.URL)
+}
+
+type StorageBackend interface {
+	Store(id string, b []byte) (int, error)
+	Load(id string) ([]byte, error)
+	List(path string, walkFn filepath.WalkFunc) error
+	// Someday: Add Reader and Writer methods
 }
 
 type CertDatabase interface {
