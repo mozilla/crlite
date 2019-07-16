@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -8,6 +10,7 @@ import json
 import OpenSSL
 import os
 import sys
+import math
 import argparse
 import bsdiff4
 import logging
@@ -16,6 +19,7 @@ from filtercascade import FilterCascade
 
 sw = stopwatch.StopWatch()
 
+mlbf_path = 'mlbf2'
 
 def getCertList(certpath, aki):
     certlist = None
@@ -23,9 +27,7 @@ def getCertList(certpath, aki):
         with open(certpath, "r") as f:
             try:
                 serials = json.load(f)
-                certlist = set()
-                for s in serials:
-                    certlist.add(aki + str(s))
+                certlist = {aki + str(s) for s in serials}
             except Exception as e:
                 log.debug("{}".format(e))
                 log.error("Failed to load certs for {} from {}".format(
@@ -37,7 +39,8 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
     counts = {}
     counts['knownrevoked'] = 0
     counts['knownnotrevoked'] = 0
-    counts['crls'] = 0
+    counts['revoked'] = 0
+    counts['known'] = 0
     counts['nocrl'] = 0
     log.info("Generating revoked/nonrevoked list {known} {revoked}".format(
         known=args.knownPath, revoked=args.revokedPath))
@@ -50,29 +53,40 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
             aki = os.path.splitext(filename)[0]
             if aki in args.excludeaki:
                 continue
+            
             # Get known serials for AKI
             knownpath = os.path.join(path, filename)
             knownlist = getCertList(knownpath, aki)
+
+            if knownlist:
+                counts['known'] += len(knownlist)
+            else:
+                knownlist = set()
+
             # Get revoked serials for AKI, if any
             revokedpath = os.path.join(args.revokedPath, "%s.revoked" % aki)
             revlist = getCertList(revokedpath, aki)
-            if knownlist == None or revlist == None:
-                # Skip AKI. No revocations for this AKI.  Not even empty list.
-                counts['nocrl'] = counts['nocrl'] + 1
-                continue
-            processedAKIs.add(aki)
-            counts['crls'] = counts['crls'] + len(revlist)
-            revoked_certs.extend(revlist)
-            # Decide if know serial is revoked or valid
-            for key in knownlist:
-                if key not in revlist:
-                    nonrevoked_certs.append(key)
-                    counts['knownnotrevoked'] = counts['knownnotrevoked'] + 1
-                else:
-                    # The revoked keys were already processed above.
-                    # Just count it here.
-                    counts['knownrevoked'] = counts['knownrevoked'] + 1
 
+            if revlist:
+                counts['revoked'] += len(revlist)
+            else:
+                counts['nocrl'] += 1
+                revlist = set()
+            
+            processedAKIs.add(aki)
+
+            knownNotRevoked = knownlist - revlist
+            knownRevoked = knownlist & revlist
+            counts['knownnotrevoked'] += len(knownNotRevoked)
+            counts['knownrevoked'] += len(knownRevoked)
+
+            # cbw - Don't add all revocations, only add revocations
+            # for known certificates. Revocations for unknown certs
+            # are useless cruft
+            #revoked_certs.extend(revlist)
+            revoked_certs.extend(knownRevoked)
+            nonrevoked_certs.extend(knownNotRevoked)
+            
     # Go through revoked AKIs and process any that were not part of known AKIs
     for path, dirs, files in os.walk(args.revokedPath):
         for filename in files:
@@ -84,13 +98,16 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
                 revlist = getCertList(revokedpath, aki)
                 if revlist == None:
                     # Skip AKI. No revocations for this AKI.  Not even empty list.
-                    counts['nocrl'] = counts['nocrl'] + 1
+                    counts['nocrl'] += 1
                 else:
                     log.debug("Only revoked certs for AKI {}".format(aki))
-                    counts['crls'] = counts['crls'] + len(revlist)
-                    revoked_certs.extend(revlist)
-    log.debug("R: %d KNR: %d KR: %d NOCRL: %d" %
-              (counts['crls'], counts['knownnotrevoked'],
+                    counts['revoked'] += len(revlist)
+                    # cbw - These revocations are for unknown certs, i.e. useless cruft,
+                    # so don't add them to the list of revocations
+                    #revoked_certs.extend(revlist)
+
+    log.debug("R: %d K: %d KNR: %d KR: %d NOCRL: %d" %
+              (counts['revoked'], counts['known'], counts['knownnotrevoked'],
                counts['knownrevoked'], counts['nocrl']))
 
 
@@ -119,6 +136,8 @@ def loadCertLists(args, *, revoked_certs, nonrevoked_certs):
         for line in file:
             nonrevoked_certs.append(line[:-1])
 
+def getFPRs(revoked_certs, nonrevoked_certs):
+    return [len(revoked_certs) / (math.sqrt(2) * len(nonrevoked_certs)), 0.5]
 
 def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
     sw.start('mlbf')
@@ -128,11 +147,12 @@ def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
             format(args.diffMetaFile))
         mlbf_meta_file = open(args.diffMetaFile, 'rb')
         cascade = FilterCascade.loadDiffMeta(mlbf_meta_file)
-        cascade.error_rates = args.errorrate
+        cascade.error_rates = getFPRs(revoked_certs, nonrevoked_certs)
     else:
         log.info("Generating filter")
         cascade = FilterCascade.cascade_with_characteristics(
-            int(len(revoked_certs) * args.capacity), args.errorrate)
+            int(len(revoked_certs) * args.capacity),
+            getFPRs(revoked_certs, nonrevoked_certs))
 
     cascade.version = 1
     cascade.initialize(include=revoked_certs, exclude=nonrevoked_certs)
@@ -190,12 +210,6 @@ def parseArgs(argv):
         "Directory containing known unexpired serials.  <AKI>.known JSON files."
     )
     parser.add_argument(
-        "-errorrate",
-        type=float,
-        nargs="*",
-        default=[.02, .5],
-        help="MLBF error rates.")
-    parser.add_argument(
         "-capacity", type=float, default="1.1", help="MLBF capacity.")
     parser.add_argument(
         "-excludeaki",
@@ -213,15 +227,15 @@ def parseArgs(argv):
     args.diffMetaFile = None
     args.diffBaseFile = None
     args.patchFile = None
-    args.outFile = os.path.join(args.certPath, args.id, "mlbf/filter")
-    args.metaFile = os.path.join(args.certPath, args.id, "mlbf/filter.meta")
+    args.outFile = os.path.join(args.certPath, args.id, mlbf_path, "filter")
+    args.metaFile = os.path.join(args.certPath, args.id, mlbf_path, "filter.meta")
     if args.knownPath == None:
         args.knownPath = os.path.join(args.certPath, args.id, "known")
     if args.revokedPath == None:
         args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
     args.revokedKeys = os.path.join(args.certPath, args.id,
-                                    "mlbf/keys-revoked")
-    args.validKeys = os.path.join(args.certPath, args.id, "mlbf/keys-valid")
+                                    mlbf_path, "keys-revoked")
+    args.validKeys = os.path.join(args.certPath, args.id, mlbf_path, "keys-valid")
     return args
 
 
@@ -257,14 +271,14 @@ def main():
 
     # Setup for diff if previous filter specified
     if args.previd != None:
-        diffMetaPath = os.path.join(args.certPath, args.previd, "mlbf",
+        diffMetaPath = os.path.join(args.certPath, args.previd, mlbf_path,
                                     "filter.meta")
-        diffBasePath = os.path.join(args.certPath, args.previd, "mlbf",
+        diffBasePath = os.path.join(args.certPath, args.previd, mlbf_path,
                                     "filter")
         if os.path.isfile(diffMetaPath) and os.path.isfile(diffBasePath):
             args.diffMetaFile = diffMetaPath
             args.diffBaseFile = diffBasePath
-            args.patchFile = os.path.join(args.certPath, args.id, "mlbf",
+            args.patchFile = os.path.join(args.certPath, args.id, mlbf_path,
                                           "filter.%s.patch" % args.previd)
         else:
             log.warning("Previous ID specified but no filter files found.")
