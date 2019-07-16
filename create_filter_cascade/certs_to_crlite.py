@@ -19,7 +19,7 @@ from filtercascade import FilterCascade
 
 sw = stopwatch.StopWatch()
 
-mlbf_path = 'mlbf2'
+mlbf_path = 'mlbf'
 
 def getCertList(certpath, aki):
     certlist = None
