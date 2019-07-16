@@ -88,7 +88,7 @@ func main() {
 		glog.Infof("Loading from disk at %s", *ctconfig.CertPath)
 		storageDB, err = storage.NewDiskDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, 0644)
 		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
+			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
 		}
 	}
 
@@ -113,14 +113,14 @@ func main() {
 
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
-		glog.Fatalf("Could not list expiration dates", err)
+		glog.Fatalf("Could not list expiration dates: %+v", err)
 	}
 
 	var count int64
 	for _, expDate := range expDates {
 		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
 		if err != nil {
-			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
+			glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
 		}
 
 		for _, issuer := range issuers {

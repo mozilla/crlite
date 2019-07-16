@@ -103,9 +103,18 @@ func Test_ListExpiration(t *testing.T) {
 	var dir string
 
 	dir, err = ioutil.TempDir("", "testListExpiration")
-	os.MkdirAll(filepath.Join(dir, "2017-11-28"), 0777)
-	os.MkdirAll(filepath.Join(dir, "2018-11-28"), 0777)
-	os.MkdirAll(filepath.Join(dir, "2019-11-28"), 0777)
+	if err != nil {
+		t.Fatalf("Couldn't make temp directory: %+v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "2017-11-28"), 0777); err != nil {
+		t.Fatalf("Couldn't make directory: %+v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "2018-11-28"), 0777); err != nil {
+		t.Fatalf("Couldn't make directory: %+v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "2019-11-28"), 0777); err != nil {
+		t.Fatalf("Couldn't make directory: %+v", err)
+	}
 	defer os.RemoveAll(dir)
 
 	storageDB, err = NewDiskDatabase(1, dir, 0644)
@@ -122,6 +131,9 @@ func Test_ListExpiration(t *testing.T) {
 	// All dirs valid.
 	expectedDates := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
 	refTime, err = time.Parse(time.RFC3339, "2016-11-29T15:04:05Z")
+	if err != nil {
+		t.Fatalf("Couldn't parse time %+v", err)
+	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
@@ -132,6 +144,9 @@ func Test_ListExpiration(t *testing.T) {
 	// Some dirs valid.
 	expectedDates = []string{"2019-11-28"}
 	refTime, err = time.Parse(time.RFC3339, "2018-11-29T15:04:05Z")
+	if err != nil {
+		t.Fatalf("Couldn't parse time %+v", err)
+	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
@@ -143,6 +158,9 @@ func Test_ListExpiration(t *testing.T) {
 	// No dirs valid
 	expectedDates = []string{}
 	refTime, err = time.Parse(time.RFC3339, "2020-11-29T15:04:05Z")
+	if err != nil {
+		t.Fatalf("Couldn't parse time %+v", err)
+	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
@@ -154,6 +172,9 @@ func Test_ListExpiration(t *testing.T) {
 	// Some dirs valid with ref year, month, and day equal to a dir name
 	expectedDates = []string{"2018-11-28", "2019-11-28"}
 	refTime, err = time.Parse(time.RFC3339, "2018-11-28T23:59:59Z")
+	if err != nil {
+		t.Fatalf("Couldn't parse time %+v", err)
+	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())

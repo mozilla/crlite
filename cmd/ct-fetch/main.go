@@ -213,8 +213,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		}
 	}
 
-	var endPos uint64
-	endPos = sth.TreeSize
+	var endPos = sth.TreeSize
 	if *ctconfig.Limit > 0 && (startPos+*ctconfig.Limit) < sth.TreeSize {
 		endPos = startPos + *ctconfig.Limit
 	}
@@ -275,7 +274,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	err = lw.Database.SaveLogState(lw.LogState)
 	if err != nil {
-		glog.Errorf("[%s] Log state save failed, %s Err=%s, Err=%s", lw.LogURL, lw.LogState, err)
+		glog.Errorf("[%s] Log state save failed, %s Err=%s", lw.LogURL, lw.LogState, err)
 		return err
 	}
 
@@ -351,7 +350,7 @@ func main() {
 		glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
 		storageDB, err = storage.NewDiskDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, 0644)
 		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %s: %s", ctconfig.CertPath, err)
+			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
 		}
 	}
 
@@ -360,14 +359,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	var issuerCNList []string
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
-		for _, part := range strings.Split(*ctconfig.IssuerCNFilter, ",") {
-			cnFilter := strings.TrimSpace(part)
-			if len(cnFilter) > 0 {
-				issuerCNList = append(issuerCNList, cnFilter)
-			}
-		}
+		glog.Infof("IssuerCNFilter is set, but unsupported")
 	}
 
 	logUrls := []url.URL{}
