@@ -2,9 +2,7 @@ package storage
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +15,7 @@ type IssuerMetadata struct {
 	mutex    *sync.Mutex
 	Metadata Metadata
 	filePath string
-	perms    os.FileMode
+	backend  StorageBackend
 }
 
 // A separate type for future expandability
@@ -26,15 +24,15 @@ type Metadata struct {
 	IssuerDNs []*string `json:"issuerDNs"`
 }
 
-func NewIssuerMetadata(aMetadataPath string, aPerms os.FileMode) *IssuerMetadata {
+func NewIssuerMetadata(aMetadataPath string, aBackend StorageBackend) *IssuerMetadata {
 	metadata := Metadata{
 		Crls: make([]*string, 0, 10),
 	}
 	return &IssuerMetadata{
 		mutex:    &sync.Mutex{},
 		filePath: aMetadataPath,
-		perms:    aPerms,
 		Metadata: metadata,
+		backend:  aBackend,
 	}
 }
 
@@ -42,12 +40,7 @@ func (im *IssuerMetadata) Load() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	fd, err := os.Open(im.filePath)
-	if err != nil {
-		return err
-	}
-
-	data, err := ioutil.ReadAll(fd)
+	data, err := im.backend.Load(im.filePath)
 	if err != nil {
 		glog.Errorf("Error reading issuer metadata %s: %s", im.filePath, err)
 	}
@@ -57,9 +50,6 @@ func (im *IssuerMetadata) Load() error {
 		glog.Errorf("Error unmarshaling issuer metadata %s: %s", im.filePath, err)
 	}
 
-	if err = fd.Close(); err != nil {
-		glog.Errorf("Error loading issuer metadata %s: %s", im.filePath, err)
-	}
 	return err
 }
 
@@ -67,19 +57,14 @@ func (im *IssuerMetadata) Save() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	fd, err := os.OpenFile(im.filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, im.perms)
+	data, err := json.Marshal(im.Metadata)
 	if err != nil {
-		glog.Errorf("Error opening issuer metadata %s: %s", im.filePath, err)
-		return err
-	}
-
-	enc := json.NewEncoder(fd)
-
-	if err := enc.Encode(im.Metadata); err != nil {
 		glog.Errorf("Error marshaling issuer metadata %s: %s", im.filePath, err)
 	}
 
-	if err = fd.Close(); err != nil {
+	// Count is checked by the backend
+	_, err = im.backend.Store(im.filePath, data)
+	if err != nil {
 		glog.Errorf("Error storing issuer metadata %s: %s", im.filePath, err)
 	}
 

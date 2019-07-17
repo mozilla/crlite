@@ -57,7 +57,9 @@ func GetIssuerMetadata(aPath string, aExpDate string, aIssuer string, aPerms os.
 func GetIssuerMetadataFromPath(aPemPath string, aPerms os.FileMode) *IssuerMetadata {
 	metaPath := fmt.Sprintf("%s%s", aPemPath, kSuffixIssuerMetadata)
 
-	issuerMetadata := NewIssuerMetadata(metaPath, aPerms)
+	backend := &DiskBackend{aPerms}
+
+	issuerMetadata := NewIssuerMetadata(metaPath, backend)
 	err := issuerMetadata.Load()
 	if err != nil {
 		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)

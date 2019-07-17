@@ -5,7 +5,7 @@ import (
 )
 
 func Test_DuplicateCRLs(t *testing.T) {
-	meta := NewIssuerMetadata("", 0644)
+	meta := NewIssuerMetadata("", NewMockBackend())
 
 	meta.addCRL("ldaps://ldap.crl")
 	meta.addCRL("schema://192.168.1.1:129/file.crl")
