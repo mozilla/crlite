@@ -11,6 +11,10 @@ type DiskBackend struct {
 	perms os.FileMode
 }
 
+func NewDiskBackend(perms os.FileMode) StorageBackend {
+	return &DiskBackend{perms}
+}
+
 func (db *DiskBackend) Store(id string, data []byte) (int, error) {
 	fd, err := os.OpenFile(id, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
 	if err != nil {

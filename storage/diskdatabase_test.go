@@ -117,7 +117,7 @@ func Test_ListExpiration(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	storageDB, err = NewDiskDatabase(1, dir, 0644)
+	storageDB, err = NewDiskDatabase(1, dir, NewMockBackend())
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // 	// Someday: Add Reader and Writer methods
 // }
 
-func StoreAndLoad(t *testing.T, path string, db *DiskBackend, data []byte) {
+func StoreAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
 	cnt, err := db.Store(path, data)
 	if cnt != len(data) || err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
@@ -31,9 +32,9 @@ func StoreAndLoad(t *testing.T, path string, db *DiskBackend, data []byte) {
 }
 
 func Test_StoreLoad(t *testing.T) {
-	folder := filepath.Join(os.TempDir(), t.Name())
-	if err := os.Mkdir(folder, 0777); err != nil {
-		t.Fatalf("Couldn't make temp directory %s: %+v", folder, err)
+	folder, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Error(err)
 	}
 
 	defer func() {
@@ -44,7 +45,7 @@ func Test_StoreLoad(t *testing.T) {
 
 	path := filepath.Join(folder, "test_file")
 
-	db := &DiskBackend{0666}
+	db := NewDiskBackend(0644)
 
 	StoreAndLoad(t, path, db, []byte{})
 	StoreAndLoad(t, path, db, []byte{0x01})
@@ -54,7 +55,7 @@ func Test_StoreLoad(t *testing.T) {
 	os.Remove(path)
 
 	// Load empty
-	_, err := db.Load(path)
+	_, err = db.Load(path)
 	if err == nil {
 		t.Fatalf("Should not have loaded a missing file")
 	}

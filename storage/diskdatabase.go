@@ -31,17 +31,15 @@ const (
 
 var kPemEndCert = []byte("-----END CERTIFICATE-----\n")
 
-func GetKnownCertificates(aPath string, aExpDate string, aIssuer string, aPerms os.FileMode) *KnownCertificates {
+func GetKnownCertificates(aPath string, aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
 	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
-	return GetKnownCertificatesFromPath(pemPath, aPerms)
+	return GetKnownCertificatesFromPath(pemPath, aBackend)
 }
 
-func GetKnownCertificatesFromPath(aPemPath string, aPerms os.FileMode) *KnownCertificates {
+func GetKnownCertificatesFromPath(aPemPath string, aBackend StorageBackend) *KnownCertificates {
 	knownPath := fmt.Sprintf("%s%s", aPemPath, kSuffixKnownCertificates)
 
-	backend := &DiskBackend{aPerms}
-
-	knownCerts := NewKnownCertificates(knownPath, backend)
+	knownCerts := NewKnownCertificates(knownPath, aBackend)
 	err := knownCerts.Load()
 	if err != nil {
 		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
@@ -49,17 +47,15 @@ func GetKnownCertificatesFromPath(aPemPath string, aPerms os.FileMode) *KnownCer
 	return knownCerts
 }
 
-func GetIssuerMetadata(aPath string, aExpDate string, aIssuer string, aPerms os.FileMode) *IssuerMetadata {
+func GetIssuerMetadata(aPath string, aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
 	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
-	return GetIssuerMetadataFromPath(pemPath, aPerms)
+	return GetIssuerMetadataFromPath(pemPath, aBackend)
 }
 
-func GetIssuerMetadataFromPath(aPemPath string, aPerms os.FileMode) *IssuerMetadata {
+func GetIssuerMetadataFromPath(aPemPath string, aBackend StorageBackend) *IssuerMetadata {
 	metaPath := fmt.Sprintf("%s%s", aPemPath, kSuffixIssuerMetadata)
 
-	backend := &DiskBackend{aPerms}
-
-	issuerMetadata := NewIssuerMetadata(metaPath, backend)
+	issuerMetadata := NewIssuerMetadata(metaPath, aBackend)
 	err := issuerMetadata.Load()
 	if err != nil {
 		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)
@@ -69,21 +65,23 @@ func GetIssuerMetadataFromPath(aPemPath string, aPerms os.FileMode) *IssuerMetad
 }
 
 type CacheEntry struct {
-	mutex *sync.Mutex
-	fd    *os.File
-	known *KnownCertificates
-	meta  *IssuerMetadata
+	mutex   *sync.Mutex
+	fd      *os.File
+	known   *KnownCertificates
+	meta    *IssuerMetadata
+	backend StorageBackend
 }
 
-func NewCacheEntry(aFileObj *os.File, aPemPath string, aPerms os.FileMode) (*CacheEntry, error) {
-	knownCerts := GetKnownCertificatesFromPath(aPemPath, aPerms)
-	issuerMetadata := GetIssuerMetadataFromPath(aPemPath, aPerms)
+func NewCacheEntry(aFileObj *os.File, aPemPath string, aBackend StorageBackend) (*CacheEntry, error) {
+	knownCerts := GetKnownCertificatesFromPath(aPemPath, aBackend)
+	issuerMetadata := GetIssuerMetadataFromPath(aPemPath, aBackend)
 
 	return &CacheEntry{
-		fd:    aFileObj,
-		mutex: &sync.Mutex{},
-		known: knownCerts,
-		meta:  issuerMetadata,
+		fd:      aFileObj,
+		mutex:   &sync.Mutex{},
+		known:   knownCerts,
+		meta:    issuerMetadata,
+		backend: aBackend,
 	}, nil
 }
 
@@ -102,9 +100,9 @@ func (ce *CacheEntry) Close() error {
 }
 
 type DiskDatabase struct {
-	rootPath    string
-	permissions os.FileMode
-	fdCache     gcache.Cache
+	rootPath string
+	backend  StorageBackend
+	fdCache  gcache.Cache
 }
 
 func isDirectory(aPath string) bool {
@@ -116,7 +114,7 @@ func isDirectory(aPath string) bool {
 	return fileStat.IsDir()
 }
 
-func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDatabase, error) {
+func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*DiskDatabase, error) {
 	if !isDirectory(aPath) {
 		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
 	}
@@ -135,18 +133,18 @@ func NewDiskDatabase(aCacheSize int, aPath string, aPerms os.FileMode) (*DiskDat
 
 			pemPath := key.(string)
 
-			fd, err := os.OpenFile(pemPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, aPerms)
+			fd, err := os.OpenFile(pemPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) // JCJ TODO
 			if err != nil {
 				return nil, err
 			}
 
-			return NewCacheEntry(fd, pemPath, aPerms)
+			return NewCacheEntry(fd, pemPath, aBackend)
 		}).Build()
 
 	db := &DiskDatabase{
-		rootPath:    aPath,
-		permissions: aPerms,
-		fdCache:     cache,
+		rootPath: aPath,
+		backend:  aBackend,
+		fdCache:  cache,
 	}
 
 	return db, nil
@@ -204,7 +202,7 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 		return err
 	}
 
-	cacheEntry, err := NewCacheEntry(fd, pemPath, db.permissions)
+	cacheEntry, err := NewCacheEntry(fd, pemPath, db.backend)
 	if err != nil {
 		return err
 	}
