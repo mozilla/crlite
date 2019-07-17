@@ -16,8 +16,8 @@ import (
 // }
 
 func StoreAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
-	cnt, err := db.Store(path, data)
-	if cnt != len(data) || err != nil {
+	err := db.Store(path, data)
+	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 

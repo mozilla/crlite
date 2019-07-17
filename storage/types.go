@@ -21,7 +21,7 @@ func (o *CertificateLog) String() string {
 }
 
 type StorageBackend interface {
-	Store(id string, b []byte) (int, error)
+	Store(id string, b []byte) error
 	Load(id string) ([]byte, error)
 	List(path string, walkFn filepath.WalkFunc) error
 	// Someday: Add Reader and Writer methods

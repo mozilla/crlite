@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,20 +104,7 @@ type DiskDatabase struct {
 	fdCache  gcache.Cache
 }
 
-func isDirectory(aPath string) bool {
-	fileStat, err := os.Stat(aPath)
-	if err != nil {
-		return false
-	}
-
-	return fileStat.IsDir()
-}
-
 func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*DiskDatabase, error) {
-	if !isDirectory(aPath) {
-		return nil, fmt.Errorf("%s is not a directory. Aborting.", aPath)
-	}
-
 	cache := gcache.New(aCacheSize).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
@@ -153,7 +139,9 @@ func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*Di
 func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
 	expDates := make([]string, 0)
 
-	err := filepath.Walk(db.rootPath, func(path string, info os.FileInfo, err error) error {
+	aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
+
+	err := db.backend.List(db.rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
 			return err
@@ -165,7 +153,6 @@ func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, err
 
 			// Note: Parses in UTC.  Comparison granularity is only to the day.
 			t, err := time.Parse(kExpirationFormat, info.Name())
-			aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
 			if err == nil && !t.Before(aNotBefore) {
 				expDates = append(expDates, info.Name())
 				return filepath.SkipDir
@@ -180,7 +167,7 @@ func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, err
 func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
 	issuers := make([]string, 0)
 
-	err := filepath.Walk(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
+	err := db.backend.List(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
 			return err
@@ -284,21 +271,14 @@ func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
 		return err
 	}
 
-	if !isDirectory(dirPath) {
-		err := os.MkdirAll(dirPath, os.ModeDir|0777)
-		if err != nil {
-			return err
-		}
-	}
-
-	return ioutil.WriteFile(filePath, data, 0666)
+	return db.backend.Store(filePath, data)
 }
 
 func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
 	filePath := filepath.Join(db.rootPath, kStateDirName, filename)
 
-	data, err := ioutil.ReadFile(filePath)
+	data, err := db.backend.Load(filePath)
 	if err != nil {
 		// Not an error to not have a state file, just prime one for us
 		return &CertificateLog{URL: aUrl}, nil
@@ -312,14 +292,14 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	return &certLogObj, nil
 }
 
-func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) (string, string) {
+func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) string {
 	subdirName := aExpiration.Format(kExpirationFormat)
 	dirPath := filepath.Join(db.rootPath, subdirName)
 
 	issuerName := aAKI.ID()
 	fileName := fmt.Sprintf("%s%s", issuerName, kSuffixCertificates)
 	filePath := filepath.Join(dirPath, fileName)
-	return dirPath, filePath
+	return filePath
 }
 
 func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
@@ -327,11 +307,7 @@ func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
 	dirPath := filepath.Join(db.rootPath, subdirName)
 	filePath := filepath.Join(dirPath, "dirty")
 
-	_, err := os.Stat(filePath)
-	if err != nil && os.IsNotExist(err) {
-		return ioutil.WriteFile(filePath, []byte{}, 0666)
-	}
-	return nil
+	return db.backend.Store(filePath, []byte{})
 }
 
 func getSpki(aCert *x509.Certificate) []byte {
@@ -347,13 +323,7 @@ func getSpki(aCert *x509.Certificate) []byte {
 
 func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
-	dirPath, filePath := db.getPathForID(&aCert.NotAfter, spki, AKI{aCert.AuthorityKeyId})
-	if !isDirectory(dirPath) {
-		err := os.MkdirAll(dirPath, os.ModeDir|0777)
-		if err != nil {
-			return err
-		}
-	}
+	filePath := db.getPathForID(&aCert.NotAfter, spki, AKI{aCert.AuthorityKeyId})
 
 	headers := make(map[string]string)
 	headers["Log"] = aLogURL

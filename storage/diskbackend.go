@@ -15,24 +15,41 @@ func NewDiskBackend(perms os.FileMode) StorageBackend {
 	return &DiskBackend{perms}
 }
 
-func (db *DiskBackend) Store(id string, data []byte) (int, error) {
+func isDirectory(aPath string) bool {
+	fileStat, err := os.Stat(aPath)
+	if err != nil {
+		return false
+	}
+
+	return fileStat.IsDir()
+}
+
+func (db *DiskBackend) Store(id string, data []byte) error {
+	dirPath, _ := filepath.Split(id)
+
+	if !isDirectory(dirPath) {
+		err := os.MkdirAll(dirPath, os.ModeDir|0777)
+		if err != nil {
+			return err
+		}
+	}
+
 	fd, err := os.OpenFile(id, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	bytesWritten, err := fd.Write(data)
 	if err != nil {
 		fd.Close() // ignore error
-		return bytesWritten, err
+		return err
 	}
 
 	if len(data) != bytesWritten {
-		return bytesWritten, fmt.Errorf("Only wrote %d of %d bytes.", bytesWritten, len(data))
+		return fmt.Errorf("Only wrote %d of %d bytes.", bytesWritten, len(data))
 	}
 
-	err = fd.Close()
-	return bytesWritten, err
+	return fd.Close()
 }
 
 func (db *DiskBackend) Load(id string) ([]byte, error) {

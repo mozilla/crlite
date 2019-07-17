@@ -52,8 +52,7 @@ func (kc *KnownCertificates) Save() error {
 		glog.Errorf("Error marshaling known certificates %s: %s", kc.filePath, err)
 	}
 
-	// Count is checked by the backend
-	_, err = kc.backend.Store(kc.filePath, data)
+	err = kc.backend.Store(kc.filePath, data)
 	if err != nil {
 		glog.Errorf("Error writing known certificates %s: %s", kc.filePath, err)
 	}

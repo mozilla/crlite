@@ -62,8 +62,7 @@ func (im *IssuerMetadata) Save() error {
 		glog.Errorf("Error marshaling issuer metadata %s: %s", im.filePath, err)
 	}
 
-	// Count is checked by the backend
-	_, err = im.backend.Store(im.filePath, data)
+	err = im.backend.Store(im.filePath, data)
 	if err != nil {
 		glog.Errorf("Error storing issuer metadata %s: %s", im.filePath, err)
 	}

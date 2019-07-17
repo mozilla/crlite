@@ -3,10 +3,8 @@ package storage
 import (
 	"bytes"
 	"encoding/pem"
-	"io/ioutil"
-	"os"
-	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -102,22 +100,19 @@ func Test_ListExpiration(t *testing.T) {
 	var storageDB CertDatabase
 	var dir string
 
-	dir, err = ioutil.TempDir("", "testListExpiration")
-	if err != nil {
-		t.Fatalf("Couldn't make temp directory: %+v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "2017-11-28"), 0777); err != nil {
-		t.Fatalf("Couldn't make directory: %+v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "2018-11-28"), 0777); err != nil {
-		t.Fatalf("Couldn't make directory: %+v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "2019-11-28"), 0777); err != nil {
-		t.Fatalf("Couldn't make directory: %+v", err)
-	}
-	defer os.RemoveAll(dir)
+	mockBackend := NewMockBackend()
 
-	storageDB, err = NewDiskDatabase(1, dir, NewMockBackend())
+	if err := mockBackend.Store("2017-11-28/file", []byte{}); err != nil {
+		t.Error(err)
+	}
+	if err := mockBackend.Store("2018-11-28/file", []byte{}); err != nil {
+		t.Error(err)
+	}
+	if err := mockBackend.Store("2019-11-28/file", []byte{}); err != nil {
+		t.Error(err)
+	}
+
+	storageDB, err = NewDiskDatabase(1, dir, mockBackend)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
@@ -135,6 +130,7 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
+	sort.Strings(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -148,6 +144,7 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
+	sort.Strings(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -162,6 +159,7 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
+	sort.Strings(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -176,6 +174,7 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
+	sort.Strings(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
