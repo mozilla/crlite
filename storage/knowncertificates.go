@@ -3,9 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/big"
-	"os"
 	"sort"
 	"sync"
 
@@ -16,14 +14,14 @@ type KnownCertificates struct {
 	mutex    *sync.Mutex
 	known    []*big.Int
 	filePath string
-	perms    os.FileMode
+	backend  StorageBackend
 }
 
-func NewKnownCertificates(aKnownPath string, aPerms os.FileMode) *KnownCertificates {
+func NewKnownCertificates(aKnownPath string, aBackend StorageBackend) *KnownCertificates {
 	return &KnownCertificates{
 		mutex:    &sync.Mutex{},
 		filePath: aKnownPath,
-		perms:    aPerms,
+		backend:  aBackend,
 		known:    make([]*big.Int, 0, 100),
 	}
 }
@@ -32,14 +30,9 @@ func (kc *KnownCertificates) Load() error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
-	fd, err := os.Open(kc.filePath)
+	data, err := kc.backend.Load(kc.filePath)
 	if err != nil {
 		return err
-	}
-
-	data, err := ioutil.ReadAll(fd)
-	if err != nil {
-		glog.Errorf("Error reading known certificates %s: %s", kc.filePath, err)
 	}
 
 	err = json.Unmarshal(data, &kc.known)
@@ -47,9 +40,6 @@ func (kc *KnownCertificates) Load() error {
 		glog.Errorf("Error unmarshaling known certificates %s: %s", kc.filePath, err)
 	}
 
-	if err = fd.Close(); err != nil {
-		glog.Errorf("Error loading known certificates %s: %s", kc.filePath, err)
-	}
 	return err
 }
 
@@ -57,25 +47,17 @@ func (kc *KnownCertificates) Save() error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
-	fd, err := os.OpenFile(kc.filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, kc.perms)
-	if err != nil {
-		glog.Errorf("Error opening known certificates %s: %s", kc.filePath, err)
-		return err
-	}
-
 	data, err := json.Marshal(kc.known)
 	if err != nil {
 		glog.Errorf("Error marshaling known certificates %s: %s", kc.filePath, err)
 	}
 
-	_, err = fd.Write(data)
+	// Count is checked by the backend
+	_, err = kc.backend.Store(kc.filePath, data)
 	if err != nil {
 		glog.Errorf("Error writing known certificates %s: %s", kc.filePath, err)
 	}
 
-	if err = fd.Close(); err != nil {
-		glog.Errorf("Error storing known certificates %s: %s", kc.filePath, err)
-	}
 	return err
 }
 

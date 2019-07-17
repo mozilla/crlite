@@ -39,7 +39,9 @@ func GetKnownCertificates(aPath string, aExpDate string, aIssuer string, aPerms 
 func GetKnownCertificatesFromPath(aPemPath string, aPerms os.FileMode) *KnownCertificates {
 	knownPath := fmt.Sprintf("%s%s", aPemPath, kSuffixKnownCertificates)
 
-	knownCerts := NewKnownCertificates(knownPath, aPerms)
+	backend := &DiskBackend{aPerms}
+
+	knownCerts := NewKnownCertificates(knownPath, backend)
 	err := knownCerts.Load()
 	if err != nil {
 		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
