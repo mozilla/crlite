@@ -102,7 +102,7 @@ func (ce *CacheEntry) Close() error {
 type DiskDatabase struct {
 	rootPath string
 	backend  StorageBackend
-	fdCache  gcache.Cache
+	cache    gcache.Cache
 }
 
 func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*DiskDatabase, error) {
@@ -131,7 +131,7 @@ func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*Di
 	db := &DiskDatabase{
 		rootPath: aPath,
 		backend:  aBackend,
-		fdCache:  cache,
+		cache:    cache,
 	}
 
 	return db, nil
@@ -336,11 +336,11 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 		Bytes:   aCert.Raw,
 	}
 
-	// Be willing to try twice, since fdCache sometimes makes a mistake and
+	// Be willing to try twice, since the cache sometimes makes a mistake and
 	// evicts an entry right as we're using it.
 	var err error
 	for t := 0; t < 2; t++ {
-		obj, err := db.fdCache.Get(filePath)
+		obj, err := db.cache.Get(filePath)
 		if err != nil {
 			panic(err)
 		}
@@ -379,6 +379,6 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 }
 
 func (db *DiskDatabase) Cleanup() error {
-	db.fdCache.Purge()
+	db.cache.Purge()
 	return nil
 }
