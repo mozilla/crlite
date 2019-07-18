@@ -99,13 +99,13 @@ func (ce *CacheEntry) Close() error {
 	return nil
 }
 
-type DiskDatabase struct {
+type FilesystemDatabase struct {
 	rootPath string
 	backend  StorageBackend
 	cache    gcache.Cache
 }
 
-func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*DiskDatabase, error) {
+func NewFilesystemDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*FilesystemDatabase, error) {
 	cache := gcache.New(aCacheSize).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
@@ -128,7 +128,7 @@ func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*Di
 			return NewCacheEntry(writer, pemPath, aBackend)
 		}).Build()
 
-	db := &DiskDatabase{
+	db := &FilesystemDatabase{
 		rootPath: aPath,
 		backend:  aBackend,
 		cache:    cache,
@@ -137,7 +137,7 @@ func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*Di
 	return db, nil
 }
 
-func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
 	expDates := make([]string, 0)
 
 	aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
@@ -165,7 +165,7 @@ func (db *DiskDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, err
 	return expDates, err
 }
 
-func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
+func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
 	issuers := make([]string, 0)
 
 	err := db.backend.List(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
@@ -182,7 +182,7 @@ func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, 
 	return issuers, err
 }
 
-func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
+func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
 	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s%s", issuer, kSuffixCertificates))
 
 	readWriter, err := db.backend.ReadWriter(pemPath)
@@ -262,7 +262,7 @@ func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string)
 	}
 }
 
-func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
+func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	filename := base64.URLEncoding.EncodeToString([]byte(aLogObj.URL))
 	dirPath := filepath.Join(db.rootPath, kStateDirName)
 	filePath := filepath.Join(dirPath, filename)
@@ -275,7 +275,7 @@ func (db *DiskDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	return db.backend.Store(filePath, data)
 }
 
-func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
+func (db *FilesystemDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
 	filePath := filepath.Join(db.rootPath, kStateDirName, filename)
 
@@ -293,7 +293,7 @@ func (db *DiskDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	return &certLogObj, nil
 }
 
-func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) string {
+func (db *FilesystemDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) string {
 	subdirName := aExpiration.Format(kExpirationFormat)
 	dirPath := filepath.Join(db.rootPath, subdirName)
 
@@ -303,7 +303,7 @@ func (db *DiskDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI A
 	return filePath
 }
 
-func (db *DiskDatabase) markDirty(aExpiration *time.Time) error {
+func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
 	subdirName := aExpiration.Format(kExpirationFormat)
 	dirPath := filepath.Join(db.rootPath, subdirName)
 	filePath := filepath.Join(dirPath, "dirty")
@@ -322,7 +322,7 @@ func getSpki(aCert *x509.Certificate) []byte {
 	return aCert.SubjectKeyId
 }
 
-func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
+func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
 	filePath := db.getPathForID(&aCert.NotAfter, spki, AKI{aCert.AuthorityKeyId})
 
@@ -378,7 +378,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	return nil
 }
 
-func (db *DiskDatabase) Cleanup() error {
+func (db *FilesystemDatabase) Cleanup() error {
 	db.cache.Purge()
 	return nil
 }

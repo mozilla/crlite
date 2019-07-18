@@ -112,7 +112,7 @@ func Test_ListExpiration(t *testing.T) {
 		t.Error(err)
 	}
 
-	storageDB, err = NewDiskDatabase(1, dir, mockBackend)
+	storageDB, err = NewFilesystemDatabase(1, dir, mockBackend)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}

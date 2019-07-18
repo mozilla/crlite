@@ -16,7 +16,7 @@ import (
 // 	// Someday: Add Reader and Writer methods
 // }
 
-func StoreAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
+func storeAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
 	err := db.Store(path, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
@@ -46,12 +46,12 @@ func Test_StoreLoad(t *testing.T) {
 
 	path := filepath.Join(folder, "test_file")
 
-	db := NewDiskBackend(0644)
+	db := NewLocalDiskBackend(0644)
 
-	StoreAndLoad(t, path, db, []byte{})
-	StoreAndLoad(t, path, db, []byte{0x01})
-	StoreAndLoad(t, path, db, []byte{0x00, 0x01, 0x02})
-	StoreAndLoad(t, path, db, make([]byte, 4*1024*1024))
+	storeAndLoad(t, path, db, []byte{})
+	storeAndLoad(t, path, db, []byte{0x01})
+	storeAndLoad(t, path, db, []byte{0x00, 0x01, 0x02})
+	storeAndLoad(t, path, db, make([]byte, 4*1024*1024))
 
 	os.Remove(path)
 
@@ -100,7 +100,7 @@ func Test_ListFiles(t *testing.T) {
 	constructFile(filepath.Join(folder, "metadata.data"))
 	constructFile(filepath.Join(folder, "2019-11-28", "certs.data"))
 
-	db := NewDiskBackend(0644)
+	db := NewLocalDiskBackend(0644)
 	err = db.List(folder, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -159,7 +159,7 @@ func Test_Writer(t *testing.T) {
 		}
 	}()
 
-	db := NewDiskBackend(0644)
+	db := NewLocalDiskBackend(0644)
 
 	path := filepath.Join(folder, "metadata.data")
 
@@ -219,7 +219,7 @@ func Test_ReadWriter(t *testing.T) {
 		}
 	}()
 
-	db := NewDiskBackend(0644)
+	db := NewLocalDiskBackend(0644)
 
 	path := filepath.Join(folder, "metadata.data")
 

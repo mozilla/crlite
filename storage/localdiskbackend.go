@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 )
 
-type DiskBackend struct {
+type LocalDiskBackend struct {
 	perms os.FileMode
 }
 
-func NewDiskBackend(perms os.FileMode) StorageBackend {
-	return &DiskBackend{perms}
+func NewLocalDiskBackend(perms os.FileMode) StorageBackend {
+	return &LocalDiskBackend{perms}
 }
 
 func isDirectory(aPath string) bool {
@@ -25,7 +25,7 @@ func isDirectory(aPath string) bool {
 	return fileStat.IsDir()
 }
 
-func (db *DiskBackend) Store(id string, data []byte) error {
+func (db *LocalDiskBackend) Store(id string, data []byte) error {
 	dirPath, _ := filepath.Split(id)
 
 	if !isDirectory(dirPath) {
@@ -53,7 +53,7 @@ func (db *DiskBackend) Store(id string, data []byte) error {
 	return fd.Close()
 }
 
-func (db *DiskBackend) Load(id string) ([]byte, error) {
+func (db *LocalDiskBackend) Load(id string) ([]byte, error) {
 	fd, err := os.Open(id)
 	if err != nil {
 		return []byte{}, err
@@ -69,11 +69,11 @@ func (db *DiskBackend) Load(id string) ([]byte, error) {
 	return data, err
 }
 
-func (db *DiskBackend) List(path string, walkFn filepath.WalkFunc) error {
+func (db *LocalDiskBackend) List(path string, walkFn filepath.WalkFunc) error {
 	return filepath.Walk(path, walkFn)
 }
 
-func (db *DiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
+func (db *LocalDiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
 	flags := os.O_WRONLY | os.O_CREATE
 	if append {
 		flags = flags | os.O_APPEND
@@ -84,6 +84,6 @@ func (db *DiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
 	return os.OpenFile(id, flags, db.perms)
 }
 
-func (db *DiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
+func (db *LocalDiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
 	return os.OpenFile(id, os.O_RDWR|os.O_CREATE, db.perms)
 }
