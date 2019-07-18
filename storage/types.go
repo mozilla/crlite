@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -24,7 +25,8 @@ type StorageBackend interface {
 	Store(id string, b []byte) error
 	Load(id string) ([]byte, error)
 	List(path string, walkFn filepath.WalkFunc) error
-	// Someday: Add Reader and Writer methods
+	Writer(id string, append bool) (io.WriteCloser, error)
+	ReadWriter(id string) (io.ReadWriteCloser, error)
 }
 
 type CertDatabase interface {

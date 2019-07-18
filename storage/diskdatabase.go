@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,18 +66,18 @@ func GetIssuerMetadataFromPath(aPemPath string, aBackend StorageBackend) *Issuer
 
 type CacheEntry struct {
 	mutex   *sync.Mutex
-	fd      *os.File
+	writer  io.WriteCloser
 	known   *KnownCertificates
 	meta    *IssuerMetadata
 	backend StorageBackend
 }
 
-func NewCacheEntry(aFileObj *os.File, aPemPath string, aBackend StorageBackend) (*CacheEntry, error) {
+func NewCacheEntry(aWriter io.WriteCloser, aPemPath string, aBackend StorageBackend) (*CacheEntry, error) {
 	knownCerts := GetKnownCertificatesFromPath(aPemPath, aBackend)
 	issuerMetadata := GetIssuerMetadataFromPath(aPemPath, aBackend)
 
 	return &CacheEntry{
-		fd:      aFileObj,
+		writer:  aWriter,
 		mutex:   &sync.Mutex{},
 		known:   knownCerts,
 		meta:    issuerMetadata,
@@ -88,7 +89,7 @@ func (ce *CacheEntry) Close() error {
 	ce.mutex.Lock()
 	defer ce.mutex.Unlock()
 
-	errDisk := ce.fd.Close()
+	errDisk := ce.writer.Close()
 	errKnown := ce.known.Save()
 	errMeta := ce.meta.Save()
 	if errDisk != nil || errMeta != nil || errKnown != nil {
@@ -119,12 +120,12 @@ func NewDiskDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*Di
 
 			pemPath := key.(string)
 
-			fd, err := os.OpenFile(pemPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) // JCJ TODO
+			writer, err := aBackend.Writer(pemPath, true)
 			if err != nil {
 				return nil, err
 			}
 
-			return NewCacheEntry(fd, pemPath, aBackend)
+			return NewCacheEntry(writer, pemPath, aBackend)
 		}).Build()
 
 	db := &DiskDatabase{
@@ -184,18 +185,18 @@ func (db *DiskDatabase) ListIssuersForExpirationDate(expDate string) ([]string, 
 func (db *DiskDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
 	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s%s", issuer, kSuffixCertificates))
 
-	fd, err := os.Open(pemPath)
+	readWriter, err := db.backend.ReadWriter(pemPath)
 	if err != nil {
 		return err
 	}
 
-	cacheEntry, err := NewCacheEntry(fd, pemPath, db.backend)
+	cacheEntry, err := NewCacheEntry(readWriter, pemPath, db.backend)
 	if err != nil {
 		return err
 	}
 	defer cacheEntry.Close()
 
-	scanner := bufio.NewScanner(fd)
+	scanner := bufio.NewScanner(readWriter)
 	scanBuffer := make([]byte, 0, 512*1024)
 	scanner.Buffer(scanBuffer, cap(scanBuffer))
 
@@ -354,7 +355,7 @@ func (db *DiskDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 		if certWasUnknown {
 			ce.mutex.Lock()
 			ce.meta.Accumulate(aCert)
-			err = pem.Encode(ce.fd, &pemblock)
+			err = pem.Encode(ce.writer, &pemblock)
 			ce.mutex.Unlock()
 		}
 

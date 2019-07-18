@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -144,4 +145,125 @@ func Test_ListFiles(t *testing.T) {
 	if len(expectedFiles) > 0 {
 		t.Errorf("Didn't find files: %+v", expectedFiles)
 	}
+}
+
+func Test_Writer(t *testing.T) {
+	folder, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	defer func() {
+		if err := os.RemoveAll(folder); err != nil {
+			t.Fatalf("Couldn't remove %s: %+v", folder, err)
+		}
+	}()
+
+	db := NewDiskBackend(0644)
+
+	path := filepath.Join(folder, "metadata.data")
+
+	verifyText := func(text string) {
+		data, err := db.Load(path)
+		if err != nil {
+			t.Error(err)
+		}
+		if string(data) != text {
+			t.Errorf("Expected to read [%s] but found [%s]", text, data)
+		}
+	}
+
+	truncWriter, err := db.Writer(path, false)
+	if err != nil {
+		t.Error(err)
+	}
+	if _, err = io.WriteString(truncWriter, "This is a string\n"); err != nil {
+		t.Error(err)
+	}
+	truncWriter.Close()
+
+	verifyText("This is a string\n")
+
+	truncWriter, err = db.Writer(path, false)
+	if err != nil {
+		t.Error(err)
+	}
+	if _, err = io.WriteString(truncWriter, "This is another string\n"); err != nil {
+		t.Error(err)
+	}
+	truncWriter.Close()
+
+	verifyText("This is another string\n")
+
+	appendWriter, err := db.Writer(path, true)
+	if err != nil {
+		t.Error(err)
+	}
+	if _, err = io.WriteString(appendWriter, "appended to the first\n"); err != nil {
+		t.Error(err)
+	}
+	appendWriter.Close()
+
+	verifyText("This is another string\nappended to the first\n")
+}
+
+func Test_ReadWriter(t *testing.T) {
+	folder, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	defer func() {
+		if err := os.RemoveAll(folder); err != nil {
+			t.Fatalf("Couldn't remove %s: %+v", folder, err)
+		}
+	}()
+
+	db := NewDiskBackend(0644)
+
+	path := filepath.Join(folder, "metadata.data")
+
+	verifyText := func(in io.Reader, text string) {
+		data, err := ioutil.ReadAll(in)
+		if err != nil {
+			t.Error(err)
+		}
+		if string(data) != text {
+			t.Errorf("Expected to read [%s] but found [%s]", text, data)
+		}
+	}
+
+	appendWriter, err := db.ReadWriter(path)
+	if err != nil {
+		t.Error(err)
+	}
+
+	verifyText(appendWriter, "")
+	if _, err = io.WriteString(appendWriter, "One"); err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "") //EOF
+	appendWriter.Close()
+
+	appendWriter, err = db.ReadWriter(path)
+	if err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "One")
+	if _, err = io.WriteString(appendWriter, ", Two"); err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "") //EOF
+	appendWriter.Close()
+
+	appendWriter, err = db.ReadWriter(path)
+	if err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "One, Two")
+	if _, err = io.WriteString(appendWriter, ", Three"); err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "") //EOF
+	appendWriter.Close()
 }

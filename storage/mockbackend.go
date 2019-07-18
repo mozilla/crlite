@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -81,6 +82,57 @@ func (db *MockBackend) List(path string, walkFn filepath.WalkFunc) error {
 		skipList = appendIfSkipDir(result, dir, skipList)
 
 	}
+	return nil
+}
+
+func (db *MockBackend) truncate(id string) error {
+	return db.Store(id, []byte{})
+}
+
+func (db *MockBackend) Writer(id string, append bool) (io.WriteCloser, error) {
+	if !append {
+		if err := db.truncate(id); err != nil {
+			return nil, err
+		}
+	}
+
+	return &MockFile{false, true, *db, id}, nil
+}
+
+func (db *MockBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
+	return &MockFile{true, true, *db, id}, nil
+}
+
+type MockFile struct {
+	readable  bool
+	writeable bool
+	backend   MockBackend
+	id        string
+}
+
+func (mf *MockFile) Read(p []byte) (n int, err error) {
+	return 0, nil
+}
+
+func (mf *MockFile) Write(p []byte) (n int, err error) {
+	if !mf.writeable {
+		return 0, fmt.Errorf("No writing!")
+	}
+	buf, err := mf.backend.Load(mf.id)
+	if err != nil {
+		return 0, err
+	}
+	buf = append(buf, p...)
+	err = mf.backend.Store(mf.id, buf)
+	return len(p), err
+}
+
+func (mf *MockFile) Close() error {
+	if !mf.readable && !mf.writeable {
+		return fmt.Errorf("%s already closed", mf.id)
+	}
+	mf.readable = false
+	mf.writeable = false
 	return nil
 }
 

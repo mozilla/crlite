@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -70,4 +71,19 @@ func (db *DiskBackend) Load(id string) ([]byte, error) {
 
 func (db *DiskBackend) List(path string, walkFn filepath.WalkFunc) error {
 	return filepath.Walk(path, walkFn)
+}
+
+func (db *DiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
+	flags := os.O_WRONLY | os.O_CREATE
+	if append {
+		flags = flags | os.O_APPEND
+	} else {
+		flags = flags | os.O_TRUNC
+	}
+
+	return os.OpenFile(id, flags, db.perms)
+}
+
+func (db *DiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
+	return os.OpenFile(id, os.O_RDWR|os.O_CREATE, db.perms)
 }
