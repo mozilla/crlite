@@ -25,14 +25,18 @@ func isDirectory(aPath string) bool {
 	return fileStat.IsDir()
 }
 
-func (db *LocalDiskBackend) Store(id string, data []byte) error {
+func makeDirectoryIfNotExist(id string) error {
 	dirPath, _ := filepath.Split(id)
 
 	if !isDirectory(dirPath) {
-		err := os.MkdirAll(dirPath, os.ModeDir|0777)
-		if err != nil {
-			return err
-		}
+		return os.MkdirAll(dirPath, os.ModeDir|0777)
+	}
+	return nil
+}
+
+func (db *LocalDiskBackend) Store(id string, data []byte) error {
+	if err := makeDirectoryIfNotExist(id); err != nil {
+		return err
 	}
 
 	fd, err := os.OpenFile(id, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
@@ -74,6 +78,10 @@ func (db *LocalDiskBackend) List(path string, walkFn filepath.WalkFunc) error {
 }
 
 func (db *LocalDiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
+	if err := makeDirectoryIfNotExist(id); err != nil {
+		return nil, err
+	}
+
 	flags := os.O_WRONLY | os.O_CREATE
 	if append {
 		flags = flags | os.O_APPEND
@@ -85,5 +93,9 @@ func (db *LocalDiskBackend) Writer(id string, append bool) (io.WriteCloser, erro
 }
 
 func (db *LocalDiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
+	if err := makeDirectoryIfNotExist(id); err != nil {
+		return nil, err
+	}
+
 	return os.OpenFile(id, os.O_RDWR|os.O_CREATE, db.perms)
 }

@@ -267,3 +267,37 @@ func Test_ReadWriter(t *testing.T) {
 	verifyText(appendWriter, "") //EOF
 	appendWriter.Close()
 }
+
+func Test_AutoCreateFolders(t *testing.T) {
+	folder, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	defer func() {
+		if err := os.RemoveAll(folder); err != nil {
+			t.Fatalf("Couldn't remove %s: %+v", folder, err)
+		}
+	}()
+
+	db := NewLocalDiskBackend(0644)
+
+	readwriterpath := filepath.Join(folder, "ReadWriter/file")
+	readwriter, err := db.ReadWriter(readwriterpath)
+	if err != nil {
+		t.Error(err)
+	}
+	defer readwriter.Close()
+
+	writerpath := filepath.Join(folder, "Writer/file")
+	writer, err := db.Writer(writerpath, false)
+	if err != nil {
+		t.Error(err)
+	}
+	defer writer.Close()
+
+	storepath := filepath.Join(folder, "Store/file")
+	if err := db.Store(storepath, []byte{}); err != nil {
+		t.Error(err)
+	}
+}
