@@ -43,6 +43,7 @@ func (im *IssuerMetadata) Load() error {
 	data, err := im.backend.Load(im.filePath)
 	if err != nil {
 		glog.Errorf("Error reading issuer metadata %s: %s", im.filePath, err)
+		return err
 	}
 
 	err = json.Unmarshal(data, &im.Metadata)
@@ -60,6 +61,7 @@ func (im *IssuerMetadata) Save() error {
 	data, err := json.Marshal(im.Metadata)
 	if err != nil {
 		glog.Errorf("Error marshaling issuer metadata %s: %s", im.filePath, err)
+		return err
 	}
 
 	err = im.backend.Store(im.filePath, data)

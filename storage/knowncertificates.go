@@ -50,6 +50,7 @@ func (kc *KnownCertificates) Save() error {
 	data, err := json.Marshal(kc.known)
 	if err != nil {
 		glog.Errorf("Error marshaling known certificates %s: %s", kc.filePath, err)
+		return err
 	}
 
 	err = kc.backend.Store(kc.filePath, data)
