@@ -32,7 +32,7 @@ func storeAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
 	}
 }
 
-func Test_StoreLoad(t *testing.T) {
+func Test_LocalDiskStoreLoad(t *testing.T) {
 	folder, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Error(err)
@@ -62,7 +62,7 @@ func Test_StoreLoad(t *testing.T) {
 	}
 }
 
-func Test_ListFiles(t *testing.T) {
+func Test_LocalDiskListFiles(t *testing.T) {
 	folder, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Error(err)
@@ -147,7 +147,7 @@ func Test_ListFiles(t *testing.T) {
 	}
 }
 
-func Test_Writer(t *testing.T) {
+func Test_LocalDiskWriter(t *testing.T) {
 	folder, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Error(err)
@@ -207,7 +207,7 @@ func Test_Writer(t *testing.T) {
 	verifyText("This is another string\nappended to the first\n")
 }
 
-func Test_ReadWriter(t *testing.T) {
+func Test_LocalDiskReadWriter(t *testing.T) {
 	folder, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Error(err)
@@ -268,7 +268,7 @@ func Test_ReadWriter(t *testing.T) {
 	appendWriter.Close()
 }
 
-func Test_AutoCreateFolders(t *testing.T) {
+func Test_LocalDiskAutoCreateFolders(t *testing.T) {
 	folder, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Error(err)
