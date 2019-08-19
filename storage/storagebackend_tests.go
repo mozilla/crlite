@@ -28,6 +28,8 @@ func storeAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
+	t.Logf("Now loading %s", path)
+
 	loaded, err := db.Load(path)
 	if err != nil {
 		t.Fatalf("Should have loaded: %+v", err)
@@ -44,7 +46,8 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend, h BackendTestHarness)
 	storeAndLoad(t, path, db, []byte{})
 	storeAndLoad(t, path, db, []byte{0x01})
 	storeAndLoad(t, path, db, []byte{0x00, 0x01, 0x02})
-	storeAndLoad(t, path, db, make([]byte, 4*1024*1024))
+	storeAndLoad(t, path, db, make([]byte, 1*1024*1024))
+	// storeAndLoad(t, path, db, make([]byte, 4*1024*1024))
 
 	h.Remove(path)
 
@@ -128,7 +131,7 @@ func BackendTestWriter(t *testing.T, db StorageBackend, h BackendTestHarness) {
 
 	truncWriter, err := db.Writer(path, false)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if _, err = io.WriteString(truncWriter, "This is a string\n"); err != nil {
 		t.Error(err)
@@ -176,14 +179,13 @@ func BackendTestReadWriter(t *testing.T, db StorageBackend, h BackendTestHarness
 
 	appendWriter, err := db.ReadWriter(path)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	verifyText(appendWriter, "")
 	if _, err = io.WriteString(appendWriter, "One"); err != nil {
 		t.Error(err)
 	}
-	verifyText(appendWriter, "") //EOF
 	appendWriter.Close()
 
 	appendWriter, err = db.ReadWriter(path)
@@ -194,7 +196,6 @@ func BackendTestReadWriter(t *testing.T, db StorageBackend, h BackendTestHarness
 	if _, err = io.WriteString(appendWriter, ", Two"); err != nil {
 		t.Error(err)
 	}
-	verifyText(appendWriter, "") //EOF
 	appendWriter.Close()
 
 	appendWriter, err = db.ReadWriter(path)
@@ -205,7 +206,13 @@ func BackendTestReadWriter(t *testing.T, db StorageBackend, h BackendTestHarness
 	if _, err = io.WriteString(appendWriter, ", Three"); err != nil {
 		t.Error(err)
 	}
-	verifyText(appendWriter, "") //EOF
+	appendWriter.Close()
+
+	appendWriter, err = db.ReadWriter(path)
+	if err != nil {
+		t.Error(err)
+	}
+	verifyText(appendWriter, "One, Two, Three")
 	appendWriter.Close()
 }
 

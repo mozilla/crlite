@@ -22,7 +22,7 @@ func (o *CertificateLog) String() string {
 }
 
 type StorageBackend interface {
-	Store(id string, b []byte) error
+	Store(id string, b []byte) error // TODO: Should take io.Reader
 	Load(id string) ([]byte, error)
 	List(path string, walkFn filepath.WalkFunc) error
 	Writer(id string, append bool) (io.WriteCloser, error)
