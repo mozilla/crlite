@@ -102,13 +102,13 @@ func Test_ListExpiration(t *testing.T) {
 
 	mockBackend := NewMockBackend()
 
-	if err := mockBackend.Store("2017-11-28/file", []byte{}); err != nil {
+	if err := mockBackend.Store(TypeIssuerMetadata, "2017-11-28/file", []byte{}); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.Store("2018-11-28/file", []byte{}); err != nil {
+	if err := mockBackend.Store(TypeIssuerMetadata, "2018-11-28/file", []byte{}); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.Store("2019-11-28/file", []byte{}); err != nil {
+	if err := mockBackend.Store(TypeIssuerMetadata, "2019-11-28/file", []byte{}); err != nil {
 		t.Error(err)
 	}
 

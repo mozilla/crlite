@@ -16,13 +16,17 @@ func NewMockBackend() *MockBackend {
 	return &MockBackend{make(map[string][]byte)}
 }
 
-func (db *MockBackend) Store(id string, data []byte) error {
-	db.store[id] = data
+func (db *MockBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *MockBackend) Load(id string) ([]byte, error) {
-	data, ok := db.store[id]
+func (db *MockBackend) Store(docType DocumentType, id string, data []byte) error {
+	db.store[id+docType.String()] = data
+	return nil
+}
+
+func (db *MockBackend) Load(docType DocumentType, id string) ([]byte, error) {
+	data, ok := db.store[id+docType.String()]
 	if ok {
 		return data, nil
 	}
@@ -86,7 +90,7 @@ func (db *MockBackend) List(path string, walkFn filepath.WalkFunc) error {
 }
 
 func (db *MockBackend) truncate(id string) error {
-	return db.Store(id, []byte{})
+	return db.Store(TypeCertificatePEMList, id, []byte{})
 }
 
 func (db *MockBackend) Writer(id string, append bool) (io.WriteCloser, error) {
@@ -118,12 +122,12 @@ func (mf *MockFile) Write(p []byte) (n int, err error) {
 	if !mf.writeable {
 		return 0, fmt.Errorf("No writing!")
 	}
-	buf, err := mf.backend.Load(mf.id)
+	buf, err := mf.backend.Load(TypeCertificatePEMList, mf.id)
 	if err != nil {
 		return 0, err
 	}
 	buf = append(buf, p...)
-	err = mf.backend.Store(mf.id, buf)
+	err = mf.backend.Store(TypeCertificatePEMList, mf.id, buf)
 	return len(p), err
 }
 

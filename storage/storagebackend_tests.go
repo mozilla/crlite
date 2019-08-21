@@ -17,20 +17,21 @@ import (
 // }
 
 type BackendTestHarness interface {
+	BaseFolder() string
 	MakeFolder(id string) string
-	MakeFile(id string, data []byte)
+	MakeFile(id string, data []byte) string
 	Remove(id string)
 }
 
-func storeAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
-	err := db.Store(path, data)
+func storeAndLoad(t *testing.T, docType DocumentType, path string, db StorageBackend, data []byte) {
+	err := db.Store(docType, path, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
 	t.Logf("Now loading %s", path)
 
-	loaded, err := db.Load(path)
+	loaded, err := db.Load(docType, path)
 	if err != nil {
 		t.Fatalf("Should have loaded: %+v", err)
 	}
@@ -43,32 +44,34 @@ func storeAndLoad(t *testing.T, path string, db StorageBackend, data []byte) {
 func BackendTestStoreLoad(t *testing.T, db StorageBackend, h BackendTestHarness) {
 	path := filepath.Join(h.MakeFolder(t.Name()), "test_file")
 
-	storeAndLoad(t, path, db, []byte{})
-	storeAndLoad(t, path, db, []byte{0x01})
-	storeAndLoad(t, path, db, []byte{0x00, 0x01, 0x02})
-	storeAndLoad(t, path, db, make([]byte, 1*1024*1024))
-	// storeAndLoad(t, path, db, make([]byte, 4*1024*1024))
+	storeAndLoad(t, TypeLogState, path, db, []byte{})
+	storeAndLoad(t, TypeIssuerMetadata, path, db, []byte{0x01})
+	storeAndLoad(t, TypeIssuerKnownSerials, path, db, []byte{0x00, 0x01, 0x02})
+	storeAndLoad(t, TypeCertificatePEMList, path, db, make([]byte, 1*1024*1024))
+	// storeAndLoad(t, TypeCertificatePEMList, path, db, make([]byte, 4*1024*1024)) // TODO too big for firestore
 
 	h.Remove(path)
 
 	// Load empty
-	_, err := db.Load(path)
+	_, err := db.Load(TypeLogState, path)
 	if err == nil {
 		t.Fatalf("Should not have loaded a missing file")
 	}
 }
 
 func BackendTestListFiles(t *testing.T, db StorageBackend, h BackendTestHarness) {
-	folder := h.MakeFolder(t.Name())
-	h.MakeFolder(filepath.Join(folder, "2017-11-28"))
-	h.MakeFolder(filepath.Join(folder, "2018-11-28"))
-	h.MakeFolder(filepath.Join(folder, "2019-11-28"))
-	h.MakeFile(filepath.Join(folder, "metadata.data"), []byte{})
-	h.MakeFile(filepath.Join(folder, "2019-11-28", "certs.data"), []byte{})
-
 	var expectedFolders []string
 	var expectedFiles []string
 
+	// Note: Firestore forbids empty collections
+	expectedFolders = append(expectedFolders, h.MakeFolder("2017-11-28"))
+	expectedFolders = append(expectedFolders, h.MakeFolder("2018-11-28"))
+	expectedFolders = append(expectedFolders, h.MakeFolder("2019-11-28"))
+	expectedFolders = append(expectedFolders, h.MakeFolder("meta"))
+	expectedFiles = append(expectedFiles, h.MakeFile(filepath.Join("meta", "metadata.data"), []byte{0x42}))
+	expectedFiles = append(expectedFiles, h.MakeFile(filepath.Join("2019-11-28", "certs.data"), []byte{0xDA, 0xDA}))
+
+	folder := h.BaseFolder()
 	err := db.List(folder, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -79,17 +82,17 @@ func BackendTestListFiles(t *testing.T, db StorageBackend, h BackendTestHarness)
 			return s[:len(s)-1]
 		}
 
+		// If it's the folder we're in, that's okay
+		if path == folder {
+			return nil
+		}
+
 		if info.IsDir() {
 			for i := 0; i < len(expectedFolders); i++ {
 				if path == expectedFolders[i] {
 					expectedFolders = removeFromList(expectedFolders, i)
 					return nil
 				}
-			}
-
-			// If it's the folder we're in, that's okay
-			if path == folder {
-				return nil
 			}
 		}
 
@@ -100,7 +103,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend, h BackendTestHarness)
 			}
 		}
 
-		t.Errorf("Did't find %s", path)
+		t.Errorf("Did't find %s (%s) %+v", path, folder, info)
 		return nil
 	})
 	if err != nil {
@@ -120,7 +123,7 @@ func BackendTestWriter(t *testing.T, db StorageBackend, h BackendTestHarness) {
 	path := filepath.Join(folder, "metadata.data")
 
 	verifyText := func(text string) {
-		data, err := db.Load(path)
+		data, err := db.Load(TypeBulk, path)
 		if err != nil {
 			t.Error(err)
 		}
@@ -233,7 +236,7 @@ func BackendTestAutoCreateFolders(t *testing.T, db StorageBackend, h BackendTest
 	defer writer.Close()
 
 	storepath := filepath.Join(folder, "Store/file")
-	if err := db.Store(storepath, []byte{}); err != nil {
+	if err := db.Store(TypeBulk, storepath, []byte{}); err != nil {
 		t.Error(err)
 	}
 }

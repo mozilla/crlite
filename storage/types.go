@@ -21,9 +21,35 @@ func (o *CertificateLog) String() string {
 	return fmt.Sprintf("LogID=%d MaxEntry=%d, LastEntryTime=%s, URL=%s", o.LogID, o.MaxEntry, o.LastEntryTime, o.URL)
 }
 
+type DocumentType int
+
+const (
+	TypeLogState                        = 1
+	TypeIssuerMetadata     DocumentType = 2
+	TypeIssuerKnownSerials DocumentType = 3
+	TypeCertificatePEMList DocumentType = 4
+	TypeBulk               DocumentType = 5
+)
+
+func (t DocumentType) String() string {
+	names := [...]string{
+		"Log State",
+		"Issuer Metadata",
+		"Issuer Known Serials",
+		"Certificate PEM List",
+		"Bulk",
+	}
+
+	if t < TypeLogState || t > TypeCertificatePEMList {
+		return "Unknown"
+	}
+	return names[t]
+}
+
 type StorageBackend interface {
-	Store(id string, b []byte) error // TODO: Should take io.Reader
-	Load(id string) ([]byte, error)
+	MarkDirty(id string) error
+	Store(docType DocumentType, id string, b []byte) error // TODO: Should take io.Reader
+	Load(docType DocumentType, id string) ([]byte, error)
 	List(path string, walkFn filepath.WalkFunc) error
 	Writer(id string, append bool) (io.WriteCloser, error)
 	ReadWriter(id string) (io.ReadWriteCloser, error)

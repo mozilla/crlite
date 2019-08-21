@@ -264,22 +264,19 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer s
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	filename := base64.URLEncoding.EncodeToString([]byte(aLogObj.URL))
-	dirPath := filepath.Join(db.rootPath, kStateDirName)
-	filePath := filepath.Join(dirPath, filename)
 
 	data, err := json.Marshal(aLogObj)
 	if err != nil {
 		return err
 	}
 
-	return db.backend.Store(filePath, data)
+	return db.backend.Store(TypeLogState, filename, data)
 }
 
 func (db *FilesystemDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
 	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
-	filePath := filepath.Join(db.rootPath, kStateDirName, filename)
 
-	data, err := db.backend.Load(filePath)
+	data, err := db.backend.Load(TypeLogState, filename)
 	if err != nil {
 		// Not an error to not have a state file, just prime one for us
 		return &CertificateLog{URL: aUrl}, nil
@@ -305,10 +302,7 @@ func (db *FilesystemDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, 
 
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
 	subdirName := aExpiration.Format(kExpirationFormat)
-	dirPath := filepath.Join(db.rootPath, subdirName)
-	filePath := filepath.Join(dirPath, "dirty")
-
-	return db.backend.Store(filePath, []byte{})
+	return db.backend.MarkDirty(subdirName)
 }
 
 func getSpki(aCert *x509.Certificate) []byte {

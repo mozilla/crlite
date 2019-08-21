@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 )
 
+const kDirtyMarker = "dirty"
+
 type LocalDiskBackend struct {
 	perms os.FileMode
 }
@@ -34,12 +36,12 @@ func makeDirectoryIfNotExist(id string) error {
 	return nil
 }
 
-func (db *LocalDiskBackend) Store(id string, data []byte) error {
-	if err := makeDirectoryIfNotExist(id); err != nil {
+func (db *LocalDiskBackend) store(path string, data []byte) error {
+	if err := makeDirectoryIfNotExist(path); err != nil {
 		return err
 	}
 
-	fd, err := os.OpenFile(id, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
+	fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
 	if err != nil {
 		return err
 	}
@@ -57,7 +59,17 @@ func (db *LocalDiskBackend) Store(id string, data []byte) error {
 	return fd.Close()
 }
 
-func (db *LocalDiskBackend) Load(id string) ([]byte, error) {
+func (db *LocalDiskBackend) MarkDirty(id string) error {
+	return db.store(filepath.Join(id, kDirtyMarker), []byte{0})
+}
+
+func (db *LocalDiskBackend) Store(docType DocumentType, id string, data []byte) error {
+	// TODO: something with docType
+	return db.store(id, data)
+}
+
+func (db *LocalDiskBackend) Load(docType DocumentType, id string) ([]byte, error) {
+	// TODO: something with docType
 	fd, err := os.Open(id)
 	if err != nil {
 		return []byte{}, err

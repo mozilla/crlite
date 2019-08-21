@@ -30,7 +30,7 @@ func (kc *KnownCertificates) Load() error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
-	data, err := kc.backend.Load(kc.filePath)
+	data, err := kc.backend.Load(TypeIssuerKnownSerials, kc.filePath)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (kc *KnownCertificates) Save() error {
 		return err
 	}
 
-	err = kc.backend.Store(kc.filePath, data)
+	err = kc.backend.Store(TypeIssuerKnownSerials, kc.filePath, data)
 	if err != nil {
 		glog.Errorf("Error writing known certificates %s: %s", kc.filePath, err)
 	}

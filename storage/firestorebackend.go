@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	// "os"
+	"os"
 	"path/filepath"
-	// "time"
+	"strings"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/orcaman/writerseeker"
@@ -36,18 +37,26 @@ func (db *FirestoreBackend) Close() error {
 	return db.client.Close()
 }
 
-func (db *FirestoreBackend) Store(id string, data []byte) error {
+func (db *FirestoreBackend) MarkDirty(id string) error {
+	// is this needed?
+	return nil
+}
+
+func (db *FirestoreBackend) Store(docType DocumentType, id string, data []byte) error {
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
 	fmt.Printf("Storing %+v into %s\n", len(data), id)
-	_, err := doc.Set(db.ctx, map[string]interface{}{kFdata: data})
+	_, err := doc.Set(db.ctx, map[string]interface{}{
+		"type": docType.String(),
+		kFdata: data,
+	})
 	return err
 }
 
-func (db *FirestoreBackend) Load(id string) ([]byte, error) {
+func (db *FirestoreBackend) Load(docType DocumentType, id string) ([]byte, error) {
 	fmt.Printf("Loading from %s\n", id)
 
 	doc := db.client.Doc(id)
@@ -64,12 +73,100 @@ func (db *FirestoreBackend) Load(id string) ([]byte, error) {
 	return data.([]byte), err
 }
 
+func (db *FirestoreBackend) listCollection(relativePath string, coll *firestore.CollectionRef, walkFn filepath.WalkFunc) error {
+	fmt.Printf("listCollection %v\n", relativePath)
+	err := walkFn(relativePath, &firestoreRemoteFileInfo{coll.Path, 0, true}, nil)
+	if err != nil {
+		fmt.Printf("listCollection walkFn err %+v\n", err)
+		return err
+	}
+
+	iter := coll.DocumentRefs(db.ctx)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil || doc == nil {
+			fmt.Printf("listCollection iter.Next err %+v\n", err)
+			return err
+		}
+
+		err = db.listDocument(filepath.Join(relativePath, doc.ID), doc, walkFn)
+		if err != nil {
+			fmt.Printf("listCollection listDocument err %+v\n", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *FirestoreBackend) listIterColl(relativePath string, iter *firestore.CollectionIterator, walkFn filepath.WalkFunc) error {
+	for {
+		col, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil || col == nil {
+			fmt.Printf("listIterColl iter err %+v\n", err)
+			return err
+		}
+
+		err = db.listCollection(filepath.Join(relativePath, col.ID), col, walkFn)
+		if err != nil {
+			fmt.Printf("listIterColl listCollection err %+v\n", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *FirestoreBackend) listDocument(relativePath string, doc *firestore.DocumentRef, walkFn filepath.WalkFunc) error {
+	fmt.Printf("listDocument %v\n", relativePath)
+	err := walkFn(relativePath, &firestoreRemoteFileInfo{doc.Path, 0, false}, nil)
+	if err != nil {
+		fmt.Printf("listDocument walkFn err %+v\n", err)
+		return err
+	}
+
+	// doc.Collections() on a DocumentRef is forbidden, so we must use a query
+	// iter := doc.Where()
+	// return db.listIterColl(relativePath, iter, walkFn)
+	return db.listIterColl(relativePath, doc.Collections(db.ctx), walkFn)
+	// return nil
+}
+
+func (db *FirestoreBackend) listRoot(walkFn filepath.WalkFunc) error {
+	// fmt.Printf("listRoot\n")
+	return fmt.Errorf("Not allowed to list root. Seems not to work.")
+	// Don't walk for the root
+	// return db.listIterColl(db.client.Collections(db.ctx), walkFn)
+}
+
 func (db *FirestoreBackend) List(path string, walkFn filepath.WalkFunc) error {
-	return fmt.Errorf("Not implemented")
+	fmt.Printf("List %v\n", path)
+
+	if strings.Count(path, "/")%2 == 0 {
+		if path == "" {
+			// This requires a special case, sadly
+			return db.listRoot(walkFn)
+		}
+		coll := db.client.Collection(path)
+		if coll != nil {
+			return db.listCollection(path, coll, walkFn)
+		}
+		return fmt.Errorf("Collection for [%s] is nil", path)
+	} else {
+		doc := db.client.Doc(path)
+		if doc != nil {
+			return db.listDocument(path, doc, walkFn)
+		}
+		return fmt.Errorf("Document for [%s] is nil", path)
+	}
 }
 
 func (db *FirestoreBackend) getAsBufferCreateIfNeeded(id string) (*writerseeker.WriterSeeker, error) {
-	data, err := db.Load(id)
+	data, err := db.Load(TypeBulk, id)
 	if err != nil {
 		// Ignore NotFound
 		if status.Code(err) != codes.NotFound {
@@ -184,7 +281,7 @@ func (rf *firestoreRemoteFile) Close() error {
 		if err != nil {
 			return err
 		}
-		if err = rf.backend.Store(rf.id, data); err != nil {
+		if err = rf.backend.Store(TypeBulk, rf.id, data); err != nil {
 			return err
 		}
 	}
@@ -194,32 +291,32 @@ func (rf *firestoreRemoteFile) Close() error {
 	return err
 }
 
-// type firestoreRemoteFileInfo struct {
-// 	name  string
-// 	size  int64
-// 	isDir bool
-// }
+type firestoreRemoteFileInfo struct {
+	name  string
+	size  int64
+	isDir bool
+}
 
-// func (rfi *firestoreRemoteFileInfo) Name() string {
-// 	return rfi.name
-// }
+func (rfi *firestoreRemoteFileInfo) Name() string {
+	return rfi.name
+}
 
-// func (rfi *firestoreRemoteFileInfo) Size() int64 {
-// 	return rfi.size
-// }
+func (rfi *firestoreRemoteFileInfo) Size() int64 {
+	return rfi.size
+}
 
-// func (rfi *firestoreRemoteFileInfo) Mode() os.FileMode {
-// 	return 0644
-// }
+func (rfi *firestoreRemoteFileInfo) Mode() os.FileMode {
+	return 0644
+}
 
-// func (rfi *firestoreRemoteFileInfo) ModTime() time.Time {
-// 	return time.Now()
-// }
+func (rfi *firestoreRemoteFileInfo) ModTime() time.Time {
+	return time.Now() // TODO ?
+}
 
-// func (rfi *firestoreRemoteFileInfo) IsDir() bool {
-// 	return rfi.isDir
-// }
+func (rfi *firestoreRemoteFileInfo) IsDir() bool {
+	return rfi.isDir
+}
 
-// func (rfi *firestoreRemoteFileInfo) Sys() interface{} {
-// 	return nil
-// }
+func (rfi *firestoreRemoteFileInfo) Sys() interface{} {
+	return nil
+}

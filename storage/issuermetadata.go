@@ -40,7 +40,7 @@ func (im *IssuerMetadata) Load() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	data, err := im.backend.Load(im.filePath)
+	data, err := im.backend.Load(TypeIssuerMetadata, im.filePath)
 	if err != nil {
 		glog.Errorf("Error reading issuer metadata %s: %s", im.filePath, err)
 		return err
@@ -64,7 +64,7 @@ func (im *IssuerMetadata) Save() error {
 		return err
 	}
 
-	err = im.backend.Store(im.filePath, data)
+	err = im.backend.Store(TypeIssuerMetadata, im.filePath, data)
 	if err != nil {
 		glog.Errorf("Error storing issuer metadata %s: %s", im.filePath, err)
 	}

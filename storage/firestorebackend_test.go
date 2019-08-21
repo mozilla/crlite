@@ -2,11 +2,13 @@ package storage
 
 import (
 	"context"
-	"fmt"
+	"math/big"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/api/iterator"
 )
 
 var kFirestoreEmulatorEnv = "FIRESTORE_EMULATOR_HOST"
@@ -54,30 +56,36 @@ func (h *FirestoreTestHarness) Cleanup() {
 	h.harnessClient.Close()
 }
 
-func (h *FirestoreTestHarness) MakeFolder(id string) string {
-	fmt.Printf("MakeFolder %s\n", id)
-	coll := h.harnessClient.Collection(id)
-	if coll == nil {
-		h.t.Errorf("Collection for %s is nil", id)
-	}
-	fmt.Printf("Made folder %+v\n", coll)
-
-	h.folders = append(h.folders, id)
-	return id
+func (h *FirestoreTestHarness) BaseFolder() string {
+	return "test/doc"
 }
 
-func (h *FirestoreTestHarness) MakeFile(id string, data []byte) {
-	doc := h.harnessClient.Doc(id)
+func (h *FirestoreTestHarness) MakeFolder(id string) string {
+	path := filepath.Join(h.BaseFolder(), id)
+	coll := h.harnessClient.Collection(path)
+	if coll == nil {
+		h.t.Errorf("Collection for %s is nil -- Firestore requires collection/doc/collection/doc", id)
+	}
+	h.t.Logf("Made collection %+s\n", path)
+
+	h.folders = append(h.folders, path)
+	return path
+}
+
+func (h *FirestoreTestHarness) MakeFile(id string, data []byte) string {
+	path := filepath.Join(h.BaseFolder(), id)
+	doc := h.harnessClient.Doc(path)
 	if doc == nil {
-		h.t.Errorf("Document for %s is nil", id)
-		return
+		h.t.Errorf("Document for %s is nil -- Firestore requires collection/doc/collection/doc", id)
 	}
 
-	h.t.Logf("Setting %s", id)
 	_, err := doc.Set(h.ctx, map[string]interface{}{kFdata: data})
 	if err != nil {
-		h.t.Error(err)
+		h.t.Errorf("Failed to make file %s: %v", path, err)
 	}
+
+	h.t.Logf("Made document %s with %d bytes of data", path, len(data))
+	return path
 }
 
 func (h *FirestoreTestHarness) Remove(id string) {
@@ -126,6 +134,86 @@ func Test_FirestoreBasicLoop(t *testing.T) {
 	t.Logf("Retreived %+v from %+v", data, docsnap)
 
 	c.Close()
+}
+
+func Test_FirestoreCollectionHeirarchy(t *testing.T) {
+	ctx := context.Background()
+	verifyEmulator(t)
+
+	c, err := firestore.NewClient(ctx, kProjectId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coll := c.Collection("data")
+	certsDoc := coll.Doc("2034-06-16:issuerAKI.certs")
+	metaDoc := coll.Doc("2034-06-16:issuerAKI.meta")
+	knownDoc := coll.Doc("2034-06-16:issuerAKI.known")
+
+	_, err = certsDoc.Set(ctx, map[string]interface{}{
+		"type": "certs",
+		kFdata: []byte{0xDE, 0xAD},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = metaDoc.Set(ctx, map[string]interface{}{
+		"type":   "meta",
+		"issuer": "the issuer",
+		"crls":   []string{"http://issuer/crl"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = knownDoc.Set(ctx, map[string]interface{}{
+		"type":    "known",
+		"serials": []*big.Int{big.NewInt(4), big.NewInt(3), big.NewInt(2), big.NewInt(1)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// list
+	collection := c.Collection("data")
+	t.Logf("Collection: %s - %+v", collection.ID, collection)
+
+	iter := collection.Where("type", "==", "date").Documents(ctx)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil || doc == nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("List: %s - %+v", doc.Ref.ID, doc)
+
+	}
+
+	c.Close()
+}
+
+func Test_FirestoreCollectionsGet(t *testing.T) {
+	ctx := context.Background()
+	verifyEmulator(t)
+
+	c, err := firestore.NewClient(ctx, kProjectId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coll := c.Collection("My Stuff")
+	doc := coll.Doc("Document")
+	_, err = doc.Set(ctx, map[string]interface{}{kFdata: []byte{0xDE, 0xAD}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	{
+		x, err := coll.DocumentRefs(ctx).GetAll()
+		t.Logf("MyStuff: %+v %+v", x, err)
+	}
 }
 
 func Test_FirestoreStoreLoad(t *testing.T) {

@@ -28,6 +28,10 @@ func (h *LocalDiskTestHarness) Cleanup() {
 	h.Remove(h.root)
 }
 
+func (h *LocalDiskTestHarness) BaseFolder() string {
+	return h.root
+}
+
 func (h *LocalDiskTestHarness) MakeFolder(id string) string {
 	folder := filepath.Join(h.root, id)
 	if err := os.MkdirAll(folder, 0700); err != nil {
@@ -38,11 +42,12 @@ func (h *LocalDiskTestHarness) MakeFolder(id string) string {
 	return folder
 }
 
-func (h *LocalDiskTestHarness) MakeFile(id string, data []byte) {
+func (h *LocalDiskTestHarness) MakeFile(id string, data []byte) string {
 	file := filepath.Join(h.root, id)
 	if err := ioutil.WriteFile(file, data, 0600); err != nil {
 		h.t.Fatal(err)
 	}
+	return file
 }
 
 func (h *LocalDiskTestHarness) Remove(id string) {
