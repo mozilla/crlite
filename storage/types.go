@@ -3,8 +3,7 @@ package storage
 import (
 	"encoding/base64"
 	"fmt"
-	"io"
-	"path/filepath"
+	"math/big"
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
@@ -23,36 +22,21 @@ func (o *CertificateLog) String() string {
 
 type DocumentType int
 
-const (
-	TypeLogState                        = 1
-	TypeIssuerMetadata     DocumentType = 2
-	TypeIssuerKnownSerials DocumentType = 3
-	TypeCertificatePEMList DocumentType = 4
-	TypeBulk               DocumentType = 5
-)
-
-func (t DocumentType) String() string {
-	names := [...]string{
-		"Log State",
-		"Issuer Metadata",
-		"Issuer Known Serials",
-		"Certificate PEM List",
-		"Bulk",
-	}
-
-	if t < TypeLogState || t > TypeCertificatePEMList {
-		return "Unknown"
-	}
-	return names[t]
-}
-
 type StorageBackend interface {
 	MarkDirty(id string) error
-	Store(docType DocumentType, id string, b []byte) error // TODO: Should take io.Reader
-	Load(docType DocumentType, id string) ([]byte, error)
-	List(path string, walkFn filepath.WalkFunc) error
-	Writer(id string, append bool) (io.WriteCloser, error)
-	ReadWriter(id string) (io.ReadWriteCloser, error)
+
+	StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error
+	StoreLogState(logURL string, log *CertificateLog) error
+	StoreIssuerMetadata(expDate string, issuer string, data *Metadata) error
+	StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error
+
+	LoadCertificatePEM(spki SPKI, expDate string, issuer string) ([]byte, error)
+	LoadLogState(logURL string) (*CertificateLog, error)
+	LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error)
+	LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error)
+
+	ListExpirationDates(aNotBefore time.Time) ([]string, error)
+	ListIssuersForExpirationDate(expDate string) ([]string, error) // maybe return []AKI?
 }
 
 type CertDatabase interface {
@@ -71,4 +55,12 @@ type AKI struct {
 
 func (o AKI) ID() string {
 	return base64.URLEncoding.EncodeToString(o.aki)
+}
+
+type SPKI struct {
+	spki []byte
+}
+
+func (o SPKI) ID() string {
+	return base64.URLEncoding.EncodeToString(o.spki)
 }

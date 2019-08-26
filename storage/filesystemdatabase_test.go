@@ -71,7 +71,7 @@ func Test_GetSpkiRealSPKI(t *testing.T) {
 	}
 
 	spki := getSpki(cert)
-	if bytes.Equal(spki, cert.SubjectKeyId) == false {
+	if bytes.Equal(spki.spki, cert.SubjectKeyId) == false {
 		t.Error("SPKI should be out of the certificate")
 	}
 }
@@ -90,29 +90,30 @@ func Test_GetSpkiSyntheticSPKI(t *testing.T) {
 
 	spki := getSpki(cert)
 
-	if len(spki) != 20 {
-		t.Errorf("Synthetic SPKI should be 20 bytes long: %d %v", len(spki), spki)
+	if len(spki.spki) != 20 {
+		t.Errorf("Synthetic SPKI should be 20 bytes long: %d %s", len(spki.spki), spki.ID())
 	}
 }
 
 func Test_ListExpiration(t *testing.T) {
 	var err error
 	var storageDB CertDatabase
-	var dir string
 
 	mockBackend := NewMockBackend()
 
-	if err := mockBackend.Store(TypeIssuerMetadata, "2017-11-28/file", []byte{}); err != nil {
+	blankMetadata := &Metadata{}
+
+	if err := mockBackend.StoreIssuerMetadata("2017-11-28", "issuer", blankMetadata); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.Store(TypeIssuerMetadata, "2018-11-28/file", []byte{}); err != nil {
+	if err := mockBackend.StoreIssuerMetadata("2018-11-28", "issuer", blankMetadata); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.Store(TypeIssuerMetadata, "2019-11-28/file", []byte{}); err != nil {
+	if err := mockBackend.StoreIssuerMetadata("2019-11-28", "issuer", blankMetadata); err != nil {
 		t.Error(err)
 	}
 
-	storageDB, err = NewFilesystemDatabase(1, dir, mockBackend)
+	storageDB, err = NewFilesystemDatabase(1, mockBackend)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}

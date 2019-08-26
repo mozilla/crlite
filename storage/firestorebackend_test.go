@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/big"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"cloud.google.com/go/firestore"
@@ -37,73 +36,19 @@ func makeFirestoreHarness(t *testing.T) *FirestoreTestHarness {
 		t.Fatal(err)
 	}
 
-	return &FirestoreTestHarness{t, ctx, []string{}, be, harnessClient}
+	return &FirestoreTestHarness{t, ctx, be, harnessClient}
 }
 
 type FirestoreTestHarness struct {
 	t             *testing.T
 	ctx           context.Context
-	folders       []string
 	be            *FirestoreBackend
 	harnessClient *firestore.Client
 }
 
-func (h *FirestoreTestHarness) Cleanup() {
-	for i := range h.folders {
-		h.Remove(h.folders[i])
-	}
+func (h *FirestoreTestHarness) cleanup() {
 	h.be.Close()
 	h.harnessClient.Close()
-}
-
-func (h *FirestoreTestHarness) BaseFolder() string {
-	return "test/doc"
-}
-
-func (h *FirestoreTestHarness) MakeFolder(id string) string {
-	path := filepath.Join(h.BaseFolder(), id)
-	coll := h.harnessClient.Collection(path)
-	if coll == nil {
-		h.t.Errorf("Collection for %s is nil -- Firestore requires collection/doc/collection/doc", id)
-	}
-	h.t.Logf("Made collection %+s\n", path)
-
-	h.folders = append(h.folders, path)
-	return path
-}
-
-func (h *FirestoreTestHarness) MakeFile(id string, data []byte) string {
-	path := filepath.Join(h.BaseFolder(), id)
-	doc := h.harnessClient.Doc(path)
-	if doc == nil {
-		h.t.Errorf("Document for %s is nil -- Firestore requires collection/doc/collection/doc", id)
-	}
-
-	_, err := doc.Set(h.ctx, map[string]interface{}{kFdata: data})
-	if err != nil {
-		h.t.Errorf("Failed to make file %s: %v", path, err)
-	}
-
-	h.t.Logf("Made document %s with %d bytes of data", path, len(data))
-	return path
-}
-
-func (h *FirestoreTestHarness) Remove(id string) {
-	coll := h.harnessClient.Collection(id)
-	if coll == nil {
-		doc := h.harnessClient.Doc(id)
-		if doc == nil {
-			h.t.Fatalf("%s appears to neither be a Doc or Collection", id)
-			return
-		}
-		if _, err := doc.Delete(h.ctx); err != nil {
-			h.t.Error(err)
-		}
-	} else {
-		if err := h.be.deleteCollection(coll, 64); err != nil {
-			h.t.Error(err)
-		}
-	}
 }
 
 func Test_FirestoreBasicLoop(t *testing.T) {
@@ -117,7 +62,7 @@ func Test_FirestoreBasicLoop(t *testing.T) {
 
 	coll := c.Collection("My Stuff")
 	doc := coll.Doc("Document")
-	_, err = doc.Set(ctx, map[string]interface{}{kFdata: []byte{0xDE, 0xAD}})
+	_, err = doc.Set(ctx, map[string]interface{}{kFieldData: []byte{0xDE, 0xAD}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +72,7 @@ func Test_FirestoreBasicLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := docsnap.DataAt(kFdata)
+	data, err := docsnap.DataAt(kFieldData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +96,8 @@ func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 	knownDoc := coll.Doc("2034-06-16:issuerAKI.known")
 
 	_, err = certsDoc.Set(ctx, map[string]interface{}{
-		"type": "certs",
-		kFdata: []byte{0xDE, 0xAD},
+		"type":     "certs",
+		kFieldData: []byte{0xDE, 0xAD},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,54 +139,14 @@ func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 	c.Close()
 }
 
-func Test_FirestoreCollectionsGet(t *testing.T) {
-	ctx := context.Background()
-	verifyEmulator(t)
-
-	c, err := firestore.NewClient(ctx, kProjectId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	coll := c.Collection("My Stuff")
-	doc := coll.Doc("Document")
-	_, err = doc.Set(ctx, map[string]interface{}{kFdata: []byte{0xDE, 0xAD}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	{
-		x, err := coll.DocumentRefs(ctx).GetAll()
-		t.Logf("MyStuff: %+v %+v", x, err)
-	}
-}
-
 func Test_FirestoreStoreLoad(t *testing.T) {
 	h := makeFirestoreHarness(t)
-	defer h.Cleanup()
-	BackendTestStoreLoad(t, h.be, h)
+	defer h.cleanup()
+	BackendTestStoreLoad(t, h.be)
 }
 
-// func Test_FirestoreListFiles(t *testing.T) {
-// 	h := makeFirestoreHarness(t)
-// 	defer h.Cleanup()
-// 	BackendTestListFiles(t, h.be, h)
-// }
-
-func Test_FirestoreWriter(t *testing.T) {
+func Test_FirestoreListFiles(t *testing.T) {
 	h := makeFirestoreHarness(t)
-	defer h.Cleanup()
-	BackendTestWriter(t, h.be, h)
+	defer h.cleanup()
+	BackendTestListFiles(t, h.be)
 }
-
-func Test_FirestoreReadWriter(t *testing.T) {
-	h := makeFirestoreHarness(t)
-	defer h.Cleanup()
-	BackendTestReadWriter(t, h.be, h)
-}
-
-// func Test_FirestoreAutoCreateFolders(t *testing.T) {
-// 	h := makeFirestoreHarness(t)
-// 	defer h.Cleanup()
-// 	BackendTestAutoCreateFolders(t, h.be, h)
-// }

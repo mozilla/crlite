@@ -1,18 +1,9 @@
 package storage
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/sha1"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,43 +13,23 @@ import (
 )
 
 const (
-	kExpirationFormat        = "2006-01-02"
-	kStateDirName            = "state"
-	kSuffixKnownCertificates = ".known"
-	kSuffixIssuerMetadata    = ".meta"
-	kSuffixCertificates      = ".pem"
+	kExpirationFormat = "2006-01-02"
 )
 
-var kPemEndCert = []byte("-----END CERTIFICATE-----\n")
-
-func GetKnownCertificates(aPath string, aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
-	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
-	return GetKnownCertificatesFromPath(pemPath, aBackend)
-}
-
-func GetKnownCertificatesFromPath(aPemPath string, aBackend StorageBackend) *KnownCertificates {
-	knownPath := fmt.Sprintf("%s%s", aPemPath, kSuffixKnownCertificates)
-
-	knownCerts := NewKnownCertificates(knownPath, aBackend)
+func GetKnownCertificates(aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
+	knownCerts := NewKnownCertificates(aExpDate, aIssuer, aBackend)
 	err := knownCerts.Load()
 	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s", knownPath)
+		glog.V(1).Infof("Creating new known certificates file for %s:%s", aExpDate, aIssuer)
 	}
 	return knownCerts
 }
 
-func GetIssuerMetadata(aPath string, aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
-	pemPath := fmt.Sprintf("%s%s", filepath.Join(aPath, aExpDate, aIssuer), kSuffixCertificates)
-	return GetIssuerMetadataFromPath(pemPath, aBackend)
-}
-
-func GetIssuerMetadataFromPath(aPemPath string, aBackend StorageBackend) *IssuerMetadata {
-	metaPath := fmt.Sprintf("%s%s", aPemPath, kSuffixIssuerMetadata)
-
-	issuerMetadata := NewIssuerMetadata(metaPath, aBackend)
+func GetIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
+	issuerMetadata := NewIssuerMetadata(aExpDate, aIssuer, aBackend)
 	err := issuerMetadata.Load()
 	if err != nil {
-		glog.V(1).Infof("Creating new issuer metadata file for %s", metaPath)
+		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", aExpDate, aIssuer)
 	}
 
 	return issuerMetadata
@@ -66,18 +37,16 @@ func GetIssuerMetadataFromPath(aPemPath string, aBackend StorageBackend) *Issuer
 
 type CacheEntry struct {
 	mutex   *sync.Mutex
-	writer  io.WriteCloser
 	known   *KnownCertificates
 	meta    *IssuerMetadata
 	backend StorageBackend
 }
 
-func NewCacheEntry(aWriter io.WriteCloser, aPemPath string, aBackend StorageBackend) (*CacheEntry, error) {
-	knownCerts := GetKnownCertificatesFromPath(aPemPath, aBackend)
-	issuerMetadata := GetIssuerMetadataFromPath(aPemPath, aBackend)
+func NewCacheEntry(aExpDate string, aIssuer string, aBackend StorageBackend) (*CacheEntry, error) {
+	knownCerts := GetKnownCertificates(aExpDate, aIssuer, aBackend)
+	issuerMetadata := GetIssuerMetadata(aExpDate, aIssuer, aBackend)
 
 	return &CacheEntry{
-		writer:  aWriter,
 		mutex:   &sync.Mutex{},
 		known:   knownCerts,
 		meta:    issuerMetadata,
@@ -89,215 +58,69 @@ func (ce *CacheEntry) Close() error {
 	ce.mutex.Lock()
 	defer ce.mutex.Unlock()
 
-	errDisk := ce.writer.Close()
 	errKnown := ce.known.Save()
 	errMeta := ce.meta.Save()
-	if errDisk != nil || errMeta != nil || errKnown != nil {
-		return fmt.Errorf("Error saving data: Disk=%s Known=%s Meta=%s", errDisk, errKnown, errMeta)
+	if errMeta != nil || errKnown != nil {
+		return fmt.Errorf("Error saving data: Known=%s Meta=%s", errKnown, errMeta)
 	}
 
 	return nil
 }
 
 type FilesystemDatabase struct {
-	rootPath string
-	backend  StorageBackend
-	cache    gcache.Cache
+	backend StorageBackend
+	cache   gcache.Cache
 }
 
-func NewFilesystemDatabase(aCacheSize int, aPath string, aBackend StorageBackend) (*FilesystemDatabase, error) {
+type cacheId struct {
+	expDate string
+	issuer  string
+}
+
+func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend) (*FilesystemDatabase, error) {
 	cache := gcache.New(aCacheSize).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
-			glog.V(2).Infof("CACHE[%s]: closed datafile: %s [err=%s]", aPath, key, err)
+			glog.V(2).Infof("CACHE: closed datafile: %s [err=%s]", key, err)
 		}).
 		PurgeVisitorFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
-			glog.V(2).Infof("CACHE[%s]: shutdown closed datafile: %s [err=%s]", aPath, key, err)
+			glog.V(2).Infof("CACHE: shutdown closed datafile: %s [err=%s]", key, err)
 		}).
 		LoaderFunc(func(key interface{}) (interface{}, error) {
-			glog.V(2).Infof("CACHE[%s]: loaded datafile: %s", aPath, key)
+			glog.V(2).Infof("CACHE: loaded datafile: %s", key)
 
-			pemPath := key.(string)
+			cacheId := key.(cacheId)
 
-			writer, err := aBackend.Writer(pemPath, true)
-			if err != nil {
-				return nil, err
-			}
-
-			return NewCacheEntry(writer, pemPath, aBackend)
+			return NewCacheEntry(cacheId.expDate, cacheId.issuer, aBackend)
 		}).Build()
 
 	db := &FilesystemDatabase{
-		rootPath: aPath,
-		backend:  aBackend,
-		cache:    cache,
+		backend: aBackend,
+		cache:   cache,
 	}
 
 	return db, nil
 }
 
 func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
-	expDates := make([]string, 0)
-
-	aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
-
-	err := db.backend.List(db.rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
-			return err
-		}
-		if info.IsDir() {
-			if info.Name() == kStateDirName {
-				return filepath.SkipDir
-			}
-
-			// Note: Parses in UTC.  Comparison granularity is only to the day.
-			t, err := time.Parse(kExpirationFormat, info.Name())
-			if err == nil && !t.Before(aNotBefore) {
-				expDates = append(expDates, info.Name())
-				return filepath.SkipDir
-			}
-		}
-		return nil
-	})
-
-	return expDates, err
+	return db.backend.ListExpirationDates(aNotBefore)
 }
 
 func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
-	issuers := make([]string, 0)
-
-	err := db.backend.List(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
-			return err
-		}
-		if strings.HasSuffix(info.Name(), kSuffixCertificates) {
-			issuers = append(issuers, strings.TrimSuffix(info.Name(), kSuffixCertificates))
-		}
-		return nil
-	})
-
-	return issuers, err
+	return db.backend.ListIssuersForExpirationDate(expDate)
 }
 
 func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
-	pemPath := filepath.Join(db.rootPath, expDate, fmt.Sprintf("%s%s", issuer, kSuffixCertificates))
-
-	readWriter, err := db.backend.ReadWriter(pemPath)
-	if err != nil {
-		return err
-	}
-
-	cacheEntry, err := NewCacheEntry(readWriter, pemPath, db.backend)
-	if err != nil {
-		return err
-	}
-	defer cacheEntry.Close()
-
-	scanner := bufio.NewScanner(readWriter)
-	scanBuffer := make([]byte, 0, 512*1024)
-	scanner.Buffer(scanBuffer, cap(scanBuffer))
-
-	// Splits on the end of a PEM CERTIFICATE, won't work for non-CERTIFICATE
-	// objects
-	split := func(data []byte, atEOF bool) (int, []byte, error) {
-		if data != nil && len(data) > len(kPemEndCert) {
-
-			offset := bytes.Index(data, kPemEndCert)
-
-			if offset >= 0 {
-				totalLength := offset + len(kPemEndCert)
-				token := data[:totalLength]
-				return totalLength, token, nil
-			}
-		}
-
-		return 0, nil, nil
-	}
-	scanner.Split(split)
-
-	for {
-		if !scanner.Scan() {
-			return scanner.Err()
-		}
-
-		block, rest := pem.Decode(scanner.Bytes())
-
-		if block == nil {
-			glog.Infof("%s: Not a valid PEM.", pemPath)
-			glog.Info(hex.Dump(rest))
-			continue
-		}
-
-		if len(rest) != 0 {
-			err := fmt.Errorf("PEM Scanner failure, should have been an exact PEM. Rest=%s, Buf=%s", hex.Dump(rest), hex.Dump(scanner.Bytes()))
-			return err
-		}
-
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			glog.Warningf("%s: Couldn't parse certificate: %v", pemPath, err)
-			glog.Warningf("%s: Cert bytes: %s", pemPath, hex.Dump(scanner.Bytes()))
-			continue
-		}
-
-		cacheEntry.meta.Accumulate(cert)
-
-		unknown, err := cacheEntry.known.WasUnknown(cert.SerialNumber)
-		if err != nil {
-			glog.Warningf("%s: Couldn't check known status of certificate: %v", pemPath, err)
-			glog.Warningf("%s: Cert bytes: %s", pemPath, hex.Dump(scanner.Bytes()))
-			continue
-		}
-
-		if unknown {
-			glog.Warningf("%s: Certificate was unknown %v", pemPath, cert.SerialNumber)
-		}
-	}
+	return fmt.Errorf("Disabled")
 }
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
-	filename := base64.URLEncoding.EncodeToString([]byte(aLogObj.URL))
-
-	data, err := json.Marshal(aLogObj)
-	if err != nil {
-		return err
-	}
-
-	return db.backend.Store(TypeLogState, filename, data)
+	return db.backend.StoreLogState(aLogObj.URL, aLogObj)
 }
 
 func (db *FilesystemDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
-	filename := base64.URLEncoding.EncodeToString([]byte(aUrl))
-
-	data, err := db.backend.Load(TypeLogState, filename)
-	if err != nil {
-		// Not an error to not have a state file, just prime one for us
-		return &CertificateLog{URL: aUrl}, nil
-	}
-
-	var certLogObj CertificateLog
-	err = json.Unmarshal(data, &certLogObj)
-	if err != nil {
-		return nil, err
-	}
-	return &certLogObj, nil
-}
-
-func (db *FilesystemDatabase) getPathForID(aExpiration *time.Time, aSKI []byte, aAKI AKI) string {
-	subdirName := aExpiration.Format(kExpirationFormat)
-	dirPath := filepath.Join(db.rootPath, subdirName)
-
-	issuerName := aAKI.ID()
-	fileName := fmt.Sprintf("%s%s", issuerName, kSuffixCertificates)
-	filePath := filepath.Join(dirPath, fileName)
-	return filePath
+	return db.backend.LoadLogState(aUrl)
 }
 
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
@@ -305,62 +128,53 @@ func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
 	return db.backend.MarkDirty(subdirName)
 }
 
-func getSpki(aCert *x509.Certificate) []byte {
+func getSpki(aCert *x509.Certificate) SPKI {
 	if len(aCert.SubjectKeyId) < 8 {
 		digest := sha1.Sum(aCert.RawSubjectPublicKeyInfo)
 
 		glog.Warningf("[issuer: %s] SPKI is short: %v, using %v instead.", aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
-		return digest[0:]
+		return SPKI{digest[0:]}
 	}
 
-	return aCert.SubjectKeyId
+	return SPKI{aCert.SubjectKeyId}
 }
 
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
-	filePath := db.getPathForID(&aCert.NotAfter, spki, AKI{aCert.AuthorityKeyId})
+	expDate := aCert.NotAfter.Format(kExpirationFormat)
+	aki := AKI{aCert.AuthorityKeyId}
+	issuer := aki.ID()
 
 	headers := make(map[string]string)
 	headers["Log"] = aLogURL
 	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
-
 	pemblock := pem.Block{
 		Type:    "CERTIFICATE",
 		Headers: headers,
 		Bytes:   aCert.Raw,
 	}
 
-	// Be willing to try twice, since the cache sometimes makes a mistake and
-	// evicts an entry right as we're using it.
-	var err error
-	for t := 0; t < 2; t++ {
-		obj, err := db.cache.Get(filePath)
-		if err != nil {
-			panic(err)
-		}
+	obj, err := db.cache.Get(&cacheId{expDate, issuer})
+	if err != nil {
+		panic(err)
+	}
 
-		ce := obj.(*CacheEntry)
+	ce := obj.(*CacheEntry)
 
-		certWasUnknown, err := ce.known.WasUnknown(aCert.SerialNumber)
+	certWasUnknown, err := ce.known.WasUnknown(aCert.SerialNumber)
+	if err != nil {
+		return err
+	}
+
+	if certWasUnknown {
+		ce.mutex.Lock()
+		ce.meta.Accumulate(aCert)
+		err = db.backend.StoreCertificatePEM(spki, expDate, issuer, pem.EncodeToMemory(&pemblock))
+		ce.mutex.Unlock()
+
 		if err != nil {
 			return err
 		}
-
-		if certWasUnknown {
-			ce.mutex.Lock()
-			ce.meta.Accumulate(aCert)
-			err = pem.Encode(ce.writer, &pemblock)
-			ce.mutex.Unlock()
-		}
-
-		if err == nil {
-			break
-		}
-	}
-
-	if err != nil {
-		glog.Errorf("Cache eviction collision: %s", err)
-		return err
 	}
 
 	// Mark the directory dirty

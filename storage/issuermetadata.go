@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"encoding/json"
 	"net/url"
 	"sort"
 	"strings"
@@ -14,7 +13,8 @@ import (
 type IssuerMetadata struct {
 	mutex    *sync.Mutex
 	Metadata Metadata
-	filePath string
+	expDate  string
+	issuer   string
 	backend  StorageBackend
 }
 
@@ -24,51 +24,46 @@ type Metadata struct {
 	IssuerDNs []*string `json:"issuerDNs"`
 }
 
-func NewIssuerMetadata(aMetadataPath string, aBackend StorageBackend) *IssuerMetadata {
+func NewIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
 	metadata := Metadata{
-		Crls: make([]*string, 0, 10),
+		Crls:      make([]*string, 0, 10),
+		IssuerDNs: make([]*string, 0, 10),
 	}
 	return &IssuerMetadata{
 		mutex:    &sync.Mutex{},
-		filePath: aMetadataPath,
+		expDate:  aExpDate,
+		issuer:   aIssuer,
 		Metadata: metadata,
 		backend:  aBackend,
 	}
+}
+
+func (im *IssuerMetadata) id() string {
+	return im.expDate + "::" + im.issuer
 }
 
 func (im *IssuerMetadata) Load() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	data, err := im.backend.Load(TypeIssuerMetadata, im.filePath)
+	data, err := im.backend.LoadIssuerMetadata(im.expDate, im.issuer)
 	if err != nil {
-		glog.Errorf("Error reading issuer metadata %s: %s", im.filePath, err)
+		glog.Errorf("Error reading issuer metadata %s: %s", im.id(), err)
 		return err
 	}
 
-	err = json.Unmarshal(data, &im.Metadata)
-	if err != nil {
-		glog.Errorf("Error unmarshaling issuer metadata %s: %s", im.filePath, err)
-	}
-
-	return err
+	im.Metadata = *data
+	return nil
 }
 
 func (im *IssuerMetadata) Save() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	data, err := json.Marshal(im.Metadata)
+	err := im.backend.StoreIssuerMetadata(im.expDate, im.issuer, &im.Metadata)
 	if err != nil {
-		glog.Errorf("Error marshaling issuer metadata %s: %s", im.filePath, err)
-		return err
+		glog.Errorf("Error storing issuer metadata %s: %s", im.id(), err)
 	}
-
-	err = im.backend.Store(TypeIssuerMetadata, im.filePath, data)
-	if err != nil {
-		glog.Errorf("Error storing issuer metadata %s: %s", im.filePath, err)
-	}
-
 	return err
 }
 
@@ -99,12 +94,12 @@ func (im *IssuerMetadata) addCRL(aCRL string) {
 	}
 
 	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.filePath, url.String(), idx)
+		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.id(), url.String(), idx)
 		return
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.filePath, url.String(), idx)
+	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.id(), url.String(), idx)
 	im.Metadata.Crls = append(im.Metadata.Crls, nil)
 	copy(im.Metadata.Crls[idx+1:], im.Metadata.Crls[idx:])
 	sanitizedCRL := url.String()
@@ -125,12 +120,12 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) {
 	}
 
 	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.filePath, aIssuerDN, idx)
+		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.id(), aIssuerDN, idx)
 		return
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] IssuerDN unknown: %s (pos=%d)", im.filePath, aIssuerDN, idx)
+	glog.V(3).Infof("[%s] IssuerDN unknown: %s (pos=%d)", im.id(), aIssuerDN, idx)
 	im.Metadata.IssuerDNs = append(im.Metadata.IssuerDNs, nil)
 	copy(im.Metadata.IssuerDNs[idx+1:], im.Metadata.IssuerDNs[idx:])
 	im.Metadata.IssuerDNs[idx] = &aIssuerDN

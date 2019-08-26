@@ -3,21 +3,40 @@ package storage
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"os"
+	"math/big"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
-	"github.com/orcaman/writerseeker"
+	"github.com/golang/glog"
 	"google.golang.org/api/iterator"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	// "google.golang.org/grpc/codes"
+	// "google.golang.org/grpc/status"
 )
 
-const kFdata = "d"
+//
+// logs
+//     /<url>
+// ct
+//     /<expDate>
+//                /issuer
+//                        /<issuer>
+//                                 /certs
+//                                        /<spki>
+//                                 /known
+//                                        /serials
+
+const (
+	kFieldType    = "type"
+	kFieldData    = "data"
+	kFieldExpDate = "expDate"
+	kFieldIssuer  = "issuer"
+	kTypePEM      = "PEM"
+	kTypeSerials  = "Serials"
+	kTypeLogState = "LogState"
+	kTypeExpDate  = "ExpDate"
+	kTypeMetadata = "Metadata"
+)
 
 type FirestoreBackend struct {
 	ctx    context.Context
@@ -42,23 +61,87 @@ func (db *FirestoreBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *FirestoreBackend) Store(docType DocumentType, id string, data []byte) error {
+func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error {
+	id := filepath.Join("ct", expDate, "issuer", issuer, "certs", spki.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
-	fmt.Printf("Storing %+v into %s\n", len(data), id)
 	_, err := doc.Set(db.ctx, map[string]interface{}{
-		"type": docType.String(),
-		kFdata: data,
+		kFieldType: kTypePEM,
+		kFieldData: b,
 	})
 	return err
 }
 
-func (db *FirestoreBackend) Load(docType DocumentType, id string) ([]byte, error) {
-	fmt.Printf("Loading from %s\n", id)
+func (db *FirestoreBackend) StoreLogState(logURL string, log *CertificateLog) error {
+	id := filepath.Join("logs", logURL)
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
+	}
 
+	_, err := doc.Set(db.ctx, map[string]interface{}{
+		kFieldType: kTypeLogState,
+		kFieldData: log,
+	})
+	return err
+}
+
+func (db *FirestoreBackend) allocateExpDate(expDate string) error {
+	doc := db.client.Doc(filepath.Join("ct", expDate))
+	if doc == nil {
+		return fmt.Errorf("Couldn't allocate document for exp date %s", expDate)
+	}
+
+	_, err := doc.Set(db.ctx, map[string]interface{}{
+		kFieldType:    kTypeExpDate,
+		kFieldExpDate: expDate,
+	})
+	return err
+}
+
+func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer string, data *Metadata) error {
+	// This wastes writes, but not as much as if we did it on StorePEM.
+	err := db.allocateExpDate(expDate)
+	if err != nil {
+		return err
+	}
+
+	id := filepath.Join("ct", expDate, "issuer", issuer)
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
+	}
+
+	_, err = doc.Set(db.ctx, map[string]interface{}{
+		kFieldType:    kTypeMetadata,
+		kFieldExpDate: expDate,
+		kFieldIssuer:  issuer,
+		kFieldData:    data,
+	})
+	return err
+}
+
+func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error {
+	id := filepath.Join("ct", expDate, "issuer", issuer, "known", "serials")
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
+	}
+
+	_, err := doc.Set(db.ctx, map[string]interface{}{
+		kFieldType:    kTypeSerials,
+		kFieldExpDate: expDate,
+		kFieldIssuer:  issuer,
+		kFieldData:    serials,
+	})
+	return err
+}
+
+func (db *FirestoreBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer string) ([]byte, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer, "certs", spki.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return []byte{}, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -69,254 +152,103 @@ func (db *FirestoreBackend) Load(docType DocumentType, id string) ([]byte, error
 		return []byte{}, err
 	}
 
-	data, err := docsnap.DataAt(kFdata)
+	data, err := docsnap.DataAt(kFieldData)
 	return data.([]byte), err
 }
 
-func (db *FirestoreBackend) listCollection(relativePath string, coll *firestore.CollectionRef, walkFn filepath.WalkFunc) error {
-	fmt.Printf("listCollection %v\n", relativePath)
-	err := walkFn(relativePath, &firestoreRemoteFileInfo{coll.Path, 0, true}, nil)
-	if err != nil {
-		fmt.Printf("listCollection walkFn err %+v\n", err)
-		return err
+func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error) {
+	id := filepath.Join("logs", logURL)
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
-	iter := coll.DocumentRefs(db.ctx)
+	docsnap, err := doc.Get(db.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := docsnap.DataAt(kFieldData)
+	return data.(*CertificateLog), err
+}
+
+func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer)
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
+	}
+
+	docsnap, err := doc.Get(db.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := docsnap.DataAt(kFieldData)
+	return data.(*Metadata), err
+}
+
+func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer, "known", "serials")
+	doc := db.client.Doc(id)
+	if doc == nil {
+		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
+	}
+
+	docsnap, err := doc.Get(db.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := docsnap.DataAt(kFieldData)
+	return data.([]*big.Int), err
+}
+
+func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+	expDates := []string{}
+	iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).Select().Documents(db.ctx)
+
 	for {
 		doc, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
+
 		if err != nil || doc == nil {
-			fmt.Printf("listCollection iter.Next err %+v\n", err)
-			return err
+			glog.Warningf("ListExpirationDates iter.Next err %+v\n", err)
+			return []string{}, err
 		}
 
-		err = db.listDocument(filepath.Join(relativePath, doc.ID), doc, walkFn)
-		if err != nil {
-			fmt.Printf("listCollection listDocument err %+v\n", err)
-			return err
-		}
+		expDates = append(expDates, doc.Ref.ID)
 	}
-	return nil
+
+	return expDates, nil
 }
 
-func (db *FirestoreBackend) listIterColl(relativePath string, iter *firestore.CollectionIterator, walkFn filepath.WalkFunc) error {
+func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]string, error) {
+	issuers := []string{}
+
+	id := filepath.Join("ct", expDate, "issuer")
+	iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
+		Documents(db.ctx)
 	for {
-		col, err := iter.Next()
+		doc, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
-		if err != nil || col == nil {
-			fmt.Printf("listIterColl iter err %+v\n", err)
-			return err
+
+		if err != nil || doc == nil {
+			glog.Warningf("ListIssuersForExpirationDate iter.Next err %+v\n", err)
+			return []string{}, err
 		}
 
-		err = db.listCollection(filepath.Join(relativePath, col.ID), col, walkFn)
+		name, err := doc.DataAt(kFieldIssuer)
 		if err != nil {
-			fmt.Printf("listIterColl listCollection err %+v\n", err)
-			return err
-		}
-	}
-	return nil
-}
-
-func (db *FirestoreBackend) listDocument(relativePath string, doc *firestore.DocumentRef, walkFn filepath.WalkFunc) error {
-	fmt.Printf("listDocument %v\n", relativePath)
-	err := walkFn(relativePath, &firestoreRemoteFileInfo{doc.Path, 0, false}, nil)
-	if err != nil {
-		fmt.Printf("listDocument walkFn err %+v\n", err)
-		return err
-	}
-
-	// doc.Collections() on a DocumentRef is forbidden, so we must use a query
-	// iter := doc.Where()
-	// return db.listIterColl(relativePath, iter, walkFn)
-	return db.listIterColl(relativePath, doc.Collections(db.ctx), walkFn)
-	// return nil
-}
-
-func (db *FirestoreBackend) listRoot(walkFn filepath.WalkFunc) error {
-	// fmt.Printf("listRoot\n")
-	return fmt.Errorf("Not allowed to list root. Seems not to work.")
-	// Don't walk for the root
-	// return db.listIterColl(db.client.Collections(db.ctx), walkFn)
-}
-
-func (db *FirestoreBackend) List(path string, walkFn filepath.WalkFunc) error {
-	fmt.Printf("List %v\n", path)
-
-	if strings.Count(path, "/")%2 == 0 {
-		if path == "" {
-			// This requires a special case, sadly
-			return db.listRoot(walkFn)
-		}
-		coll := db.client.Collection(path)
-		if coll != nil {
-			return db.listCollection(path, coll, walkFn)
-		}
-		return fmt.Errorf("Collection for [%s] is nil", path)
-	} else {
-		doc := db.client.Doc(path)
-		if doc != nil {
-			return db.listDocument(path, doc, walkFn)
-		}
-		return fmt.Errorf("Document for [%s] is nil", path)
-	}
-}
-
-func (db *FirestoreBackend) getAsBufferCreateIfNeeded(id string) (*writerseeker.WriterSeeker, error) {
-	data, err := db.Load(TypeBulk, id)
-	if err != nil {
-		// Ignore NotFound
-		if status.Code(err) != codes.NotFound {
-			return nil, err
-		}
-	}
-	buffer := &writerseeker.WriterSeeker{}
-	if _, err := buffer.Write(data); err != nil {
-		return nil, err
-	}
-	return buffer, nil
-}
-
-func (db *FirestoreBackend) Writer(id string, append bool) (io.WriteCloser, error) {
-	var buffer *writerseeker.WriterSeeker
-	var err error
-
-	if append {
-		buffer, err = db.getAsBufferCreateIfNeeded(id)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		buffer = &writerseeker.WriterSeeker{}
-	}
-
-	return db.NewFirestoreRemoteFile(false, true, id, buffer), err
-}
-
-func (db *FirestoreBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
-	buffer, err := db.getAsBufferCreateIfNeeded(id)
-	if err != nil {
-		return nil, err
-	}
-
-	return db.NewFirestoreRemoteFile(true, true, id, buffer), nil
-}
-
-func (db *FirestoreBackend) deleteCollection(ref *firestore.CollectionRef, batchSize int) error {
-	for {
-		// Get a batch of documents
-		iter := ref.Limit(batchSize).Documents(db.ctx)
-		numDeleted := 0
-
-		// Iterate through the documents, adding
-		// a delete operation for each one to a
-		// WriteBatch.
-		batch := db.client.Batch()
-		for {
-			doc, err := iter.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				return err
-			}
-
-			batch.Delete(doc.Ref)
-			numDeleted++
+			return []string{}, err
 		}
 
-		// If there are no documents to delete,
-		// the process is over.
-		if numDeleted == 0 {
-			return nil
-		}
-
-		_, err := batch.Commit(db.ctx)
-		if err != nil {
-			return err
-		}
-	}
-}
-
-type firestoreRemoteFile struct {
-	readable  bool
-	writeable bool
-	backend   FirestoreBackend
-	id        string
-	buffer    *writerseeker.WriterSeeker
-	reader    io.Reader
-}
-
-func (db *FirestoreBackend) NewFirestoreRemoteFile(readable bool, writeable bool, id string, buffer *writerseeker.WriterSeeker) *firestoreRemoteFile {
-	reader := buffer.Reader()
-	return &firestoreRemoteFile{readable, writeable, *db, id, buffer, reader}
-}
-
-func (rf *firestoreRemoteFile) Read(p []byte) (n int, err error) {
-	if !rf.readable {
-		return 0, fmt.Errorf("Not readable")
-	}
-	return rf.reader.Read(p)
-}
-
-func (rf *firestoreRemoteFile) Write(p []byte) (n int, err error) {
-	if !rf.writeable {
-		return 0, fmt.Errorf("Not writeable")
-	}
-	return rf.buffer.Write(p)
-}
-
-func (rf *firestoreRemoteFile) Close() error {
-	if !rf.readable && !rf.writeable {
-		return fmt.Errorf("%s already closed", rf.id)
+		issuers = append(issuers, name.(string))
 	}
 
-	var err error
-	if rf.writeable {
-		// err = rf.backend.Store(rf.id, rf.Reader()) // TODO
-		data, err := ioutil.ReadAll(rf.buffer.Reader())
-		if err != nil {
-			return err
-		}
-		if err = rf.backend.Store(TypeBulk, rf.id, data); err != nil {
-			return err
-		}
-	}
-
-	rf.readable = false
-	rf.writeable = false
-	return err
-}
-
-type firestoreRemoteFileInfo struct {
-	name  string
-	size  int64
-	isDir bool
-}
-
-func (rfi *firestoreRemoteFileInfo) Name() string {
-	return rfi.name
-}
-
-func (rfi *firestoreRemoteFileInfo) Size() int64 {
-	return rfi.size
-}
-
-func (rfi *firestoreRemoteFileInfo) Mode() os.FileMode {
-	return 0644
-}
-
-func (rfi *firestoreRemoteFileInfo) ModTime() time.Time {
-	return time.Now() // TODO ?
-}
-
-func (rfi *firestoreRemoteFileInfo) IsDir() bool {
-	return rfi.isDir
-}
-
-func (rfi *firestoreRemoteFileInfo) Sys() interface{} {
-	return nil
+	return issuers, nil
 }

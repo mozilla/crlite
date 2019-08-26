@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"sort"
@@ -11,51 +10,47 @@ import (
 )
 
 type KnownCertificates struct {
-	mutex    *sync.Mutex
-	known    []*big.Int
-	filePath string
-	backend  StorageBackend
+	mutex   *sync.Mutex
+	known   []*big.Int
+	expDate string
+	issuer  string
+	backend StorageBackend
 }
 
-func NewKnownCertificates(aKnownPath string, aBackend StorageBackend) *KnownCertificates {
+func NewKnownCertificates(aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
 	return &KnownCertificates{
-		mutex:    &sync.Mutex{},
-		filePath: aKnownPath,
-		backend:  aBackend,
-		known:    make([]*big.Int, 0, 100),
+		mutex:   &sync.Mutex{},
+		expDate: aExpDate,
+		issuer:  aIssuer,
+		backend: aBackend,
+		known:   make([]*big.Int, 0, 100),
 	}
+}
+
+func (kc *KnownCertificates) id() string {
+	return kc.expDate + "::" + kc.issuer
 }
 
 func (kc *KnownCertificates) Load() error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
-	data, err := kc.backend.Load(TypeIssuerKnownSerials, kc.filePath)
+	data, err := kc.backend.LoadIssuerKnownSerials(kc.expDate, kc.issuer)
 	if err != nil {
 		return err
 	}
 
-	err = json.Unmarshal(data, &kc.known)
-	if err != nil {
-		glog.Errorf("Error unmarshaling known certificates %s: %s", kc.filePath, err)
-	}
-
-	return err
+	kc.known = data
+	return nil
 }
 
 func (kc *KnownCertificates) Save() error {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
-	data, err := json.Marshal(kc.known)
+	err := kc.backend.StoreIssuerKnownSerials(kc.expDate, kc.issuer, kc.known)
 	if err != nil {
-		glog.Errorf("Error marshaling known certificates %s: %s", kc.filePath, err)
-		return err
-	}
-
-	err = kc.backend.Store(TypeIssuerKnownSerials, kc.filePath, data)
-	if err != nil {
-		glog.Errorf("Error writing known certificates %s: %s", kc.filePath, err)
+		glog.Errorf("Error writing known certificates %s: %s", kc.id(), err)
 	}
 
 	return err
@@ -79,12 +74,12 @@ func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
 	}
 
 	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] Certificate already known: %s (pos=%d)", kc.filePath, aSerial.Text(10), idx)
+		glog.V(3).Infof("[%s] Certificate already known: %s (pos=%d)", kc.id(), aSerial.Text(10), idx)
 		return false, nil
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] Certificate unknown: %s (pos=%d)", kc.filePath, aSerial.Text(10), idx)
+	glog.V(3).Infof("[%s] Certificate unknown: %s (pos=%d)", kc.id(), aSerial.Text(10), idx)
 	kc.known = append(kc.known, nil)
 	copy(kc.known[idx+1:], kc.known[idx:])
 	kc.known[idx] = aSerial

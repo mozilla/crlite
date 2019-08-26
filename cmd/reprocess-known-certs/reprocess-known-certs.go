@@ -85,10 +85,10 @@ func main() {
 	var err error
 	var storageDB storage.CertDatabase
 	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		backend := storage.NewLocalDiskBackend(0644)
+		backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
 
 		glog.Infof("Loading from disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, backend)
+		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
 		if err != nil {
 			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
 		}
