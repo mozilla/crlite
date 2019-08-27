@@ -13,18 +13,19 @@ import (
 )
 
 type CTConfig struct {
-	LogUrlList        *string
-	CertPath          *string
-	Offset            *uint64
-	Limit             *uint64
-	NumThreads        *int
-	CacheSize         *int
-	RunForever        *bool
-	PollingDelay      *int
-	IssuerCNFilter    *string
-	LogExpiredEntries *bool
-	OutputRefreshMs   *uint64
-	Config            *string
+	LogUrlList         *string
+	CertPath           *string
+	FirestoreProjectId *string
+	Offset             *uint64
+	Limit              *uint64
+	NumThreads         *int
+	CacheSize          *int
+	RunForever         *bool
+	PollingDelay       *int
+	IssuerCNFilter     *string
+	LogExpiredEntries  *bool
+	OutputRefreshMs    *uint64
+	Config             *string
 }
 
 func NewCTConfig() *CTConfig {
@@ -35,18 +36,19 @@ func NewCTConfig() *CTConfig {
 	}
 
 	ret := &CTConfig{
-		Offset:            flag.Uint64("offset", 0, "offset from the beginning"),
-		Limit:             flag.Uint64("limit", 0, "limit processing to this many entries"),
-		Config:            flag.String("config", confFile, "configuration .ini file"),
-		LogUrlList:        new(string),
-		NumThreads:        new(int),
-		CacheSize:         new(int),
-		LogExpiredEntries: new(bool),
-		RunForever:        flag.Bool("forever", false, "poll for updates forever"),
-		PollingDelay:      new(int),
-		IssuerCNFilter:    new(string),
-		CertPath:          new(string),
-		OutputRefreshMs:   flag.Uint64("output_refresh_ms", 125, "Speed for refreshing progress"),
+		Offset:             flag.Uint64("offset", 0, "offset from the beginning"),
+		Limit:              flag.Uint64("limit", 0, "limit processing to this many entries"),
+		Config:             flag.String("config", confFile, "configuration .ini file"),
+		LogUrlList:         new(string),
+		NumThreads:         new(int),
+		CacheSize:          new(int),
+		LogExpiredEntries:  new(bool),
+		RunForever:         flag.Bool("forever", false, "poll for updates forever"),
+		PollingDelay:       new(int),
+		IssuerCNFilter:     new(string),
+		CertPath:           new(string),
+		FirestoreProjectId: new(string),
+		OutputRefreshMs:    flag.Uint64("output_refresh_ms", 125, "Speed for refreshing progress"),
 	}
 	flag.Parse()
 
@@ -61,6 +63,7 @@ func NewCTConfig() *CTConfig {
 		*ret.PollingDelay = cfg.Section("").Key("pollingDelay").MustInt(10)
 		*ret.IssuerCNFilter = cfg.Section("").Key("issuerCNFilter").String()
 		*ret.CertPath = cfg.Section("").Key("certPath").String()
+		*ret.FirestoreProjectId = cfg.Section("").Key("firestoreProjectId").String()
 	} else {
 		glog.Errorf("Could not load config file: %s\n", err)
 	}
@@ -75,6 +78,7 @@ func (c *CTConfig) Usage() {
 	fmt.Println("Config file directives:")
 	fmt.Println("")
 	fmt.Println("certPath = Path under which to store full DER-encoded certificates")
+	fmt.Println("firestoreProjectId = Google Cloud Platform Project ID")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
 	fmt.Println("pollingDelay = Wait this many minutes between polls")
