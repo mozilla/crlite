@@ -353,6 +353,18 @@ func main() {
 		if err != nil {
 			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
 		}
+	} else if ctconfig.FirestoreProjectId != nil && len(*ctconfig.FirestoreProjectId) > 0 {
+		ctx := context.Background()
+
+		backend, err := storage.NewFirestoreBackend(ctx, *ctconfig.FirestoreProjectId)
+		if err != nil {
+			glog.Fatalf("Unable to configure Firestore for %s: %v", *ctconfig.FirestoreProjectId, err)
+		}
+
+		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
+		if err != nil {
+			glog.Fatalf("Unable to construct Firestore DB for %s: %v", *ctconfig.FirestoreProjectId, err)
+		}
 	}
 
 	if storageDB == nil {
