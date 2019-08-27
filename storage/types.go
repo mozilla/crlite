@@ -10,14 +10,13 @@ import (
 )
 
 type CertificateLog struct {
-	LogID         int       `db:"logID, primarykey, autoincrement"` // Log Identifier (FK to CertificateLog)
-	URL           string    `db:"url"`                              // URL to the log
-	MaxEntry      uint64    `db:"maxEntry"`                         // The most recent entryID logged
-	LastEntryTime time.Time `db:"lastEntryTime"`                    // Date when we completed the last update
+	URL           string    `db:"url"`           // URL to the log
+	MaxEntry      uint64    `db:"maxEntry"`      // The most recent entryID logged
+	LastEntryTime time.Time `db:"lastEntryTime"` // Date when we completed the last update
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("LogID=%d MaxEntry=%d, LastEntryTime=%s, URL=%s", o.LogID, o.MaxEntry, o.LastEntryTime, o.URL)
+	return fmt.Sprintf("MaxEntry=%d, LastEntryTime=%s, URL=%s", o.MaxEntry, o.LastEntryTime, o.URL)
 }
 
 type DocumentType int

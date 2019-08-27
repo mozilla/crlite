@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"path/filepath"
@@ -10,8 +12,8 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/golang/glog"
 	"google.golang.org/api/iterator"
-	// "google.golang.org/grpc/codes"
-	// "google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 //
@@ -31,6 +33,7 @@ const (
 	kFieldData    = "data"
 	kFieldExpDate = "expDate"
 	kFieldIssuer  = "issuer"
+	kFieldURL     = "url"
 	kTypePEM      = "PEM"
 	kTypeSerials  = "Serials"
 	kTypeLogState = "LogState"
@@ -75,8 +78,13 @@ func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issue
 	return err
 }
 
+func logNameToId(logURL string) string {
+	digest := sha256.Sum256([]byte(logURL))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
 func (db *FirestoreBackend) StoreLogState(logURL string, log *CertificateLog) error {
-	id := filepath.Join("logs", logURL)
+	id := filepath.Join("logs", logNameToId(logURL))
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -84,6 +92,7 @@ func (db *FirestoreBackend) StoreLogState(logURL string, log *CertificateLog) er
 
 	_, err := doc.Set(db.ctx, map[string]interface{}{
 		kFieldType: kTypeLogState,
+		kFieldURL:  logURL,
 		kFieldData: log,
 	})
 	return err
@@ -157,7 +166,7 @@ func (db *FirestoreBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer
 }
 
 func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error) {
-	id := filepath.Join("logs", logURL)
+	id := filepath.Join("logs", logNameToId(logURL))
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -165,6 +174,14 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// The default state is a new log
+			obj := &CertificateLog{
+				URL: logURL,
+			}
+			glog.Warningf("Allocating brand new log for %s: %v", logURL, obj)
+			return obj, nil
+		}
 		return nil, err
 	}
 
