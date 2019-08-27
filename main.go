@@ -206,7 +206,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		startPos = *ctconfig.Offset
 	} else {
 		glog.Infof("[%s] Counting existing entries... ", ctLogUrl)
-		startPos = logObj.MaxEntry
+		startPos = uint64(logObj.MaxEntry)
 		if err != nil {
 			glog.Errorf("[%s] Failed to read entries file: %s", ctLogUrl, err)
 			return nil, err
@@ -267,7 +267,12 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		return err
 	}
 
-	lw.LogState.MaxEntry = finalIndex
+	if finalIndex > 9223372036854775807 {
+		glog.Errorf("[%s] Log final index overflows int64.", lw.LogURL)
+		return fmt.Errorf("int64 overrflow")
+	}
+
+	lw.LogState.MaxEntry = int64(finalIndex)
 	if finalTime != nil {
 		lw.LogState.LastEntryTime = *finalTime
 	}
