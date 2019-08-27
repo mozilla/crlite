@@ -26,8 +26,8 @@ type Metadata struct {
 
 func NewIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
 	metadata := Metadata{
-		Crls:      make([]*string, 0, 10),
-		IssuerDNs: make([]*string, 0, 10),
+		Crls:      []*string{},
+		IssuerDNs: []*string{},
 	}
 	return &IssuerMetadata{
 		mutex:    &sync.Mutex{},

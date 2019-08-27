@@ -142,7 +142,7 @@ func getSpki(aCert *x509.Certificate) SPKI {
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
-	aki := AKI{aCert.AuthorityKeyId}
+	aki := NewIssuer(aCert)
 	issuer := aki.ID()
 
 	headers := make(map[string]string)
@@ -154,7 +154,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) err
 		Bytes:   aCert.Raw,
 	}
 
-	obj, err := db.cache.Get(&cacheId{expDate, issuer})
+	obj, err := db.cache.Get(cacheId{expDate, issuer})
 	if err != nil {
 		panic(err)
 	}

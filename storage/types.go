@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"math/big"
@@ -49,10 +50,23 @@ type CertDatabase interface {
 }
 
 type AKI struct {
-	aki []byte
+	aki       []byte
+	rawIssuer []byte
+}
+
+func NewIssuer(aCert *x509.Certificate) *AKI {
+	obj := &AKI{
+		aki:       aCert.AuthorityKeyId,
+		rawIssuer: aCert.RawIssuer,
+	}
+	return obj
 }
 
 func (o AKI) ID() string {
+	if len(o.aki) == 0 {
+		digest := sha256.Sum256(o.rawIssuer)
+		return fmt.Sprintf("issuerHash-%s", base64.URLEncoding.EncodeToString(digest[:]))
+	}
 	return base64.URLEncoding.EncodeToString(o.aki)
 }
 

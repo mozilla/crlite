@@ -65,6 +65,9 @@ func (db *FirestoreBackend) MarkDirty(id string) error {
 }
 
 func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error {
+	if len(expDate) == 0 || len(issuer) == 0 {
+		panic(fmt.Sprintf("StoreCertificatePEM invalid arguments: expDate [%+v] issuer [%+v]", expDate, issuer))
+	}
 	id := filepath.Join("ct", expDate, "issuer", issuer, "certs", spki.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
@@ -198,6 +201,14 @@ func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// The default state is fresh Metadata
+			obj := &Metadata{
+				Crls:      []*string{},
+				IssuerDNs: []*string{},
+			}
+			return obj, nil
+		}
 		return nil, err
 	}
 
@@ -214,6 +225,10 @@ func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer string
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// The default state is a new serials list
+			return []*big.Int{}, nil
+		}
 		return nil, err
 	}
 
