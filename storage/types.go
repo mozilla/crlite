@@ -12,7 +12,7 @@ import (
 
 type CertificateLog struct {
 	URL           string    `db:"url"`           // URL to the log
-	MaxEntry      uint64    `db:"maxEntry"`      // The most recent entryID logged
+	MaxEntry      int64     `db:"maxEntry"`      // The most recent entryID logged
 	LastEntryTime time.Time `db:"lastEntryTime"` // Date when we completed the last update
 }
 
