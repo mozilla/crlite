@@ -67,11 +67,11 @@ func (db *FirestoreBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error {
-	if len(expDate) == 0 || len(issuer) == 0 {
+func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error {
+	if len(expDate) == 0 {
 		panic(fmt.Sprintf("StoreCertificatePEM invalid arguments: expDate [%+v] issuer [%+v]", expDate, issuer))
 	}
-	id := filepath.Join("ct", expDate, "issuer", issuer, "certs", spki.ID())
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", spki.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -83,7 +83,7 @@ func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issue
 	})
 
 	if err != nil && status.Code(err) == codes.AlreadyExists {
-		glog.Warningf("Attempted to write a colliding document spki=%v expDate=%s issuer=%s len=%d", spki.ID(), expDate, issuer, len(b))
+		glog.Warningf("Attempted to write a colliding document spki=%v expDate=%s issuer=%s len=%d", spki.ID(), expDate, issuer.ID(), len(b))
 		return nil
 	}
 
@@ -124,14 +124,14 @@ func (db *FirestoreBackend) allocateExpDate(expDate string) error {
 	return err
 }
 
-func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer string, data *Metadata) error {
+func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error {
 	// This wastes writes, but not as much as if we did it on StorePEM.
 	err := db.allocateExpDate(expDate)
 	if err != nil {
 		return err
 	}
 
-	id := filepath.Join("ct", expDate, "issuer", issuer)
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -145,14 +145,14 @@ func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer string, d
 	_, err = doc.Set(db.ctx, map[string]interface{}{
 		kFieldType:    kTypeMetadata,
 		kFieldExpDate: expDate,
-		kFieldIssuer:  issuer,
+		kFieldIssuer:  issuer.ID(),
 		kFieldData:    encoded,
 	})
 	return err
 }
 
-func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error {
-	id := filepath.Join("ct", expDate, "issuer", issuer, "known", "serials")
+func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error {
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "known", "serials")
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -166,14 +166,14 @@ func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer strin
 	_, err = doc.Set(db.ctx, map[string]interface{}{
 		kFieldType:    kTypeSerials,
 		kFieldExpDate: expDate,
-		kFieldIssuer:  issuer,
+		kFieldIssuer:  issuer.ID(),
 		kFieldData:    encoded,
 	})
 	return err
 }
 
-func (db *FirestoreBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer string) ([]byte, error) {
-	id := filepath.Join("ct", expDate, "issuer", issuer, "certs", spki.ID())
+func (db *FirestoreBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", spki.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return []byte{}, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -229,8 +229,8 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 	return logObj, err
 }
 
-func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error) {
-	id := filepath.Join("ct", expDate, "issuer", issuer)
+func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -259,8 +259,8 @@ func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*
 	return &meta, err
 }
 
-func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error) {
-	id := filepath.Join("ct", expDate, "issuer", issuer, "known", "serials")
+func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error) {
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "known", "serials")
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -306,8 +306,8 @@ func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string,
 	return expDates, nil
 }
 
-func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]string, error) {
-	issuers := []string{}
+func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
+	issuers := []Issuer{}
 
 	id := filepath.Join("ct", expDate, "issuer")
 	iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
@@ -320,15 +320,17 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]stri
 
 		if err != nil || doc == nil {
 			glog.Warningf("ListIssuersForExpirationDate iter.Next err %+v\n", err)
-			return []string{}, err
+			return []Issuer{}, err
 		}
 
 		name, err := doc.DataAt(kFieldIssuer)
 		if err != nil {
-			return []string{}, err
+			return []Issuer{}, err
 		}
 
-		issuers = append(issuers, name.(string))
+		issuerObj := NewIssuerFromString(name.(string))
+
+		issuers = append(issuers, issuerObj)
 	}
 
 	return issuers, nil

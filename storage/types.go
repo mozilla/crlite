@@ -26,18 +26,18 @@ type DocumentType int
 type StorageBackend interface {
 	MarkDirty(id string) error
 
-	StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error
+	StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error
 	StoreLogState(log *CertificateLog) error
-	StoreIssuerMetadata(expDate string, issuer string, data *Metadata) error
-	StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error
+	StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error
+	StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error
 
-	LoadCertificatePEM(spki SPKI, expDate string, issuer string) ([]byte, error)
+	LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error)
 	LoadLogState(logURL string) (*CertificateLog, error)
-	LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error)
-	LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error)
+	LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error)
+	LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error)
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
-	ListIssuersForExpirationDate(expDate string) ([]string, error) // maybe return []AKI?
+	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
 }
 
 type CertDatabase interface {
@@ -46,24 +46,38 @@ type CertDatabase interface {
 	GetLogState(url *url.URL) (*CertificateLog, error)
 	Store(aCert *x509.Certificate, aURL string) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
-	ListIssuersForExpirationDate(expDate string) ([]string, error)
-	ReconstructIssuerMetadata(expDate string, issuer string) error
+	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
+	ReconstructIssuerMetadata(expDate string, issuer Issuer) error
 }
 
-type AKI struct {
+type Issuer struct {
+	id        *string
 	aki       []byte
 	rawIssuer []byte
 }
 
-func NewIssuer(aCert *x509.Certificate) *AKI {
-	obj := &AKI{
+func NewIssuer(aCert *x509.Certificate) Issuer {
+	obj := Issuer{
+		id:        nil,
 		aki:       aCert.AuthorityKeyId,
 		rawIssuer: aCert.RawIssuer,
 	}
 	return obj
 }
 
-func (o AKI) ID() string {
+func NewIssuerFromString(aStr string) Issuer {
+	obj := Issuer{
+		id: &aStr,
+	}
+	return obj
+}
+
+func (o Issuer) ID() string {
+	if o.id != nil {
+		return *o.id
+	}
+
+	// TODO issue https://github.com/mozilla/crlite/issues/29
 	if len(o.aki) == 0 {
 		digest := sha256.Sum256(o.rawIssuer)
 		return fmt.Sprintf("issuerHash-%s", base64.URLEncoding.EncodeToString(digest[:]))

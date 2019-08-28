@@ -26,10 +26,10 @@ var (
 
 type metadataTuple struct {
 	expDate string
-	issuer  string
+	issuer  storage.Issuer
 }
 
-func shouldProcess(expDate, issuer string) bool {
+func shouldProcess(expDate string, issuer string) bool {
 	if len(flag.Args()) == 0 {
 		return true
 	}
@@ -68,7 +68,7 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 		case <-quitChan:
 			return
 		default:
-			path := filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer)
+			path := filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer.ID())
 			glog.V(1).Infof("Processing %s", path)
 
 			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
@@ -126,12 +126,12 @@ func main() {
 		}
 
 		for _, issuer := range issuers {
-			if shouldProcess(expDate, issuer) {
+			if shouldProcess(expDate, issuer.ID()) {
 				select {
 				case workUnitsChan <- metadataTuple{expDate, issuer}:
 					count = count + 1
 				default:
-					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
+					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer.ID())
 				}
 			}
 		}

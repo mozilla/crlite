@@ -77,14 +77,14 @@ func main() {
 			knownCerts := storage.NewKnownCertificates(expDate, issuer, backend)
 			err = knownCerts.Load()
 			if err != nil {
-				glog.Errorf("Couldn't get known certs for %s-%s: %v", expDate, issuer, err)
+				glog.Errorf("Couldn't get known certs for %s-%s: %v", expDate, issuer.ID(), err)
 				continue
 			}
 
 			issuerMetadata := storage.NewIssuerMetadata(expDate, issuer, backend)
 			err = issuerMetadata.Load()
 			if err != nil {
-				glog.Errorf("Couldn't get issuer metadata for %s-%s: %v", expDate, issuer, err)
+				glog.Errorf("Couldn't get issuer metadata for %s-%s: %v", expDate, issuer.ID(), err)
 				continue
 			}
 

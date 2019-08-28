@@ -5,40 +5,45 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 	"time"
 )
 
 type MockBackend struct {
-	expDateToIssuer map[string][]string
+	expDateToIssuer map[string][]Issuer
 	store           map[string][]byte
 }
 
 func NewMockBackend() *MockBackend {
-	return &MockBackend{make(map[string][]string), make(map[string][]byte)}
+	return &MockBackend{
+		expDateToIssuer: make(map[string][]Issuer),
+		store:           make(map[string][]byte),
+	}
 }
 
 func (db *MockBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *MockBackend) noteExpDateIssuer(expDate string, issuer string) {
+func (db *MockBackend) noteExpDateIssuer(expDate string, issuer Issuer) {
 	issuers, ok := db.expDateToIssuer[expDate]
 	if !ok {
-		issuers = []string{}
+		issuers = []Issuer{}
 	}
-	i := sort.SearchStrings(issuers, issuer)
-	if i < len(issuers) && issuers[i] == issuer {
+	i := sort.Search(len(issuers), func(i int) bool { return strings.Compare(issuers[i].ID(), issuer.ID()) >= 0 })
+	if i < len(issuers) && issuers[i].ID() == issuer.ID() {
 		// already noted
 	} else {
-		issuers = append(issuers, issuer)
-		sort.Strings(issuers)
+		issuers = append(issuers, Issuer{})
+		copy(issuers[i+1:], issuers[i:])
+		issuers[i] = issuer
 		db.expDateToIssuer[expDate] = issuers
 	}
 }
 
-func (db *MockBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error {
+func (db *MockBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error {
 	db.noteExpDateIssuer(expDate, issuer)
-	db.store["pem"+expDate+issuer] = b
+	db.store["pem"+expDate+issuer.ID()] = b
 	return nil
 }
 
@@ -51,28 +56,28 @@ func (db *MockBackend) StoreLogState(log *CertificateLog) error {
 	return nil
 }
 
-func (db *MockBackend) StoreIssuerMetadata(expDate string, issuer string, metadata *Metadata) error {
+func (db *MockBackend) StoreIssuerMetadata(expDate string, issuer Issuer, metadata *Metadata) error {
 	db.noteExpDateIssuer(expDate, issuer)
 	data, err := json.Marshal(metadata)
 	if err != nil {
 		return err
 	}
-	db.store["metadata"+expDate+issuer] = data
+	db.store["metadata"+expDate+issuer.ID()] = data
 	return nil
 }
 
-func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error {
+func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error {
 	db.noteExpDateIssuer(expDate, issuer)
 	data, err := json.Marshal(serials)
 	if err != nil {
 		return err
 	}
-	db.store["serials"+expDate+issuer] = data
+	db.store["serials"+expDate+issuer.ID()] = data
 	return nil
 }
 
-func (db *MockBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer string) ([]byte, error) {
-	data, ok := db.store["pem"+expDate+issuer]
+func (db *MockBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error) {
+	data, ok := db.store["pem"+expDate+issuer.ID()]
 	if ok {
 		return data, nil
 	}
@@ -91,8 +96,8 @@ func (db *MockBackend) LoadLogState(logURL string) (*CertificateLog, error) {
 	}, nil
 }
 
-func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error) {
-	data, ok := db.store["metadata"+expDate+issuer]
+func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
+	data, ok := db.store["metadata"+expDate+issuer.ID()]
 	if ok {
 		var meta *Metadata
 		err := json.Unmarshal(data, &meta)
@@ -101,8 +106,8 @@ func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metad
 	return nil, fmt.Errorf("Couldn't find")
 }
 
-func (db *MockBackend) LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error) {
-	data, ok := db.store["serials"+expDate+issuer]
+func (db *MockBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error) {
+	data, ok := db.store["serials"+expDate+issuer.ID()]
 	if ok {
 		var serials []*big.Int
 		err := json.Unmarshal(data, &serials)
@@ -127,6 +132,6 @@ func (db *MockBackend) ListExpirationDates(aNotBefore time.Time) ([]string, erro
 	return dates, nil
 }
 
-func (db *MockBackend) ListIssuersForExpirationDate(expDate string) ([]string, error) {
+func (db *MockBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
 	return db.expDateToIssuer[expDate], nil
 }

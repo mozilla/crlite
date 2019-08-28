@@ -9,9 +9,10 @@ import (
 
 func Test_KnownCertificatesStoreLoad(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	saver := NewKnownCertificates("date", "issuer", backend)
-	loader := NewKnownCertificates("date", "issuer", backend)
+	saver := NewKnownCertificates("date", testIssuer, backend)
+	loader := NewKnownCertificates("date", testIssuer, backend)
 
 	saver.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
 
@@ -34,9 +35,10 @@ func Test_KnownCertificatesStoreLoad(t *testing.T) {
 
 func Test_MergeSmall(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	left.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
 	right.known = []*big.Int{big.NewInt(4)}
@@ -73,9 +75,10 @@ func Test_MergeSmall(t *testing.T) {
 
 func Test_MergeOutOfOrder(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(0)}
 	right.known = []*big.Int{big.NewInt(4)}
@@ -104,9 +107,10 @@ func Test_MergeOutOfOrder(t *testing.T) {
 
 func Test_MergeDescending(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	left.known = []*big.Int{big.NewInt(4), big.NewInt(3), big.NewInt(2), big.NewInt(1)}
 	right.known = []*big.Int{big.NewInt(0)}
@@ -135,9 +139,10 @@ func Test_MergeDescending(t *testing.T) {
 
 func Test_MergeDuplicatesEnd(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
 	right.known = []*big.Int{big.NewInt(4)}
@@ -174,9 +179,10 @@ func Test_MergeDuplicatesEnd(t *testing.T) {
 
 func Test_MergeDuplicatesMiddle(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(4), big.NewInt(5)}
 	right.known = []*big.Int{big.NewInt(2), big.NewInt(3), big.NewInt(4)}
@@ -213,8 +219,9 @@ func Test_MergeDuplicatesMiddle(t *testing.T) {
 
 func Test_Unknown(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("date", "issuer", backend)
+	kc := NewKnownCertificates("date", testIssuer, backend)
 
 	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
 
@@ -253,8 +260,9 @@ func Test_Unknown(t *testing.T) {
 
 func Test_IsSorted(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("date", "issuer", backend)
+	kc := NewKnownCertificates("date", testIssuer, backend)
 	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
 
 	if kc.IsSorted() != true {
@@ -270,11 +278,12 @@ func Test_IsSorted(t *testing.T) {
 
 func BenchmarkMerge(b *testing.B) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
 	b.StopTimer()
 
-	left := NewKnownCertificates("date", "issuer", backend)
-	right := NewKnownCertificates("date", "issuer", backend)
+	left := NewKnownCertificates("date", testIssuer, backend)
+	right := NewKnownCertificates("date", testIssuer, backend)
 
 	var i int64
 	for i = 0; i < 128*1024*1024; i++ {
@@ -295,8 +304,9 @@ func BenchmarkMerge(b *testing.B) {
 
 func Test_KnownCertificatesKnown(t *testing.T) {
 	backend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("date", "issuer", backend)
+	kc := NewKnownCertificates("date", testIssuer, backend)
 
 	kc.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
 

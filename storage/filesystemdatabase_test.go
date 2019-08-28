@@ -101,16 +101,17 @@ func Test_ListExpiration(t *testing.T) {
 	var storageDB CertDatabase
 
 	mockBackend := NewMockBackend()
+	testIssuer := NewIssuerFromString("test issuer")
 
 	blankMetadata := &Metadata{}
 
-	if err := mockBackend.StoreIssuerMetadata("2017-11-28", "issuer", blankMetadata); err != nil {
+	if err := mockBackend.StoreIssuerMetadata("2017-11-28", testIssuer, blankMetadata); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.StoreIssuerMetadata("2018-11-28", "issuer", blankMetadata); err != nil {
+	if err := mockBackend.StoreIssuerMetadata("2018-11-28", testIssuer, blankMetadata); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.StoreIssuerMetadata("2019-11-28", "issuer", blankMetadata); err != nil {
+	if err := mockBackend.StoreIssuerMetadata("2019-11-28", testIssuer, blankMetadata); err != nil {
 		t.Error(err)
 	}
 

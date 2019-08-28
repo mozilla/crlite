@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-func storeAndLoad(t *testing.T, spki SPKI, expDate string, issuer string, db StorageBackend, data []byte) {
+func storeAndLoad(t *testing.T, spki SPKI, expDate string, issuer Issuer, db StorageBackend, data []byte) {
 	err := db.StoreCertificatePEM(spki, expDate, issuer, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
-	t.Logf("Now loading %s/%s/%s", expDate, issuer, spki.ID())
+	t.Logf("Now loading %s/%s/%s", expDate, issuer.ID(), spki.ID())
 
 	loaded, err := db.LoadCertificatePEM(spki, expDate, issuer)
 	if err != nil {
@@ -23,21 +23,21 @@ func storeAndLoad(t *testing.T, spki SPKI, expDate string, issuer string, db Sto
 	}
 
 	if !bytes.Equal(data, loaded) {
-		t.Fatalf("Data should match exactly")
+		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", data, loaded)
 	}
 }
 
 func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 	expDate := "1234"
-	issuer := "test_file"
+	issuer := NewIssuerFromString("test_file")
 
 	storeAndLoad(t, SPKI{[]byte{0x01}}, expDate, issuer, db, []byte{})
-	storeAndLoad(t, SPKI{[]byte{0x01}}, expDate, issuer, db, []byte{0x01})
-	storeAndLoad(t, SPKI{[]byte{0x01}}, expDate, issuer, db, []byte{0x00, 0x01, 0x02})
-	storeAndLoad(t, SPKI{[]byte{0x01}}, expDate, issuer, db, make([]byte, 1*1024*1024))
+	storeAndLoad(t, SPKI{[]byte{0x02}}, expDate, issuer, db, []byte{0x01})
+	storeAndLoad(t, SPKI{[]byte{0x03}}, expDate, issuer, db, []byte{0x00, 0x01, 0x02})
+	storeAndLoad(t, SPKI{[]byte{0x04}}, expDate, issuer, db, make([]byte, 1*1024*1024))
 
 	// Load unknown
-	_, err := db.LoadCertificatePEM(SPKI{[]byte{0x02}}, expDate, issuer)
+	_, err := db.LoadCertificatePEM(SPKI{[]byte{0xFF}}, expDate, issuer)
 	if err == nil {
 		t.Fatalf("Should not have loaded a missing file")
 	}
@@ -45,15 +45,17 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 
 func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	expectedFolders := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
+	issuerObj := NewIssuerFromString("aki")
+
 	for _, expDate := range expectedFolders {
-		md := NewIssuerMetadata(expDate, "aki", db)
-		err := db.StoreIssuerMetadata(expDate, "aki", &md.Metadata)
+		md := NewIssuerMetadata(expDate, issuerObj, db)
+		err := db.StoreIssuerMetadata(expDate, issuerObj, &md.Metadata)
 		if err != nil {
 			t.Fatalf("Failed to store: %v", err)
 		}
 	}
 
-	err := db.StoreCertificatePEM(SPKI{[]byte{0x01}}, "2019-11-28", "aki", []byte{0xDA, 0xDA})
+	err := db.StoreCertificatePEM(SPKI{[]byte{0x01}}, "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -75,9 +77,11 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	expectedIssuers := []string{"aki"}
+	expectedIssuers := []Issuer{
+		NewIssuerFromString("aki"),
+	}
 	if !reflect.DeepEqual(expectedIssuers, issuers) {
-		t.Fatalf("Failed expected: %s result: %s", expectedIssuers, issuers)
+		t.Fatalf("Failed expected: %+v result: %+v", expectedIssuers, issuers)
 	}
 }
 

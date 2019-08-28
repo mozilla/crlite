@@ -13,11 +13,11 @@ type KnownCertificates struct {
 	mutex   *sync.Mutex
 	known   []*big.Int
 	expDate string
-	issuer  string
+	issuer  Issuer
 	backend StorageBackend
 }
 
-func NewKnownCertificates(aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
+func NewKnownCertificates(aExpDate string, aIssuer Issuer, aBackend StorageBackend) *KnownCertificates {
 	return &KnownCertificates{
 		mutex:   &sync.Mutex{},
 		expDate: aExpDate,
@@ -28,7 +28,7 @@ func NewKnownCertificates(aExpDate string, aIssuer string, aBackend StorageBacke
 }
 
 func (kc *KnownCertificates) id() string {
-	return kc.expDate + "::" + kc.issuer
+	return kc.expDate + "::" + kc.issuer.ID()
 }
 
 func (kc *KnownCertificates) Load() error {

@@ -20,17 +20,17 @@ const (
 type CacheEntry struct {
 	mutex   *sync.Mutex
 	expDate string
-	issuer  string
+	issuer  Issuer
 	known   *KnownCertificates
 	meta    *IssuerMetadata
 	backend StorageBackend
 }
 
-func NewCacheEntry(aExpDate string, aIssuer string, aBackend StorageBackend) (*CacheEntry, error) {
+func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend) (*CacheEntry, error) {
 	obj := CacheEntry{
 		mutex:   &sync.Mutex{},
 		expDate: aExpDate,
-		issuer:  aIssuer,
+		issuer:  NewIssuerFromString(aIssuerStr),
 		known:   nil,
 		meta:    nil,
 		backend: aBackend,
@@ -44,13 +44,13 @@ func (ce *CacheEntry) load() {
 	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.backend)
 	err := ce.known.Load()
 	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s:%s", ce.expDate, ce.issuer)
+		glog.V(1).Infof("Creating new known certificates file for %s:%s", ce.expDate, ce.issuer.ID())
 	}
 
 	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.backend)
 	err = ce.meta.Load()
 	if err != nil {
-		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", ce.expDate, ce.issuer)
+		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", ce.expDate, ce.issuer.ID())
 	}
 }
 
@@ -73,8 +73,8 @@ type FilesystemDatabase struct {
 }
 
 type cacheId struct {
-	expDate string
-	issuer  string
+	expDate   string
+	issuerStr string
 }
 
 func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend) (*FilesystemDatabase, error) {
@@ -92,7 +92,7 @@ func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend) (*Filesystem
 
 			cacheId := key.(cacheId)
 
-			return NewCacheEntry(cacheId.expDate, cacheId.issuer, aBackend)
+			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend)
 		}).Build()
 
 	db := &FilesystemDatabase{
@@ -107,11 +107,11 @@ func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]strin
 	return db.backend.ListExpirationDates(aNotBefore)
 }
 
-func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]string, error) {
+func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
 	return db.backend.ListIssuersForExpirationDate(expDate)
 }
 
-func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer string) error {
+func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer Issuer) error {
 	return fmt.Errorf("Disabled")
 }
 
@@ -141,8 +141,8 @@ func getSpki(aCert *x509.Certificate) SPKI {
 }
 
 // Caller must obey the CacheEntry semantics
-func (db *FilesystemDatabase) fetch(expDate string, issuer string) (*CacheEntry, error) {
-	obj, err := db.cache.Get(cacheId{expDate, issuer})
+func (db *FilesystemDatabase) fetch(expDate string, issuer Issuer) (*CacheEntry, error) {
+	obj, err := db.cache.Get(cacheId{expDate, issuer.ID()})
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,7 @@ func (db *FilesystemDatabase) fetch(expDate string, issuer string) (*CacheEntry,
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
-	aki := NewIssuer(aCert)
-	issuer := aki.ID()
+	issuer := NewIssuer(aCert)
 
 	headers := make(map[string]string)
 	headers["Log"] = aLogURL

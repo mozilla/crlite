@@ -14,7 +14,7 @@ type IssuerMetadata struct {
 	mutex    *sync.Mutex
 	Metadata Metadata
 	expDate  string
-	issuer   string
+	issuer   Issuer
 	backend  StorageBackend
 }
 
@@ -24,7 +24,7 @@ type Metadata struct {
 	IssuerDNs []*string `json:"issuerDNs"`
 }
 
-func NewIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
+func NewIssuerMetadata(aExpDate string, aIssuer Issuer, aBackend StorageBackend) *IssuerMetadata {
 	metadata := Metadata{
 		Crls:      []*string{},
 		IssuerDNs: []*string{},
@@ -39,7 +39,7 @@ func NewIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend)
 }
 
 func (im *IssuerMetadata) id() string {
-	return im.expDate + "::" + im.issuer
+	return im.expDate + "::" + im.issuer.ID()
 }
 
 func (im *IssuerMetadata) Load() error {
