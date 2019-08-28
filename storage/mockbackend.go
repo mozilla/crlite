@@ -42,12 +42,12 @@ func (db *MockBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer str
 	return nil
 }
 
-func (db *MockBackend) StoreLogState(logURL string, log *CertificateLog) error {
+func (db *MockBackend) StoreLogState(log *CertificateLog) error {
 	data, err := json.Marshal(log)
 	if err != nil {
 		return err
 	}
-	db.store["logstate"+logURL] = data
+	db.store["logstate"+log.ShortURL] = data
 	return nil
 }
 
@@ -86,7 +86,9 @@ func (db *MockBackend) LoadLogState(logURL string) (*CertificateLog, error) {
 		err := json.Unmarshal(data, &log)
 		return log, err
 	}
-	return nil, fmt.Errorf("Couldn't find")
+	return &CertificateLog{
+		ShortURL: logURL,
+	}, nil
 }
 
 func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error) {

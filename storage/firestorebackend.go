@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/golang/glog"
+	// "github.com/golang/protobuf/ptypes/timestamp"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,16 +31,17 @@ import (
 //                                        /serials
 
 const (
-	kFieldType    = "type"
-	kFieldData    = "data"
-	kFieldExpDate = "expDate"
-	kFieldIssuer  = "issuer"
-	kFieldURL     = "url"
-	kTypePEM      = "PEM"
-	kTypeSerials  = "Serials"
-	kTypeLogState = "LogState"
-	kTypeExpDate  = "ExpDate"
-	kTypeMetadata = "Metadata"
+	kFieldType     = "type"
+	kFieldData     = "data"
+	kFieldExpDate  = "expDate"
+	kFieldIssuer   = "issuer"
+	kFieldURL      = "shortUrl"
+	kFieldUnixTime = "unixTime"
+	kTypePEM       = "PEM"
+	kTypeSerials   = "Serials"
+	kTypeLogState  = "LogState"
+	kTypeExpDate   = "ExpDate"
+	kTypeMetadata  = "Metadata"
 )
 
 type FirestoreBackend struct {
@@ -86,17 +89,18 @@ func logNameToId(logURL string) string {
 	return base64.RawURLEncoding.EncodeToString(digest[:])
 }
 
-func (db *FirestoreBackend) StoreLogState(logURL string, log *CertificateLog) error {
-	id := filepath.Join("logs", logNameToId(logURL))
+func (db *FirestoreBackend) StoreLogState(log *CertificateLog) error {
+	id := filepath.Join("logs", logNameToId(log.ShortURL))
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
 	_, err := doc.Set(db.ctx, map[string]interface{}{
-		kFieldType: kTypeLogState,
-		kFieldURL:  logURL,
-		kFieldData: log,
+		kFieldType:     kTypeLogState,
+		kFieldURL:      log.ShortURL,
+		kFieldData:     log.MaxEntry,
+		kFieldUnixTime: log.LastEntryTime.Unix(),
 	})
 	return err
 }
@@ -127,11 +131,16 @@ func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer string, d
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
 	_, err = doc.Set(db.ctx, map[string]interface{}{
 		kFieldType:    kTypeMetadata,
 		kFieldExpDate: expDate,
 		kFieldIssuer:  issuer,
-		kFieldData:    data,
+		kFieldData:    encoded,
 	})
 	return err
 }
@@ -143,11 +152,16 @@ func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer strin
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
-	_, err := doc.Set(db.ctx, map[string]interface{}{
+	encoded, err := json.Marshal(serials)
+	if err != nil {
+		return err
+	}
+
+	_, err = doc.Set(db.ctx, map[string]interface{}{
 		kFieldType:    kTypeSerials,
 		kFieldExpDate: expDate,
 		kFieldIssuer:  issuer,
-		kFieldData:    serials,
+		kFieldData:    encoded,
 	})
 	return err
 }
@@ -180,7 +194,7 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 		if status.Code(err) == codes.NotFound {
 			// The default state is a new log
 			obj := &CertificateLog{
-				URL: logURL,
+				ShortURL: logURL,
 			}
 			glog.Warningf("Allocating brand new log for %s: %v", logURL, obj)
 			return obj, nil
@@ -188,8 +202,25 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 		return nil, err
 	}
 
-	data, err := docsnap.DataAt(kFieldData)
-	return data.(*CertificateLog), err
+	url, err := docsnap.DataAt(kFieldURL)
+	if err != nil {
+		return nil, err
+	}
+	maxEntry, err := docsnap.DataAt(kFieldData)
+	if err != nil {
+		return nil, err
+	}
+	timeSec, err := docsnap.DataAt(kFieldUnixTime)
+	if err != nil {
+		return nil, err
+	}
+
+	logObj := &CertificateLog{
+		ShortURL:      url.(string),
+		MaxEntry:      maxEntry.(int64),
+		LastEntryTime: time.Unix(timeSec.(int64), 0),
+	}
+	return logObj, err
 }
 
 func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*Metadata, error) {
@@ -212,8 +243,14 @@ func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer string) (*
 		return nil, err
 	}
 
-	data, err := docsnap.DataAt(kFieldData)
-	return data.(*Metadata), err
+	encoded, err := docsnap.DataAt(kFieldData)
+	if err != nil {
+		return nil, err
+	}
+
+	var meta Metadata
+	err = json.Unmarshal(encoded.([]byte), &meta)
+	return &meta, err
 }
 
 func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer string) ([]*big.Int, error) {
@@ -232,8 +269,14 @@ func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer string
 		return nil, err
 	}
 
-	data, err := docsnap.DataAt(kFieldData)
-	return data.([]*big.Int), err
+	encoded, err := docsnap.DataAt(kFieldData)
+	if err != nil {
+		return nil, err
+	}
+
+	var serials []*big.Int
+	err = json.Unmarshal(encoded.([]byte), &serials)
+	return serials, err
 }
 
 func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {

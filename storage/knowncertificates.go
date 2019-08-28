@@ -147,3 +147,7 @@ func (kc *KnownCertificates) IsSorted() bool {
 	}
 	return true
 }
+
+func (kc *KnownCertificates) Known() []*big.Int {
+	return kc.known[:]
+}

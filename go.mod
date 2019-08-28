@@ -5,6 +5,7 @@ require (
 	github.com/VividCortex/ewma v1.1.1 // indirect
 	github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/golang/protobuf v1.3.2
 	github.com/google/certificate-transparency-go v1.0.21
 	github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e // indirect
 	github.com/jpillora/backoff v0.0.0-20170918002102-8eab2debe79d

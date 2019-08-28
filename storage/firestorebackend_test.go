@@ -150,3 +150,9 @@ func Test_FirestoreListFiles(t *testing.T) {
 	defer h.cleanup()
 	BackendTestListFiles(t, h.be)
 }
+
+func Test_FirestoreLogState(t *testing.T) {
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
+	BackendTestLogState(t, h.be)
+}

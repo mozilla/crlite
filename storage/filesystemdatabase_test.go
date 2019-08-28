@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/pem"
+	"net/url"
 	"reflect"
 	"sort"
 	"testing"
@@ -182,4 +183,63 @@ func Test_ListExpiration(t *testing.T) {
 	if reflect.DeepEqual(expectedDates, expDates) == false {
 		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
 	}
+}
+
+func Test_LogState(t *testing.T) {
+	var err error
+	var storageDB CertDatabase
+
+	mockBackend := NewMockBackend()
+	storageDB, err = NewFilesystemDatabase(1, mockBackend)
+	if err != nil {
+		t.Fatalf("Can't find DB: %s", err.Error())
+	}
+	if storageDB == nil {
+		t.Fatalf("Can't find DB")
+	}
+
+	unknownUrl, err := url.Parse("gopher://go.pher")
+	if err != nil {
+		t.Fatalf("URL parse failure")
+	}
+	log, err := storageDB.GetLogState(unknownUrl)
+	if err != nil {
+		t.Errorf("Unknown logs should be OK")
+	}
+	if log == nil {
+		t.Fatalf("Log shouldn't be nil")
+	}
+
+	normalUrl, err := url.Parse("https://log.ct/2019")
+	if err != nil {
+		t.Fatalf("URL parse failure")
+	}
+	log, err = storageDB.GetLogState(normalUrl)
+	if err != nil {
+		t.Errorf("Should not error: %v", err)
+	}
+	if log.ShortURL != "log.ct/2019" {
+		t.Errorf("Unexpected ShortURL %s", log.ShortURL)
+	}
+	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
+		t.Errorf("Expected a blank log  %s", log.String())
+	}
+
+	log.MaxEntry = 9
+	err = storageDB.SaveLogState(log)
+	if err != nil {
+		t.Errorf("Shouldn't have errored saving %v", err)
+	}
+
+	updatedLog, err := storageDB.GetLogState(normalUrl)
+	if err != nil {
+		t.Errorf("Should not error: %v", err)
+	}
+	if updatedLog.ShortURL != "log.ct/2019" {
+		t.Errorf("Unexpected ShortURL %s", updatedLog.ShortURL)
+	}
+	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
+		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
+	}
+
 }

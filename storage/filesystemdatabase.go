@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/pem"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -16,42 +17,41 @@ const (
 	kExpirationFormat = "2006-01-02"
 )
 
-func GetKnownCertificates(aExpDate string, aIssuer string, aBackend StorageBackend) *KnownCertificates {
-	knownCerts := NewKnownCertificates(aExpDate, aIssuer, aBackend)
-	err := knownCerts.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s:%s", aExpDate, aIssuer)
-	}
-	return knownCerts
-}
-
-func GetIssuerMetadata(aExpDate string, aIssuer string, aBackend StorageBackend) *IssuerMetadata {
-	issuerMetadata := NewIssuerMetadata(aExpDate, aIssuer, aBackend)
-	err := issuerMetadata.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", aExpDate, aIssuer)
-	}
-
-	return issuerMetadata
-}
-
 type CacheEntry struct {
 	mutex   *sync.Mutex
+	expDate string
+	issuer  string
 	known   *KnownCertificates
 	meta    *IssuerMetadata
 	backend StorageBackend
 }
 
 func NewCacheEntry(aExpDate string, aIssuer string, aBackend StorageBackend) (*CacheEntry, error) {
-	knownCerts := GetKnownCertificates(aExpDate, aIssuer, aBackend)
-	issuerMetadata := GetIssuerMetadata(aExpDate, aIssuer, aBackend)
-
-	return &CacheEntry{
+	obj := CacheEntry{
 		mutex:   &sync.Mutex{},
-		known:   knownCerts,
-		meta:    issuerMetadata,
+		expDate: aExpDate,
+		issuer:  aIssuer,
+		known:   nil,
+		meta:    nil,
 		backend: aBackend,
-	}, nil
+	}
+	obj.load()
+
+	return &obj, nil
+}
+
+func (ce *CacheEntry) load() {
+	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.backend)
+	err := ce.known.Load()
+	if err != nil {
+		glog.V(1).Infof("Creating new known certificates file for %s:%s", ce.expDate, ce.issuer)
+	}
+
+	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.backend)
+	err = ce.meta.Load()
+	if err != nil {
+		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", ce.expDate, ce.issuer)
+	}
 }
 
 func (ce *CacheEntry) Close() error {
@@ -116,11 +116,12 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer s
 }
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
-	return db.backend.StoreLogState(aLogObj.URL, aLogObj)
+	return db.backend.StoreLogState(aLogObj)
 }
 
-func (db *FilesystemDatabase) GetLogState(aUrl string) (*CertificateLog, error) {
-	return db.backend.LoadLogState(aUrl)
+func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
+	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, aUrl.Path)
+	return db.backend.LoadLogState(shortUrl)
 }
 
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
@@ -139,6 +140,17 @@ func getSpki(aCert *x509.Certificate) SPKI {
 	return SPKI{aCert.SubjectKeyId}
 }
 
+// Caller must obey the CacheEntry semantics
+func (db *FilesystemDatabase) fetch(expDate string, issuer string) (*CacheEntry, error) {
+	obj, err := db.cache.Get(cacheId{expDate, issuer})
+	if err != nil {
+		return nil, err
+	}
+
+	ce := obj.(*CacheEntry)
+	return ce, nil
+}
+
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) error {
 	spki := getSpki(aCert)
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
@@ -154,12 +166,10 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aLogURL string) err
 		Bytes:   aCert.Raw,
 	}
 
-	obj, err := db.cache.Get(cacheId{expDate, issuer})
+	ce, err := db.fetch(expDate, issuer)
 	if err != nil {
 		panic(err)
 	}
-
-	ce := obj.(*CacheEntry)
 
 	certWasUnknown, err := ce.known.WasUnknown(aCert.SerialNumber)
 	if err != nil {

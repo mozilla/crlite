@@ -170,7 +170,7 @@ func (db *LocalDiskBackend) StoreCertificatePEM(spki SPKI, expDate string, issue
 	return fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) StoreLogState(logURL string, log *CertificateLog) error {
+func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
 	return fmt.Errorf("Unimplemented")
 }
 

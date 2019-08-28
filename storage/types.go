@@ -5,19 +5,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/big"
+	"net/url"
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
 )
 
 type CertificateLog struct {
-	URL           string    `db:"url"`           // URL to the log
+	ShortURL      string    `db:"url"`           // URL to the log
 	MaxEntry      int64     `db:"maxEntry"`      // The most recent entryID logged
 	LastEntryTime time.Time `db:"lastEntryTime"` // Date when we completed the last update
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("MaxEntry=%d, LastEntryTime=%s, URL=%s", o.MaxEntry, o.LastEntryTime, o.URL)
+	return fmt.Sprintf("[%s] MaxEntry=%d, LastEntryTime=%s", o.ShortURL, o.MaxEntry, o.LastEntryTime)
 }
 
 type DocumentType int
@@ -26,7 +27,7 @@ type StorageBackend interface {
 	MarkDirty(id string) error
 
 	StoreCertificatePEM(spki SPKI, expDate string, issuer string, b []byte) error
-	StoreLogState(logURL string, log *CertificateLog) error
+	StoreLogState(log *CertificateLog) error
 	StoreIssuerMetadata(expDate string, issuer string, data *Metadata) error
 	StoreIssuerKnownSerials(expDate string, issuer string, serials []*big.Int) error
 
@@ -42,7 +43,7 @@ type StorageBackend interface {
 type CertDatabase interface {
 	Cleanup() error
 	SaveLogState(aLogObj *CertificateLog) error
-	GetLogState(url string) (*CertificateLog, error)
+	GetLogState(url *url.URL) (*CertificateLog, error)
 	Store(aCert *x509.Certificate, aURL string) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]string, error)

@@ -292,3 +292,16 @@ func BenchmarkMerge(b *testing.B) {
 		b.Error(err)
 	}
 }
+
+func Test_KnownCertificatesKnown(t *testing.T) {
+	backend := NewMockBackend()
+
+	kc := NewKnownCertificates("date", "issuer", backend)
+
+	kc.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
+
+	result := kc.Known()
+	if !reflect.DeepEqual(kc.known, result) {
+		t.Error("Should be an accessor")
+	}
+}

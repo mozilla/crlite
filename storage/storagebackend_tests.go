@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -77,5 +78,73 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	expectedIssuers := []string{"aki"}
 	if !reflect.DeepEqual(expectedIssuers, issuers) {
 		t.Fatalf("Failed expected: %s result: %s", expectedIssuers, issuers)
+	}
+}
+
+func BackendTestLogState(t *testing.T, db StorageBackend) {
+	testLogURL := fmt.Sprintf("log.ct/%d", time.Now().Unix())
+
+	log, err := db.LoadLogState("not a real log")
+	if err != nil {
+		t.Errorf("Unknown logs should be OK")
+	}
+	if log == nil {
+		t.Fatalf("Log shouldn't be nil")
+	}
+
+	log, err = db.LoadLogState(testLogURL)
+	if err != nil {
+		t.Errorf("Should not error %v", err)
+	}
+	if log.ShortURL != testLogURL {
+		t.Errorf("Unexpected URL %s", log.ShortURL)
+	}
+	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
+		t.Errorf("Expected a blank log  %s", log.String())
+	}
+
+	log.MaxEntry = 9
+	err = db.StoreLogState(log)
+	if err != nil {
+		t.Errorf("Shouldn't have errored saving %v", err)
+	}
+
+	{
+		updatedLog, err := db.LoadLogState(testLogURL)
+		if err != nil {
+			t.Errorf("Unexpected error %s: %v", updatedLog.String(), err)
+		}
+		if updatedLog.ShortURL != testLogURL {
+			t.Errorf("Unexpected URL %s", updatedLog.ShortURL)
+		}
+		if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
+			t.Errorf("Expected the MaxEntry to be 9 and the time to be unset %s", updatedLog.String())
+		}
+	}
+
+	log.MaxEntry = 0xDEADBEEF
+	log.LastEntryTime = time.Unix(1567016306, 0)
+	err = db.StoreLogState(log)
+	if err != nil {
+		t.Errorf("Shouldn't have errored saving %v", err)
+	}
+
+	{
+		updatedLog, err := db.LoadLogState(testLogURL)
+		if err != nil {
+			t.Errorf("Unexpected error %s: %v", updatedLog.String(), err)
+		}
+		if updatedLog.ShortURL != testLogURL {
+			t.Errorf("Unexpected URL %s", updatedLog.ShortURL)
+		}
+		if updatedLog.MaxEntry != 0xDEADBEEF {
+			t.Errorf("Expected the MaxEntry to be 0xDEADBEEF %s", updatedLog.String())
+		}
+		if updatedLog.LastEntryTime.IsZero() {
+			t.Errorf("Expected the MaxEntry to be non-zero %s", updatedLog.String())
+		}
+		if updatedLog.LastEntryTime.Unix() != 1567016306 {
+			t.Errorf("Expected the LastEntryTime to be 1567016306. %s", updatedLog.String())
+		}
 	}
 }
