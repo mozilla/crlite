@@ -77,10 +77,16 @@ func (db *FirestoreBackend) StoreCertificatePEM(spki SPKI, expDate string, issue
 		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
 	}
 
-	_, err := doc.Set(db.ctx, map[string]interface{}{
+	_, err := doc.Create(db.ctx, map[string]interface{}{
 		kFieldType: kTypePEM,
 		kFieldData: b,
 	})
+
+	if err != nil && status.Code(err) == codes.AlreadyExists {
+		glog.Warningf("Attempted to write a colliding document spki=%v expDate=%s issuer=%s len=%d", spki.ID(), expDate, issuer, len(b))
+		return nil
+	}
+
 	return err
 }
 

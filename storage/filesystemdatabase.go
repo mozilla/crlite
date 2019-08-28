@@ -133,7 +133,7 @@ func getSpki(aCert *x509.Certificate) SPKI {
 	if len(aCert.SubjectKeyId) < 8 {
 		digest := sha1.Sum(aCert.RawSubjectPublicKeyInfo)
 
-		glog.Warningf("[issuer: %s] SPKI is short: %v, using %v instead.", aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
+		glog.V(2).Infof("[issuer: %s] SPKI is short: %v, using %v instead.", aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
 		return SPKI{digest[0:]}
 	}
 
