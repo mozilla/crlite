@@ -187,13 +187,12 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	}
 
 	// Set pointer in DB, now that we've verified the log works
-	urlParts, err := url.Parse(ctLogUrl)
+	logUrlObj, err := url.Parse(ctLogUrl)
 	if err != nil {
 		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
 		return nil, err
 	}
-	shortUrl := fmt.Sprintf("%s%s", urlParts.Host, urlParts.Path)
-	logObj, err := ld.database.GetLogState(shortUrl)
+	logObj, err := ld.database.GetLogState(logUrlObj)
 	if err != nil {
 		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
 		return nil, err
@@ -223,7 +222,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	progressBar := ld.display.AddBar((int64)(endPos-startPos),
 		mpb.PrependDecorators(
 			// display our name with one space on the right
-			decor.Name(shortUrl, decor.WC{W: 30, C: decor.DidentRight}),
+			decor.Name(logObj.ShortURL, decor.WC{W: 30, C: decor.DidentRight}),
 		),
 		mpb.AppendDecorators(
 			decor.Percentage(),
@@ -264,7 +263,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
 	if err != nil {
-		return err
+		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s", lw.LogURL, err, finalIndex, finalTime)
 	}
 
 	if finalIndex > 9223372036854775807 {
@@ -277,14 +276,15 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		lw.LogState.LastEntryTime = *finalTime
 	}
 
-	err = lw.Database.SaveLogState(lw.LogState)
-	if err != nil {
-		glog.Errorf("[%s] Log state save failed, %s Err=%s", lw.LogURL, lw.LogState, err)
-		return err
+	glog.Infof("[%s] Saving log state: %s [err=%v]", lw.LogURL, lw.LogState, err)
+	saveErr := lw.Database.SaveLogState(lw.LogState)
+	if saveErr != nil {
+		glog.Errorf("[%s] Failed to save log state: %s [SaveErr=%s]", lw.LogURL, lw.LogState, saveErr)
+		return saveErr
 	}
 
-	glog.Infof("[%s] Saved state. %s", lw.LogURL, lw.LogState)
-	return nil
+	glog.Infof("[%s] Saved log state: %s [err=%v]", lw.LogURL, lw.LogState, err)
+	return err
 }
 
 // DownloadRange downloads log entries from the given starting index till one
