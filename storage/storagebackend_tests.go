@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-func storeAndLoad(t *testing.T, spki SPKI, expDate string, issuer Issuer, db StorageBackend, data []byte) {
-	err := db.StoreCertificatePEM(spki, expDate, issuer, data)
+func storeAndLoad(t *testing.T, serial Serial, expDate string, issuer Issuer, db StorageBackend, data []byte) {
+	err := db.StoreCertificatePEM(serial, expDate, issuer, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
-	t.Logf("Now loading %s/%s/%s", expDate, issuer.ID(), spki.ID())
+	t.Logf("Now loading %s/%s/%s", expDate, issuer.ID(), serial.ID())
 
-	loaded, err := db.LoadCertificatePEM(spki, expDate, issuer)
+	loaded, err := db.LoadCertificatePEM(serial, expDate, issuer)
 	if err != nil {
 		t.Fatalf("Should have loaded: %+v", err)
 	}
@@ -31,13 +31,13 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 	expDate := "1234"
 	issuer := NewIssuerFromString("test_file")
 
-	storeAndLoad(t, SPKI{[]byte{0x01}}, expDate, issuer, db, []byte{})
-	storeAndLoad(t, SPKI{[]byte{0x02}}, expDate, issuer, db, []byte{0x01})
-	storeAndLoad(t, SPKI{[]byte{0x03}}, expDate, issuer, db, []byte{0x00, 0x01, 0x02})
-	storeAndLoad(t, SPKI{[]byte{0x04}}, expDate, issuer, db, make([]byte, 1*1024*1024))
+	storeAndLoad(t, NewSerialFromHex("01"), expDate, issuer, db, []byte{})
+	storeAndLoad(t, NewSerialFromHex("02"), expDate, issuer, db, []byte{0x01})
+	storeAndLoad(t, NewSerialFromHex("03"), expDate, issuer, db, []byte{0x00, 0x01, 0x02})
+	storeAndLoad(t, NewSerialFromHex("04"), expDate, issuer, db, make([]byte, 1*1024*1024))
 
 	// Load unknown
-	_, err := db.LoadCertificatePEM(SPKI{[]byte{0xFF}}, expDate, issuer)
+	_, err := db.LoadCertificatePEM(NewSerialFromHex("FF"), expDate, issuer)
 	if err == nil {
 		t.Fatalf("Should not have loaded a missing file")
 	}
@@ -55,7 +55,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 		}
 	}
 
-	err := db.StoreCertificatePEM(SPKI{[]byte{0x01}}, "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
+	err := db.StoreCertificatePEM(NewSerialFromHex("01"), "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}

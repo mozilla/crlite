@@ -2,7 +2,6 @@ package storage
 
 import (
 	"fmt"
-	"math/big"
 	"sort"
 	"sync"
 
@@ -11,7 +10,7 @@ import (
 
 type KnownCertificates struct {
 	mutex   *sync.Mutex
-	known   []*big.Int
+	known   []Serial
 	expDate string
 	issuer  Issuer
 	backend StorageBackend
@@ -23,7 +22,7 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aBackend StorageBacke
 		expDate: aExpDate,
 		issuer:  aIssuer,
 		backend: aBackend,
-		known:   make([]*big.Int, 0, 100),
+		known:   make([]Serial, 0, 100),
 	}
 }
 
@@ -58,7 +57,7 @@ func (kc *KnownCertificates) Save() error {
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
-func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
+func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 	kc.mutex.Lock()
 	defer kc.mutex.Unlock()
 
@@ -74,13 +73,13 @@ func (kc *KnownCertificates) WasUnknown(aSerial *big.Int) (bool, error) {
 	}
 
 	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] Certificate already known: %s (pos=%d)", kc.id(), aSerial.Text(10), idx)
+		glog.V(3).Infof("[%s] Certificate already known: %s (pos=%d)", kc.id(), aSerial, idx)
 		return false, nil
 	}
 
 	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] Certificate unknown: %s (pos=%d)", kc.id(), aSerial.Text(10), idx)
-	kc.known = append(kc.known, nil)
+	glog.V(3).Infof("[%s] Certificate unknown: %s (pos=%d)", kc.id(), aSerial, idx)
+	kc.known = append(kc.known, Serial{})
 	copy(kc.known[idx+1:], kc.known[idx:])
 	kc.known[idx] = aSerial
 	return true, nil
@@ -96,10 +95,10 @@ func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
 	l, r := 0, 0
 
 	size := len(left) + len(right)
-	result := make([]*big.Int, size)
+	result := make([]Serial, size)
 
 	for i := 0; i < size; {
-		var chosen *big.Int
+		var chosen Serial
 		if l > len(left)-1 && r <= len(right)-1 {
 			chosen = right[r]
 			r++
@@ -148,6 +147,6 @@ func (kc *KnownCertificates) IsSorted() bool {
 	return true
 }
 
-func (kc *KnownCertificates) Known() []*big.Int {
+func (kc *KnownCertificates) Known() []Serial {
 	return kc.known[:]
 }

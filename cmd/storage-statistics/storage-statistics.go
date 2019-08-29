@@ -5,7 +5,6 @@
 package main
 
 import (
-	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -66,7 +65,7 @@ func main() {
 		dateTotalIssuers := 0
 		dateTotalCRLs := 0
 
-		fmt.Printf("%s: \n", expDate)
+		glog.Infof("Processing expiration date %s", expDate)
 		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
 		if err != nil {
 			glog.Errorf("Couldn't list issuers for %s: %v", expDate, err)
@@ -99,15 +98,16 @@ func main() {
 			totalCRLs = totalCRLs + countCRLs
 			totalIssuers = totalIssuers + 1
 
-			fmt.Printf(" * %s: %d serials known, %d crls known, %d issuerDNs known\n", *issuerMetadata.Metadata.IssuerDNs[0], countSerials, countCRLs, len(issuerMetadata.Metadata.IssuerDNs))
+			glog.V(1).Infof(" * %s (%s): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), *issuerMetadata.Metadata.IssuerDNs[0], countSerials, countCRLs, len(issuerMetadata.Metadata.IssuerDNs))
+			glog.V(2).Infof("Serials: %v", knownCerts.Known())
 		}
 
-		fmt.Printf("%s totals: %d issuers, %d serials, %d crls\n", expDate, dateTotalIssuers, dateTotalSerials, dateTotalCRLs)
+		glog.Infof("%s totals: %d issuers, %d serials, %d crls", expDate, dateTotalIssuers, dateTotalSerials, dateTotalCRLs)
 	}
 
-	fmt.Printf("overall totals: %d issuers, %d serials, %d crls\n", totalIssuers, totalSerials, totalCRLs)
-
-	fmt.Println("\nLog status:")
+	glog.Infof("overall totals: %d issuers, %d serials, %d crls", totalIssuers, totalSerials, totalCRLs)
+	glog.Infof("")
+	glog.Infof("Log status:")
 
 	if ctconfig.LogUrlList != nil && len(*ctconfig.LogUrlList) > 5 {
 		for _, part := range strings.Split(*ctconfig.LogUrlList, ",") {
@@ -120,7 +120,7 @@ func main() {
 			if err != nil {
 				glog.Fatalf("unable to GetLogState: %s %v", ctLogUrl, err)
 			}
-			fmt.Println(state.String())
+			glog.Info(state.String())
 		}
 	}
 }

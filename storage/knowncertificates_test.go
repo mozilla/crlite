@@ -2,7 +2,7 @@ package storage
 
 import (
 	"encoding/json"
-	"math/big"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -14,7 +14,7 @@ func Test_KnownCertificatesStoreLoad(t *testing.T) {
 	saver := NewKnownCertificates("date", testIssuer, backend)
 	loader := NewKnownCertificates("date", testIssuer, backend)
 
-	saver.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
+	saver.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 
 	if err := saver.Save(); err != nil {
 		t.Error(err)
@@ -29,7 +29,7 @@ func Test_KnownCertificatesStoreLoad(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(loader.known, saver.known) {
-		t.Fatalf("Loader and saver should be equal now")
+		t.Errorf("Loader and saver should be equal now: %s %s", saver.known, loader.known)
 	}
 }
 
@@ -40,8 +40,8 @@ func Test_MergeSmall(t *testing.T) {
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	left.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
-	right.known = []*big.Int{big.NewInt(4)}
+	left.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
+	right.known = []Serial{NewSerialFromHex("04")}
 
 	origText, err := json.Marshal(left.known)
 	if err != nil {
@@ -52,11 +52,11 @@ func Test_MergeSmall(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(origText) != "[1,3,5]" {
-		t.Error("Invalid initial: left")
+	if string(origText) != `["AQ==","Aw==","BQ=="]` {
+		t.Errorf("Invalid initial: left %s", string(origText))
 	}
-	if string(origTextR) != "[4]" {
-		t.Error("Invalid initial: right")
+	if string(origTextR) != `["BA=="]` {
+		t.Errorf("Invalid initial: right %s", string(origTextR))
 	}
 
 	err = left.Merge(right)
@@ -68,7 +68,7 @@ func Test_MergeSmall(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if string(mergedText) != "[1,3,4,5]" {
+	if string(mergedText) != `["AQ==","Aw==","BA==","BQ=="]` {
 		t.Error("Invalid initial: right")
 	}
 }
@@ -80,8 +80,8 @@ func Test_MergeOutOfOrder(t *testing.T) {
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(0)}
-	right.known = []*big.Int{big.NewInt(4)}
+	left.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("00")}
+	right.known = []Serial{NewSerialFromHex("04")}
 
 	origText, err := json.Marshal(left.known)
 	if err != nil {
@@ -92,11 +92,11 @@ func Test_MergeOutOfOrder(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(origText) != "[1,2,3,0]" {
-		t.Error("Invalid initial: left")
+	if string(origText) != `["AQ==","Ag==","Aw==","AA=="]` {
+		t.Errorf("Invalid initial: left %s", origText)
 	}
-	if string(origTextR) != "[4]" {
-		t.Error("Invalid initial: right")
+	if string(origTextR) != `["BA=="]` {
+		t.Errorf("Invalid initial: right %s", origTextR)
 	}
 
 	err = left.Merge(right)
@@ -112,8 +112,8 @@ func Test_MergeDescending(t *testing.T) {
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	left.known = []*big.Int{big.NewInt(4), big.NewInt(3), big.NewInt(2), big.NewInt(1)}
-	right.known = []*big.Int{big.NewInt(0)}
+	left.known = []Serial{NewSerialFromHex("04"), NewSerialFromHex("03"), NewSerialFromHex("02"), NewSerialFromHex("01")}
+	right.known = []Serial{NewSerialFromHex("00")}
 
 	origText, err := json.Marshal(left.known)
 	if err != nil {
@@ -124,11 +124,11 @@ func Test_MergeDescending(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(origText) != "[4,3,2,1]" {
-		t.Error("Invalid initial: left")
+	if string(origText) != `["BA==","Aw==","Ag==","AQ=="]` {
+		t.Errorf("Invalid initial: left %s", origText)
 	}
-	if string(origTextR) != "[0]" {
-		t.Error("Invalid initial: right")
+	if string(origTextR) != `["AA=="]` {
+		t.Errorf("Invalid initial: right %s", origTextR)
 	}
 
 	err = left.Merge(right)
@@ -144,8 +144,8 @@ func Test_MergeDuplicatesEnd(t *testing.T) {
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
-	right.known = []*big.Int{big.NewInt(4)}
+	left.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("04")}
+	right.known = []Serial{NewSerialFromHex("04")}
 
 	origText, err := json.Marshal(left.known)
 	if err != nil {
@@ -156,10 +156,10 @@ func Test_MergeDuplicatesEnd(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(origText) != "[1,2,3,4]" {
+	if string(origText) != `["AQ==","Ag==","Aw==","BA=="]` {
 		t.Error("Invalid initial: left")
 	}
-	if string(origTextR) != "[4]" {
+	if string(origTextR) != `["BA=="]` {
 		t.Error("Invalid initial: right")
 	}
 
@@ -172,7 +172,7 @@ func Test_MergeDuplicatesEnd(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(mergedText) != "[1,2,3,4]" {
+	if string(mergedText) != `["AQ==","Ag==","Aw==","BA=="]` {
 		t.Errorf("Invalid merge: %s", string(mergedText))
 	}
 }
@@ -184,8 +184,8 @@ func Test_MergeDuplicatesMiddle(t *testing.T) {
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	left.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(4), big.NewInt(5)}
-	right.known = []*big.Int{big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+	left.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("04"), NewSerialFromHex("05")}
+	right.known = []Serial{NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("04")}
 
 	origText, err := json.Marshal(left.known)
 	if err != nil {
@@ -196,10 +196,10 @@ func Test_MergeDuplicatesMiddle(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(origText) != "[1,2,4,5]" {
+	if string(origText) != `["AQ==","Ag==","BA==","BQ=="]` {
 		t.Error("Invalid initial: left")
 	}
-	if string(origTextR) != "[2,3,4]" {
+	if string(origTextR) != `["Ag==","Aw==","BA=="]` {
 		t.Error("Invalid initial: right")
 	}
 
@@ -212,7 +212,7 @@ func Test_MergeDuplicatesMiddle(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(mergedText) != "[1,2,3,4,5]" {
+	if string(mergedText) != `["AQ==","Ag==","Aw==","BA==","BQ=="]` {
 		t.Errorf("Invalid merge: %s", string(mergedText))
 	}
 }
@@ -223,14 +223,14 @@ func Test_Unknown(t *testing.T) {
 
 	kc := NewKnownCertificates("date", testIssuer, backend)
 
-	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+	kc.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("04")}
 
 	origText, err := json.Marshal(kc.known)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if string(origText) != "[1,2,3,4]" {
+	if string(origText) != `["AQ==","Ag==","Aw==","BA=="]` {
 		t.Error("Invalid initial")
 	}
 
@@ -240,11 +240,11 @@ func Test_Unknown(t *testing.T) {
 		}
 	}
 
-	if u, _ := kc.WasUnknown(big.NewInt(5)); u == false {
+	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
 	}
 
-	if u, _ := kc.WasUnknown(big.NewInt(5)); u == true {
+	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == true {
 		t.Error("5 should now have been known")
 	}
 
@@ -253,8 +253,8 @@ func Test_Unknown(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(endText) != "[1,2,3,4,5]" {
-		t.Error("Invalid end")
+	if string(endText) != `["AQ==","Ag==","Aw==","BA==","BQ=="]` {
+		t.Errorf("Invalid end %s", endText)
 	}
 }
 
@@ -263,13 +263,13 @@ func Test_IsSorted(t *testing.T) {
 	testIssuer := NewIssuerFromString("test issuer")
 
 	kc := NewKnownCertificates("date", testIssuer, backend)
-	kc.known = []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
+	kc.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("04")}
 
 	if kc.IsSorted() != true {
 		t.Error("Should be sorted")
 	}
 
-	kc.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(2), big.NewInt(4)}
+	kc.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("02"), NewSerialFromHex("04")}
 
 	if kc.IsSorted() != false {
 		t.Error("Should not be sorted")
@@ -287,10 +287,11 @@ func BenchmarkMerge(b *testing.B) {
 
 	var i int64
 	for i = 0; i < 128*1024*1024; i++ {
+		serial := NewSerialFromHex(fmt.Sprintf("%X", i))
 		if i%2 == 0 {
-			left.known = append(left.known, big.NewInt(i))
+			left.known = append(left.known, serial)
 		} else {
-			right.known = append(right.known, big.NewInt(i))
+			right.known = append(right.known, serial)
 		}
 	}
 
@@ -308,7 +309,7 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 
 	kc := NewKnownCertificates("date", testIssuer, backend)
 
-	kc.known = []*big.Int{big.NewInt(1), big.NewInt(3), big.NewInt(5)}
+	kc.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 
 	result := kc.Known()
 	if !reflect.DeepEqual(kc.known, result) {

@@ -3,7 +3,6 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -41,9 +40,9 @@ func (db *MockBackend) noteExpDateIssuer(expDate string, issuer Issuer) {
 	}
 }
 
-func (db *MockBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error {
+func (db *MockBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
 	db.noteExpDateIssuer(expDate, issuer)
-	db.store["pem"+expDate+issuer.ID()] = b
+	db.store["pem"+expDate+issuer.ID()+serial.ID()] = b
 	return nil
 }
 
@@ -66,7 +65,7 @@ func (db *MockBackend) StoreIssuerMetadata(expDate string, issuer Issuer, metada
 	return nil
 }
 
-func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error {
+func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
 	db.noteExpDateIssuer(expDate, issuer)
 	data, err := json.Marshal(serials)
 	if err != nil {
@@ -76,8 +75,8 @@ func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, se
 	return nil
 }
 
-func (db *MockBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error) {
-	data, ok := db.store["pem"+expDate+issuer.ID()]
+func (db *MockBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
+	data, ok := db.store["pem"+expDate+issuer.ID()+serial.ID()]
 	if ok {
 		return data, nil
 	}
@@ -106,10 +105,10 @@ func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metad
 	return nil, fmt.Errorf("Couldn't find")
 }
 
-func (db *MockBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error) {
+func (db *MockBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
 	data, ok := db.store["serials"+expDate+issuer.ID()]
 	if ok {
-		var serials []*big.Int
+		var serials []Serial
 		err := json.Unmarshal(data, &serials)
 		return serials, err
 	}

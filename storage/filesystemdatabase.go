@@ -152,7 +152,6 @@ func (db *FilesystemDatabase) fetch(expDate string, issuer Issuer) (*CacheEntry,
 }
 
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aLogURL string) error {
-	spki := getSpki(aCert)
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
 	issuer := NewIssuer(aIssuer)
 
@@ -170,7 +169,9 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 		panic(err)
 	}
 
-	certWasUnknown, err := ce.known.WasUnknown(aCert.SerialNumber)
+	serialNum := NewSerial(aCert)
+
+	certWasUnknown, err := ce.known.WasUnknown(serialNum)
 	if err != nil {
 		return err
 	}
@@ -178,7 +179,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	if certWasUnknown {
 		ce.mutex.Lock()
 		ce.meta.Accumulate(aCert)
-		err = db.backend.StoreCertificatePEM(spki, expDate, issuer, pem.EncodeToMemory(&pemblock))
+		err = db.backend.StoreCertificatePEM(serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
 		ce.mutex.Unlock()
 
 		if err != nil {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,7 +165,7 @@ func (db *LocalDiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
 	return os.OpenFile(id, os.O_RDWR|os.O_CREATE, db.perms)
 }
 
-func (db *LocalDiskBackend) StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error {
+func (db *LocalDiskBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
 	glog.Warningf("Need to store into " + kSuffixCertificates)
 	return fmt.Errorf("Unimplemented")
 }
@@ -180,12 +179,12 @@ func (db *LocalDiskBackend) StoreIssuerMetadata(expDate string, issuer Issuer, d
 	return fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error {
+func (db *LocalDiskBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
 	glog.Warningf("Need to store into " + kSuffixKnownCertificates)
 	return fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error) {
+func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
 
@@ -197,6 +196,6 @@ func (db *LocalDiskBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*
 	return nil, fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error) {
+func (db *LocalDiskBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }

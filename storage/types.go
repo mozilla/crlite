@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/url"
 	"time"
 
@@ -26,15 +29,15 @@ type DocumentType int
 type StorageBackend interface {
 	MarkDirty(id string) error
 
-	StoreCertificatePEM(spki SPKI, expDate string, issuer Issuer, b []byte) error
+	StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error
 	StoreLogState(log *CertificateLog) error
 	StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error
-	StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []*big.Int) error
+	StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error
 
-	LoadCertificatePEM(spki SPKI, expDate string, issuer Issuer) ([]byte, error)
+	LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error)
 	LoadLogState(logURL string) (*CertificateLog, error)
 	LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error)
-	LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]*big.Int, error)
+	LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error)
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
@@ -70,7 +73,7 @@ func NewIssuerFromString(aStr string) Issuer {
 	return obj
 }
 
-func (o Issuer) ID() string {
+func (o *Issuer) ID() string {
 	if o.id == nil {
 		encodedDigest := o.spki.Sha256DigestURLEncodedBase64()
 		o.id = &encodedDigest
@@ -86,8 +89,65 @@ func (o SPKI) ID() string {
 	return base64.URLEncoding.EncodeToString(o.spki)
 }
 
+func (o SPKI) String() string {
+	return hex.EncodeToString(o.spki)
+}
+
 func (o SPKI) Sha256DigestURLEncodedBase64() string {
 	binaryDigest := sha256.Sum256(o.spki)
 	encodedDigest := base64.URLEncoding.EncodeToString(binaryDigest[:])
 	return encodedDigest
+}
+
+type Serial struct {
+	serial []byte
+}
+
+type tbsCertWithRawSerial struct {
+	Raw          asn1.RawContent
+	Version      asn1.RawValue `asn1:"optional,explicit,default:0,tag:0"`
+	SerialNumber asn1.RawValue
+}
+
+func NewSerial(aCert *x509.Certificate) Serial {
+	var tbsCert tbsCertWithRawSerial
+	_, err := asn1.Unmarshal(aCert.RawTBSCertificate, &tbsCert)
+	if err != nil {
+		panic(err)
+	}
+
+	obj := Serial{
+		serial: tbsCert.SerialNumber.Bytes,
+	}
+	return obj
+}
+
+func NewSerialFromHex(s string) Serial {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return Serial{
+		serial: b,
+	}
+}
+
+func (s Serial) ID() string {
+	return base64.URLEncoding.EncodeToString(s.serial)
+}
+
+func (s Serial) String() string {
+	return hex.EncodeToString(s.serial)
+}
+
+func (s Serial) Cmp(o Serial) int {
+	return bytes.Compare(s.serial, o.serial)
+}
+
+func (s Serial) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.serial)
+}
+
+func (s *Serial) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &s.serial)
 }
