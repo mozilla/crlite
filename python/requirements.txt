@@ -1,7 +1,0 @@
-#boto3 >= 1.4
-publicsuffixlist >= 0.4
-jsonpickle >= 0.9
-geoip2 >= 2.4
-cryptography >= 2.2.1
-progressbar2 >= 3.2
-IPy >= 0.83
