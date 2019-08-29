@@ -100,6 +100,22 @@ func main() {
 
 			glog.V(1).Infof(" * %s (%s): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), *issuerMetadata.Metadata.IssuerDNs[0], countSerials, countCRLs, len(issuerMetadata.Metadata.IssuerDNs))
 			glog.V(2).Infof("Serials: %v", knownCerts.Known())
+
+			if glog.V(3) {
+				for _, serial := range knownCerts.Known() {
+					glog.Infof("Certificate issuer=%s serial=%s", issuer.ID(), serial.ID())
+
+					pemBytes, err := backend.LoadCertificatePEM(serial, expDate, issuer)
+					if err != nil {
+						glog.Error(err)
+					}
+
+					_, err = os.Stdout.Write(pemBytes)
+					if err != nil {
+						glog.Error(err)
+					}
+				}
+			}
 		}
 
 		glog.Infof("%s totals: %d issuers, %d serials, %d crls", expDate, dateTotalIssuers, dateTotalSerials, dateTotalCRLs)
