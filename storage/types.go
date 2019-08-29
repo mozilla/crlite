@@ -44,23 +44,21 @@ type CertDatabase interface {
 	Cleanup() error
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url *url.URL) (*CertificateLog, error)
-	Store(aCert *x509.Certificate, aURL string) error
+	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
 	ReconstructIssuerMetadata(expDate string, issuer Issuer) error
 }
 
 type Issuer struct {
-	id        *string
-	aki       []byte
-	rawIssuer []byte
+	id   *string
+	spki SPKI
 }
 
 func NewIssuer(aCert *x509.Certificate) Issuer {
 	obj := Issuer{
-		id:        nil,
-		aki:       aCert.AuthorityKeyId,
-		rawIssuer: aCert.RawIssuer,
+		id:   nil,
+		spki: SPKI{aCert.RawSubjectPublicKeyInfo},
 	}
 	return obj
 }
@@ -73,16 +71,11 @@ func NewIssuerFromString(aStr string) Issuer {
 }
 
 func (o Issuer) ID() string {
-	if o.id != nil {
-		return *o.id
+	if o.id == nil {
+		encodedDigest := o.spki.Sha256DigestURLEncodedBase64()
+		o.id = &encodedDigest
 	}
-
-	// TODO issue https://github.com/mozilla/crlite/issues/29
-	if len(o.aki) == 0 {
-		digest := sha256.Sum256(o.rawIssuer)
-		return fmt.Sprintf("issuerHash-%s", base64.URLEncoding.EncodeToString(digest[:]))
-	}
-	return base64.URLEncoding.EncodeToString(o.aki)
+	return *o.id
 }
 
 type SPKI struct {
@@ -91,4 +84,10 @@ type SPKI struct {
 
 func (o SPKI) ID() string {
 	return base64.URLEncoding.EncodeToString(o.spki)
+}
+
+func (o SPKI) Sha256DigestURLEncodedBase64() string {
+	binaryDigest := sha256.Sum256(o.spki)
+	encodedDigest := base64.URLEncoding.EncodeToString(binaryDigest[:])
+	return encodedDigest
 }
