@@ -47,7 +47,7 @@ type CertDatabase interface {
 	Cleanup() error
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url *url.URL) (*CertificateLog, error)
-	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string) error
+	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string, aEntryId int64) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
 	ReconstructIssuerMetadata(expDate string, issuer Issuer) error

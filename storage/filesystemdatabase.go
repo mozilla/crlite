@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -151,13 +152,14 @@ func (db *FilesystemDatabase) fetch(expDate string, issuer Issuer) (*CacheEntry,
 	return ce, nil
 }
 
-func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aLogURL string) error {
+func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aLogURL string, aEntryId int64) error {
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
 	issuer := NewIssuer(aIssuer)
 
 	headers := make(map[string]string)
 	headers["Log"] = aLogURL
 	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
+	headers["Entry-id"] = strconv.FormatInt(aEntryId, 10)
 	pemblock := pem.Block{
 		Type:    "CERTIFICATE",
 		Headers: headers,
