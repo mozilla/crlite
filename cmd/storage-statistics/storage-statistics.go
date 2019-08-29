@@ -25,14 +25,25 @@ func main() {
 	var storageDB storage.CertDatabase
 	var backend storage.StorageBackend
 
-	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
-		glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
-		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
-		}
-	} else if ctconfig.FirestoreProjectId != nil && len(*ctconfig.FirestoreProjectId) > 0 {
+	hasLocalDiskConfig := ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0
+	hasFirestoreConfig := ctconfig.FirestoreProjectId != nil && len(*ctconfig.FirestoreProjectId) > 0
+
+	if hasLocalDiskConfig && hasFirestoreConfig {
+		glog.Fatal("Local Disk and Firestore configurations both found. Exiting.")
+	}
+
+	if hasLocalDiskConfig {
+		// var err error
+		// backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
+		// glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
+		// storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
+		// if err != nil {
+		// 	glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
+		// }
+		glog.Fatalf("Local Disk Backend currently disabled")
+	}
+
+	if hasFirestoreConfig {
 		ctx := context.Background()
 
 		backend, err = storage.NewFirestoreBackend(ctx, *ctconfig.FirestoreProjectId)
