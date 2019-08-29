@@ -362,6 +362,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 func main() {
 	var err error
 	var storageDB storage.CertDatabase
+	var backend storage.StorageBackend
 
 	hasLocalDiskConfig := ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0
 	hasFirestoreConfig := ctconfig.FirestoreProjectId != nil && len(*ctconfig.FirestoreProjectId) > 0
@@ -371,18 +372,19 @@ func main() {
 	}
 
 	if hasLocalDiskConfig {
-		backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
-		glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
-		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
-		}
+		// backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
+		// glog.Infof("Saving to disk at %s", *ctconfig.CertPath)
+		// storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
+		// if err != nil {
+		// 	glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
+		// }
+		glog.Fatalf("Local Disk Backend currently disabled")
 	}
 
 	if hasFirestoreConfig {
 		ctx := context.Background()
 
-		backend, err := storage.NewFirestoreBackend(ctx, *ctconfig.FirestoreProjectId)
+		backend, err = storage.NewFirestoreBackend(ctx, *ctconfig.FirestoreProjectId)
 		if err != nil {
 			glog.Fatalf("Unable to configure Firestore for %s: %v", *ctconfig.FirestoreProjectId, err)
 		}
