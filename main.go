@@ -165,7 +165,18 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			continue
 		}
 
-		err = ld.database.Store(cert, ep.LogURL)
+		if len(ep.LogEntry.Chain) < 1 {
+			glog.Warningf("No issuer known for certificate serial=%+v issuer=%+v", *cert.SerialNumber, cert.Issuer)
+			continue
+		}
+
+		issuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
+		if err != nil {
+			glog.Errorf("Problem decoding issuing certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			continue
+		}
+
+		err = ld.database.Store(cert, issuingCert, ep.LogURL)
 		if err != nil {
 			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
