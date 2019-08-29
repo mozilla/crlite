@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# TODO: Remove when going onto real hardware
-export HTTPS_PROXY=socks5://localhost:32547/
-
 if [ "$KINTO_AUTH_USER" == "" ] ; then
   echo "You'll need to export or set KINTO_AUTH_USER and KINTO_AUTH_PASSWORD before calling this."
   echo "Example: "
