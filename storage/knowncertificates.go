@@ -27,7 +27,7 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aBackend StorageBacke
 }
 
 func (kc *KnownCertificates) id() string {
-	return kc.expDate + "::" + kc.issuer.ID()
+	return fmt.Sprintf("%s::%s", kc.expDate, kc.issuer.ID())
 }
 
 func (kc *KnownCertificates) Load() error {

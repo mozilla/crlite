@@ -2,16 +2,17 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 )
 
 var kFirestoreEmulatorEnv = "FIRESTORE_EMULATOR_HOST"
-var kProjectId = "test-project"
 
 func verifyEmulator(t *testing.T) {
 	setting, ok := os.LookupEnv(kFirestoreEmulatorEnv)
@@ -26,12 +27,14 @@ func makeFirestoreHarness(t *testing.T) *FirestoreTestHarness {
 
 	ctx := context.Background()
 
-	be, err := NewFirestoreBackend(ctx, kProjectId)
+	projectName := fmt.Sprintf("test-%d", time.Now().Unix())
+
+	be, err := NewFirestoreBackend(ctx, projectName)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	harnessClient, err := firestore.NewClient(ctx, kProjectId)
+	harnessClient, err := firestore.NewClient(ctx, projectName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,14 +58,12 @@ func Test_FirestoreBasicLoop(t *testing.T) {
 	ctx := context.Background()
 	verifyEmulator(t)
 
-	c, err := firestore.NewClient(ctx, kProjectId)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
 
-	coll := c.Collection("My Stuff")
+	coll := h.harnessClient.Collection("My Stuff")
 	doc := coll.Doc("Document")
-	_, err = doc.Set(ctx, map[string]interface{}{kFieldData: []byte{0xDE, 0xAD}})
+	_, err := doc.Set(ctx, map[string]interface{}{kFieldData: []byte{0xDE, 0xAD}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,25 +78,21 @@ func Test_FirestoreBasicLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("Retreived %+v from %+v", data, docsnap)
-
-	c.Close()
 }
 
 func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 	ctx := context.Background()
 	verifyEmulator(t)
 
-	c, err := firestore.NewClient(ctx, kProjectId)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
 
-	coll := c.Collection("data")
+	coll := h.harnessClient.Collection("data")
 	certsDoc := coll.Doc("2034-06-16:issuerAKI.certs")
 	metaDoc := coll.Doc("2034-06-16:issuerAKI.meta")
 	knownDoc := coll.Doc("2034-06-16:issuerAKI.known")
 
-	_, err = certsDoc.Set(ctx, map[string]interface{}{
+	_, err := certsDoc.Set(ctx, map[string]interface{}{
 		"type":     "certs",
 		kFieldData: []byte{0xDE, 0xAD},
 	})
@@ -119,7 +116,7 @@ func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 	}
 
 	// list
-	collection := c.Collection("data")
+	collection := h.harnessClient.Collection("data")
 	t.Logf("Collection: %s - %+v", collection.ID, collection)
 
 	iter := collection.Where("type", "==", "date").Documents(ctx)
@@ -135,8 +132,6 @@ func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 		t.Logf("List: %s - %+v", doc.Ref.ID, doc)
 
 	}
-
-	c.Close()
 }
 
 func Test_FirestoreStoreLoad(t *testing.T) {
@@ -155,4 +150,16 @@ func Test_FirestoreLogState(t *testing.T) {
 	h := makeFirestoreHarness(t)
 	defer h.cleanup()
 	BackendTestLogState(t, h.be)
+}
+
+func Test_FirestoreKnownCertificates(t *testing.T) {
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
+	BackendTestKnownCertificates(t, h.be)
+}
+
+func Test_FirestoreIssuerMetadata(t *testing.T) {
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
+	BackendTestIssuerMetadata(t, h.be)
 }

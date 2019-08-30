@@ -24,6 +24,14 @@ func (o *CertificateLog) String() string {
 	return fmt.Sprintf("[%s] MaxEntry=%d, LastEntryTime=%s", o.ShortURL, o.MaxEntry, o.LastEntryTime)
 }
 
+func CertificateLogIDFromShortURL(shortURL string) string {
+	return base64.URLEncoding.EncodeToString([]byte(shortURL))
+}
+
+func (o *CertificateLog) ID() string {
+	return CertificateLogIDFromShortURL(o.ShortURL)
+}
+
 type DocumentType int
 
 type StorageBackend interface {

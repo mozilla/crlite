@@ -48,7 +48,6 @@ func (im *IssuerMetadata) Load() error {
 
 	data, err := im.backend.LoadIssuerMetadata(im.expDate, im.issuer)
 	if err != nil {
-		glog.Errorf("Error reading issuer metadata %s: %s", im.id(), err)
 		return err
 	}
 
@@ -60,11 +59,7 @@ func (im *IssuerMetadata) Save() error {
 	im.mutex.Lock()
 	defer im.mutex.Unlock()
 
-	err := im.backend.StoreIssuerMetadata(im.expDate, im.issuer, &im.Metadata)
-	if err != nil {
-		glog.Errorf("Error storing issuer metadata %s: %s", im.id(), err)
-	}
-	return err
+	return im.backend.StoreIssuerMetadata(im.expDate, im.issuer, &im.Metadata)
 }
 
 func (im *IssuerMetadata) addCRL(aCRL string) {

@@ -11,12 +11,14 @@ func makeLocalDiskHarness(t *testing.T) *LocalDiskTestHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &LocalDiskTestHarness{t, rootFolder}
+	db := NewLocalDiskBackend(0644, rootFolder)
+	return &LocalDiskTestHarness{t, rootFolder, db}
 }
 
 type LocalDiskTestHarness struct {
 	t    *testing.T
 	root string
+	db   StorageBackend
 }
 
 func (h *LocalDiskTestHarness) Remove(id string) {
@@ -25,22 +27,38 @@ func (h *LocalDiskTestHarness) Remove(id string) {
 	}
 }
 
-func (h *LocalDiskTestHarness) Cleanup() {
+func (h *LocalDiskTestHarness) cleanup() {
 	h.Remove(h.root)
 }
 
 func Test_LocalDiskStoreLoad(t *testing.T) {
 	t.Skip("Disabled")
 	h := makeLocalDiskHarness(t)
-	defer h.Cleanup()
-	db := NewLocalDiskBackend(0644, h.root)
-	BackendTestStoreLoad(t, db)
+	defer h.cleanup()
+	BackendTestStoreLoad(t, h.db)
 }
 
 func Test_LocalDiskListFiles(t *testing.T) {
 	t.Skip("Disabled")
 	h := makeLocalDiskHarness(t)
-	defer h.Cleanup()
-	db := NewLocalDiskBackend(0644, h.root)
-	BackendTestListFiles(t, db)
+	defer h.cleanup()
+	BackendTestListFiles(t, h.db)
+}
+
+func Test_LocalDiskLogState(t *testing.T) {
+	h := makeLocalDiskHarness(t)
+	defer h.cleanup()
+	BackendTestLogState(t, h.db)
+}
+
+func Test_LocalDiskKnownCertificates(t *testing.T) {
+	h := makeLocalDiskHarness(t)
+	defer h.cleanup()
+	BackendTestKnownCertificates(t, h.db)
+}
+
+func Test_LocalDiskIssuerMetadata(t *testing.T) {
+	h := makeLocalDiskHarness(t)
+	defer h.cleanup()
+	BackendTestIssuerMetadata(t, h.db)
 }

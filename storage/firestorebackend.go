@@ -237,14 +237,6 @@ func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			// The default state is fresh Metadata
-			obj := &Metadata{
-				Crls:      []*string{},
-				IssuerDNs: []*string{},
-			}
-			return obj, nil
-		}
 		return nil, err
 	}
 
@@ -267,10 +259,6 @@ func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			// The default state is a new serials list
-			return []Serial{}, nil
-		}
 		return nil, err
 	}
 

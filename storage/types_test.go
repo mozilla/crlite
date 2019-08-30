@@ -3,8 +3,10 @@ package storage
 import (
 	"encoding/json"
 	"encoding/pem"
+	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
 )
@@ -112,5 +114,35 @@ func TestSerialJson(t *testing.T) {
 
 	if !reflect.DeepEqual(serials, decoded) {
 		t.Errorf("Should match %+v %+v", serials, decoded)
+	}
+}
+
+func TestLog(t *testing.T) {
+	log := CertificateLog{
+		ShortURL:      "log.example.com/2525",
+		MaxEntry:      math.MaxInt64,
+		LastEntryTime: time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC),
+	}
+
+	expectedString := "[log.example.com/2525] MaxEntry=9223372036854775807, LastEntryTime=2525-05-20 19:21:54.000000039 +0000 UTC"
+	if log.String() != expectedString {
+		t.Errorf("Expecting %s but got %s", expectedString, log.String())
+	}
+
+	expectedID := "bG9nLmV4YW1wbGUuY29tLzI1MjU="
+	if log.ID() != expectedID {
+		t.Errorf("Expecting ID of %s but got %s", expectedID, log.ID())
+	}
+
+	// From previous version
+	log = CertificateLog{
+		ShortURL:      "yeti2021.ct.digicert.com/log/",
+		MaxEntry:      1517184,
+		LastEntryTime: time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC),
+	}
+
+	expectedID = "eWV0aTIwMjEuY3QuZGlnaWNlcnQuY29tL2xvZy8="
+	if log.ID() != expectedID {
+		t.Errorf("Expecting ID of %s but got %s", expectedID, log.ID())
 	}
 }

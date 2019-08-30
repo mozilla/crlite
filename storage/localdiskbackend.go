@@ -1,8 +1,8 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -70,18 +70,8 @@ func (db *LocalDiskBackend) store(path string, data []byte) error {
 	return fd.Close()
 }
 
-func (db *LocalDiskBackend) MarkDirty(id string) error {
-	return db.store(filepath.Join(id, kDirtyMarker), []byte{0})
-}
-
-func (db *LocalDiskBackend) Store(docType DocumentType, id string, data []byte) error {
-	// TODO: something with docType
-	return db.store(id, data)
-}
-
-func (db *LocalDiskBackend) Load(docType DocumentType, id string) ([]byte, error) {
-	// TODO: something with docType
-	fd, err := os.Open(id)
+func (db *LocalDiskBackend) load(path string) ([]byte, error) {
+	fd, err := os.Open(path)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -94,6 +84,10 @@ func (db *LocalDiskBackend) Load(docType DocumentType, id string) ([]byte, error
 
 	err = fd.Close()
 	return data, err
+}
+
+func (db *LocalDiskBackend) MarkDirty(id string) error {
+	return db.store(filepath.Join(id, kDirtyMarker), []byte{0})
 }
 
 func (db *LocalDiskBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
@@ -142,46 +136,42 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 	return issuers, err
 }
 
-func (db *LocalDiskBackend) Writer(id string, append bool) (io.WriteCloser, error) {
-	if err := makeDirectoryIfNotExist(id); err != nil {
-		return nil, err
-	}
-
-	flags := os.O_WRONLY | os.O_CREATE
-	if append {
-		flags = flags | os.O_APPEND
-	} else {
-		flags = flags | os.O_TRUNC
-	}
-
-	return os.OpenFile(id, flags, db.perms)
-}
-
-func (db *LocalDiskBackend) ReadWriter(id string) (io.ReadWriteCloser, error) {
-	if err := makeDirectoryIfNotExist(id); err != nil {
-		return nil, err
-	}
-
-	return os.OpenFile(id, os.O_RDWR|os.O_CREATE, db.perms)
-}
-
 func (db *LocalDiskBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
 	glog.Warningf("Need to store into " + kSuffixCertificates)
 	return fmt.Errorf("Unimplemented")
 }
 
 func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
-	return fmt.Errorf("Unimplemented")
+	path := filepath.Join(db.rootPath, kStateDirName, log.ID())
+
+	encoded, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+
+	return db.store(path, encoded)
 }
 
 func (db *LocalDiskBackend) StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error {
-	glog.Warningf("Need to store into " + kSuffixIssuerMetadata)
-	return fmt.Errorf("Unimplemented")
+	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixIssuerMetadata)
+
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	return db.store(path, encoded)
 }
 
 func (db *LocalDiskBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
-	glog.Warningf("Need to store into " + kSuffixKnownCertificates)
-	return fmt.Errorf("Unimplemented")
+	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixKnownCertificates)
+
+	encoded, err := json.Marshal(serials)
+	if err != nil {
+		return err
+	}
+
+	return db.store(path, encoded)
 }
 
 func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
@@ -189,13 +179,52 @@ func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, is
 }
 
 func (db *LocalDiskBackend) LoadLogState(logURL string) (*CertificateLog, error) {
-	return nil, fmt.Errorf("Unimplemented")
+	id := CertificateLogIDFromShortURL(logURL)
+	path := filepath.Join(db.rootPath, kStateDirName, id)
+
+	data, err := db.load(path)
+	if err != nil {
+		return &CertificateLog{
+			ShortURL: logURL,
+		}, nil
+	}
+
+	var log CertificateLog
+	if err = json.Unmarshal(data, &log); err != nil {
+		return nil, err
+	}
+
+	return &log, nil
 }
 
 func (db *LocalDiskBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
-	return nil, fmt.Errorf("Unimplemented")
+	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixIssuerMetadata)
+
+	data, err := db.load(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var metadata Metadata
+	if err = json.Unmarshal(data, &metadata); err != nil {
+		return nil, err
+	}
+
+	return &metadata, nil
 }
 
 func (db *LocalDiskBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
-	return nil, fmt.Errorf("Unimplemented")
+	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixKnownCertificates)
+
+	data, err := db.load(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var serials []Serial
+	if err = json.Unmarshal(data, &serials); err != nil {
+		return nil, err
+	}
+
+	return serials, nil
 }
