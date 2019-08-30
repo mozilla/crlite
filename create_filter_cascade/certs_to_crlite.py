@@ -187,7 +187,7 @@ def parseArgs(argv):
     parser.add_argument(
         "-revokedPath",
         help=
-        "Directory containing known unexpired serials.  <AKI>.known JSON files."
+        "Directory containing known revoked serials.  <AKI>.revoked JSON files."
     )
     parser.add_argument(
         "-errorrate",
