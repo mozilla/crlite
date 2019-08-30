@@ -2,10 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-# Python Standard Library
-from datetime import datetime
 import json
-import OpenSSL
 import os
 import sys
 import argparse
@@ -56,7 +53,7 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
             # Get revoked serials for AKI, if any
             revokedpath = os.path.join(args.revokedPath, "%s.revoked" % aki)
             revlist = getCertList(revokedpath, aki)
-            if knownlist == None or revlist == None:
+            if knownlist is None or revlist is None:
                 # Skip AKI. No revocations for this AKI.  Not even empty list.
                 counts['nocrl'] = counts['nocrl'] + 1
                 continue
@@ -82,7 +79,7 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
             if aki not in processedAKIs:
                 revokedpath = os.path.join(path, filename)
                 revlist = getCertList(revokedpath, aki)
-                if revlist == None:
+                if revlist is None:
                     # Skip AKI. No revocations for this AKI.  Not even empty list.
                     counts['nocrl'] = counts['nocrl'] + 1
                 else:
@@ -122,7 +119,7 @@ def loadCertLists(args, *, revoked_certs, nonrevoked_certs):
 
 def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
     sw.start('mlbf')
-    if args.diffMetaFile != None:
+    if args.diffMetaFile is not None:
         log.info(
             "Generating filter with characteristics from mlbf base file {}".
             format(args.diffMetaFile))
@@ -146,7 +143,7 @@ def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
 def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
     # Verify generate filter
     sw.start('verify')
-    if args.noVerify == False:
+    if args.noVerify is False:
         log.info("Checking/verifying certs against MLBF")
         cascade.check(entries=revoked_certs, exclusions=nonrevoked_certs)
     sw.end('verify')
@@ -161,7 +158,7 @@ def saveMLBF(args, cascade):
     with open(args.metaFile, 'wb') as mlbf_meta_file:
         log.info("Writing to meta file {}".format(args.metaFile))
         cascade.saveDiffMeta(mlbf_meta_file)
-    if args.diffBaseFile != None:
+    if args.diffBaseFile is not None:
         log.info("Generating patch file {patch} from {base} to {out}".format(
             patch=args.patchFile, base=args.diffBaseFile, out=args.outFile))
         bsdiff4.file_diff(args.diffBaseFile, args.outFile, args.patchFile)
@@ -181,13 +178,11 @@ def parseArgs(argv):
         default="/ct/processing")
     parser.add_argument(
         "-knownPath",
-        help=
-        "Directory containing known unexpired serials.  <AKI>.known JSON files."
+        help="Directory containing known unexpired serials.  <AKI>.known JSON files."
     )
     parser.add_argument(
         "-revokedPath",
-        help=
-        "Directory containing known revoked serials.  <AKI>.revoked JSON files."
+        help="Directory containing known revoked serials.  <AKI>.revoked JSON files."
     )
     parser.add_argument(
         "-errorrate",
@@ -204,8 +199,7 @@ def parseArgs(argv):
         help="Exclude the specified AKIs")
     parser.add_argument(
         "-cachekeys",
-        help=
-        "Save revoked/non-revoked sorted certs to file or load from file if it exists.",
+        help="Save revoked/non-revoked sorted certs to file or load from file if it exists.",
         action="store_true")
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
@@ -215,9 +209,9 @@ def parseArgs(argv):
     args.patchFile = None
     args.outFile = os.path.join(args.certPath, args.id, "mlbf/filter")
     args.metaFile = os.path.join(args.certPath, args.id, "mlbf/filter.meta")
-    if args.knownPath == None:
+    if args.knownPath is None:
         args.knownPath = os.path.join(args.certPath, args.id, "known")
-    if args.revokedPath == None:
+    if args.revokedPath is None:
         args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
     args.revokedKeys = os.path.join(args.certPath, args.id,
                                     "mlbf/keys-revoked")
@@ -231,10 +225,9 @@ def main():
     revoked_certs = []
     nonrevoked_certs = []
 
-    marktime = datetime.utcnow()
     sw.start('crlite')
     sw.start('certs')
-    if args.cachekeys == True and os.path.isfile(
+    if args.cachekeys is True and os.path.isfile(
             args.revokedKeys) and os.path.isfile(args.validKeys):
         loadCertLists(
             args,
@@ -245,7 +238,7 @@ def main():
             args,
             revoked_certs=revoked_certs,
             nonrevoked_certs=nonrevoked_certs)
-        if args.cachekeys == True:
+        if args.cachekeys is True:
             saveCertLists(
                 args,
                 revoked_certs=revoked_certs,
@@ -256,7 +249,7 @@ def main():
     sw.end('certs')
 
     # Setup for diff if previous filter specified
-    if args.previd != None:
+    if args.previd is not None:
         diffMetaPath = os.path.join(args.certPath, args.previd, "mlbf",
                                     "filter.meta")
         diffBasePath = os.path.join(args.certPath, args.previd, "mlbf",
