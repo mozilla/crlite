@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
+	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -82,25 +82,7 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 }
 
 func main() {
-	var err error
-	var storageDB storage.CertDatabase
-	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		backend := storage.NewLocalDiskBackend(0644, *ctconfig.CertPath)
-
-		glog.Infof("Loading from disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
-		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %+v: %+v", ctconfig.CertPath, err)
-		}
-	}
-
-	if storageDB == nil {
-		ctconfig.Usage()
-		fmt.Println()
-		fmt.Println("Non-flag arguments are interpreted as regular expressions to be matched.")
-		fmt.Println()
-		os.Exit(2)
-	}
+	storageDB, _ := engine.GetConfiguredStorage(ctconfig)
 
 	var wg sync.WaitGroup
 	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
