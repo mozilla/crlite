@@ -47,12 +47,6 @@ type IssuerCrlPaths struct {
 	CrlPaths []string
 }
 
-type RawCertificateList struct {
-	TBSCertList        TBSCertificateListWithRawSerials
-	SignatureAlgorithm asn1.RawValue
-	SignatureValue     asn1.BitString
-}
-
 type TBSCertificateListWithRawSerials struct {
 	Raw                 asn1.RawContent
 	Version             int `asn1:"optional,default:0"`
@@ -67,13 +61,6 @@ type RevokedCertificateWithRawSerial struct {
 	Raw            asn1.RawContent
 	SerialNumber   asn1.RawValue
 	RevocationTime time.Time
-}
-
-func DecodeRawCertList(data []byte) (*TBSCertificateListWithRawSerials, error) {
-	var certList RawCertificateList
-	_, err := asn1.Unmarshal(data, &certList)
-	tbsCertList := certList.TBSCertList
-	return &tbsCertList, err
 }
 
 func DecodeRawTBSCertList(data []byte) (*TBSCertificateListWithRawSerials, error) {
