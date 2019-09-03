@@ -13,7 +13,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
-	"github.com/jcjones/ct-mapreduce/storage"
 )
 
 var (
@@ -45,15 +44,13 @@ func main() {
 		}
 
 		for _, issuer := range issuers {
-			knownCerts := storage.NewKnownCertificates(expDate, issuer, backend)
-			err = knownCerts.Load()
+			knownCerts, err := storageDB.GetKnownCertificates(expDate, issuer)
 			if err != nil {
 				glog.Errorf("Couldn't get known certs for %s-%s: %v", expDate, issuer.ID(), err)
 				continue
 			}
 
-			issuerMetadata := storage.NewIssuerMetadata(expDate, issuer, backend)
-			err = issuerMetadata.Load()
+			issuerMetadata, err := storageDB.GetIssuerMetadata(expDate, issuer)
 			if err != nil {
 				glog.Errorf("Couldn't get issuer metadata for %s-%s: %v", expDate, issuer.ID(), err)
 				continue

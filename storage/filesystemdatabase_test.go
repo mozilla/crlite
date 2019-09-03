@@ -63,6 +63,18 @@ EA==
 -----END CERTIFICATE-----`
 )
 
+func getTestHarness(t *testing.T) (StorageBackend, CertDatabase) {
+	mockBackend := NewMockBackend()
+	storageDB, err := NewFilesystemDatabase(1, mockBackend)
+	if err != nil {
+		t.Fatalf("Can't find DB: %s", err.Error())
+	}
+	if storageDB == nil {
+		t.Fatalf("Can't find DB")
+	}
+	return mockBackend, storageDB
+}
+
 func Test_GetSpkiRealSPKI(t *testing.T) {
 	b, _ := pem.Decode([]byte(kRealSPKI))
 
@@ -97,10 +109,8 @@ func Test_GetSpkiSyntheticSPKI(t *testing.T) {
 }
 
 func Test_ListExpiration(t *testing.T) {
-	var err error
-	var storageDB CertDatabase
+	mockBackend, storageDB := getTestHarness(t)
 
-	mockBackend := NewMockBackend()
 	testIssuer := NewIssuerFromString("test issuer")
 
 	blankMetadata := &Metadata{}
@@ -115,16 +125,9 @@ func Test_ListExpiration(t *testing.T) {
 		t.Error(err)
 	}
 
-	storageDB, err = NewFilesystemDatabase(1, mockBackend)
-	if err != nil {
-		t.Fatalf("Can't find DB: %s", err.Error())
-	}
-	if storageDB == nil {
-		t.Fatalf("Can't find DB")
-	}
-
 	var refTime time.Time
 	var expDates []string
+	var err error
 
 	// All dirs valid.
 	expectedDates := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
@@ -187,17 +190,7 @@ func Test_ListExpiration(t *testing.T) {
 }
 
 func Test_LogState(t *testing.T) {
-	var err error
-	var storageDB CertDatabase
-
-	mockBackend := NewMockBackend()
-	storageDB, err = NewFilesystemDatabase(1, mockBackend)
-	if err != nil {
-		t.Fatalf("Can't find DB: %s", err.Error())
-	}
-	if storageDB == nil {
-		t.Fatalf("Can't find DB")
-	}
+	_, storageDB := getTestHarness(t)
 
 	unknownUrl, err := url.Parse("gopher://go.pher")
 	if err != nil {
@@ -242,5 +235,77 @@ func Test_LogState(t *testing.T) {
 	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
 	}
+}
 
+func Test_GetKnownCertificates(t *testing.T) {
+	mockBackend, storageDB := getTestHarness(t)
+	testIssuer := NewIssuerFromString("test issuer")
+
+	known, err := storageDB.GetKnownCertificates("2017-11-28", testIssuer)
+	if err == nil {
+		t.Error("Expected an error for an unknown issuer for that date")
+	}
+	if known != nil {
+		t.Fatal("For an unknown issuer, metadata should be nil")
+	}
+
+	someSerials := []Serial{NewSerialFromHex("00FF00FF")}
+
+	if err := mockBackend.StoreIssuerKnownSerials("2017-11-28", testIssuer, someSerials); err != nil {
+		t.Error(err)
+	}
+
+	known, err = storageDB.GetKnownCertificates("2017-11-28", testIssuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(known.known) != 1 {
+		t.Errorf("Should be a single known serial")
+	}
+
+	if reflect.DeepEqual(someSerials, known.known) == false {
+		t.Errorf("Expect the CRLs to match: %+v", known)
+	}
+}
+
+func Test_GetIssuerMetadata(t *testing.T) {
+	mockBackend, storageDB := getTestHarness(t)
+	testIssuer := NewIssuerFromString("test issuer")
+
+	meta, err := storageDB.GetIssuerMetadata("2017-11-28", testIssuer)
+	if err == nil {
+		t.Error("Expected an error for an unknown issuer for that date")
+	}
+	if meta != nil {
+		t.Fatal("For an unknown issuer, metadata should be nil")
+	}
+
+	issuerDNString := "an issuer"
+	crlString := "http://example.com/crl"
+
+	// someMetadata := &Metadata{
+	// 	IssuerDNs: []*string{"an issuer"},
+	// 	Crls: []*string{"http://example.com/crl"},
+	// }
+	someMetadata := &Metadata{
+		IssuerDNs: []*string{&issuerDNString},
+		Crls:      []*string{&crlString},
+	}
+	if err := mockBackend.StoreIssuerMetadata("2017-11-28", testIssuer, someMetadata); err != nil {
+		t.Error(err)
+	}
+
+	meta, err = storageDB.GetIssuerMetadata("2017-11-28", testIssuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(meta.Metadata.Crls) != 1 || len(meta.Metadata.IssuerDNs) != 1 {
+		t.Errorf("The metadata should have one entry")
+	}
+	if reflect.DeepEqual(someMetadata.Crls, meta.Metadata.Crls) == false {
+		t.Errorf("Expect the CRLs to match: %+v", meta.Metadata)
+	}
+	if reflect.DeepEqual(someMetadata.IssuerDNs, meta.Metadata.IssuerDNs) == false {
+		t.Errorf("Expect the Issuer DNs to match: %+v", meta.Metadata)
+	}
 }
