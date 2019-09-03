@@ -245,8 +245,8 @@ func Test_GetKnownCertificates(t *testing.T) {
 	if err == nil {
 		t.Error("Expected an error for an unknown issuer for that date")
 	}
-	if known != nil {
-		t.Fatal("For an unknown issuer, metadata should be nil")
+	if len(known.known) != 0 {
+		t.Fatal("For an unknown issuer, metadata should be empty")
 	}
 
 	someSerials := []Serial{NewSerialFromHex("00FF00FF")}
@@ -276,7 +276,7 @@ func Test_GetIssuerMetadata(t *testing.T) {
 	if err == nil {
 		t.Error("Expected an error for an unknown issuer for that date")
 	}
-	if meta != nil {
+	if len(meta.Metadata.Crls) > 0 || len(meta.Metadata.IssuerDNs) > 0 {
 		t.Fatal("For an unknown issuer, metadata should be nil")
 	}
 
@@ -287,6 +287,7 @@ func Test_GetIssuerMetadata(t *testing.T) {
 	// 	IssuerDNs: []*string{"an issuer"},
 	// 	Crls: []*string{"http://example.com/crl"},
 	// }
+	// TODO: change to non-pointer Metadata arrays
 	someMetadata := &Metadata{
 		IssuerDNs: []*string{&issuerDNString},
 		Crls:      []*string{&crlString},

@@ -200,20 +200,12 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 
 func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issuer) (*KnownCertificates, error) {
 	kc := NewKnownCertificates(aExpDate, aIssuer, db.backend)
-	err := kc.Load()
-	if err != nil {
-		return nil, err
-	}
-	return kc, nil
+	return kc, kc.Load()
 }
 
 func (db *FilesystemDatabase) GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error) {
 	im := NewIssuerMetadata(aExpDate, aIssuer, db.backend)
-	err := im.Load()
-	if err != nil {
-		return nil, err
-	}
-	return im, nil
+	return im, im.Load()
 }
 
 func (db *FilesystemDatabase) Cleanup() error {
