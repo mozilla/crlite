@@ -91,6 +91,17 @@ func (o *Issuer) ID() string {
 	return *o.id
 }
 
+func (o *Issuer) MarshalJSON() ([]byte, error) {
+	if o.id == nil {
+		_ = o.ID()
+	}
+	return json.Marshal(o.id)
+}
+
+func (o *Issuer) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &o.id)
+}
+
 type SPKI struct {
 	spki []byte
 }
