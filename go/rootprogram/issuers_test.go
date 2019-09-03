@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/jcjones/ct-mapreduce/storage"
 )
 
 const (
@@ -46,10 +48,10 @@ w7+QZfZHary2ArgMCU2SmpCmpybktruKwGbelQHYC2oJavTHoLd5GeHI4GivPIE9
 cxhzf8XjZXECKL54a/4o9ISBcA==
 -----END CERTIFICATE-----'"
 `
-	kFirstTwoLinesAKI     = "vrwI1C66AEyA3CZntKXY3cNKGvk="
-	kFirstTwoLinesSubject = "SERIALNUMBER=A82743287,CN=RACER,O=AC Camerfirma SA,L=Madrid (see current address at www.camerfirma.com/address),C=ES"
+	kFirstTwoLinesIssuerID = "6z9CPfvSI57njPXWYOU61nQPaO9b2blTtyMZoCaRT4g="
+	kFirstTwoLinesSubject  = "SERIALNUMBER=A82743287,CN=RACER,O=AC Camerfirma SA,L=Madrid (see current address at www.camerfirma.com/address),C=ES"
 
-	kEmptySPKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
+	kEmptyAKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
 "Test Corporation","Test Corporation","test","Test Corporation","Test Corporation CA","","test","Test Corporation CA","71:8a:bd:2f:20:13:18:ea:a2:73:67:b0:3d:b5:3f:6b:24:3c:f6:f5","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2016 Nov 27","2019 Feb 05","http://crl.example.com/test.crl","RSA 2048 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","","'-----BEGIN CERTIFICATE-----
 MIICyTCCAbGgAwIBAgIURxOdvmKY1LMeejuRTiuHeGBhZHwwDQYJKoZIhvcNAQEL
 BQAwDTELMAkGA1UEAwwCY2EwIhgPMjAxNjExMjcwMDAwMDBaGA8yMDE5MDIwNTAw
@@ -116,13 +118,13 @@ func Test_GetIssuers(t *testing.T) {
 		t.Error("Expecting one issuer")
 	}
 
-	if issuers[0] != kFirstTwoLinesAKI {
-		t.Errorf("Unexpected issuer SPKI, got: [%s]", issuers[0])
+	if issuers[0].ID() != kFirstTwoLinesIssuerID {
+		t.Errorf("Unexpected issuer SPKI, got: [%s]", issuers[0].ID())
 	}
 }
 
-func Test_GetIssuersEmptySPKI(t *testing.T) {
-	mi, err := loadSampleIssuers(kEmptySPKI)
+func Test_GetIssuersEmptyAKI(t *testing.T) {
+	mi, err := loadSampleIssuers(kEmptyAKI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +134,8 @@ func Test_GetIssuersEmptySPKI(t *testing.T) {
 		t.Error("Expecting one issuer")
 	}
 
-	if issuers[0] != "RZQbKdvDIkL6QOTsnXF6e3X6zUU=" {
-		t.Errorf("SPKI should have been replaced with the sha1 value")
+	if issuers[0].ID() != "VCIlmPM9NkgFQtrs4Oa5TeFcDu6MWRTKSNdePEhOgD8=" {
+		t.Errorf("Empty AKI shouldn't matter, but got %s", issuers[0].ID())
 	}
 }
 
@@ -143,20 +145,20 @@ func Test_IsIssuerInProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if mi.IsIssuerInProgram("abc") != false {
+	if mi.IsIssuerInProgram(storage.NewIssuerFromString("abc")) != false {
 		t.Error("Not a valid issuer")
 	}
 
-	if mi.IsIssuerInProgram("") != false {
+	if mi.IsIssuerInProgram(storage.NewIssuerFromString("")) != false {
 		t.Error("Blank is not a good issuer")
 	}
 
-	if mi.IsIssuerInProgram("Test Corporation SA") != false {
-		t.Error("Not the common name, should only respond to the AKI")
+	if mi.IsIssuerInProgram(storage.NewIssuerFromString("Test Corporation SA")) != false {
+		t.Error("Not the common name, should only respond to the Issuer")
 	}
 
-	if mi.IsIssuerInProgram(kFirstTwoLinesAKI) != true {
-		t.Error("AKI should be true")
+	if mi.IsIssuerInProgram(storage.NewIssuerFromString(kFirstTwoLinesIssuerID)) != true {
+		t.Error("Issuer should be true")
 	}
 }
 
@@ -166,7 +168,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cert, err := mi.GetCertificateForIssuer("abc")
+	cert, err := mi.GetCertificateForIssuer(storage.NewIssuerFromString("abc"))
 	if err.Error() != "Unknown issuer: abc" {
 		t.Error(err)
 	}
@@ -174,7 +176,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Error("Cert should have been nil")
 	}
 
-	cert, err = mi.GetCertificateForIssuer("")
+	cert, err = mi.GetCertificateForIssuer(storage.NewIssuerFromString(""))
 	if err != nil && err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
@@ -182,7 +184,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Error("Cert should have been nil")
 	}
 
-	cert, err = mi.GetCertificateForIssuer(kFirstTwoLinesAKI)
+	cert, err = mi.GetCertificateForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -201,7 +203,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer("abc")
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString("abc"))
 	if err.Error() != "Unknown issuer: abc" {
 		t.Error(err)
 	}
@@ -209,7 +211,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Error("Subject should have been blank")
 	}
 
-	subject, err = mi.GetSubjectForIssuer("")
+	subject, err = mi.GetSubjectForIssuer(storage.NewIssuerFromString(""))
 	if err != nil && err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
@@ -217,7 +219,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Error("Subject should have been blank")
 	}
 
-	subject, err = mi.GetSubjectForIssuer(kFirstTwoLinesAKI)
+	subject, err = mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}

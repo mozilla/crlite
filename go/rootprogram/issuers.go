@@ -1,7 +1,6 @@
 package rootprogram
 
 import (
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/jcjones/ct-mapreduce/storage"
 )
 
 const (
@@ -60,15 +60,15 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	return mi.parseCCADB(fd)
 }
 
-func (mi *MozIssuers) GetIssuers() []string {
+func (mi *MozIssuers) GetIssuers() []storage.Issuer {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	issuers := make([]string, len(mi.issuerMap))
+	issuers := make([]storage.Issuer, len(mi.issuerMap))
 	i := 0
 
-	for key := range mi.issuerMap {
-		issuers[i] = key
+	for _, value := range mi.issuerMap {
+		issuers[i] = storage.NewIssuer(value.cert)
 		i++
 	}
 	return issuers
@@ -116,40 +116,40 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	return err
 }
 
-func (mi *MozIssuers) Enroll(aIssuer string) {
+func (mi *MozIssuers) Enroll(aIssuer storage.Issuer) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	if _, ok := mi.issuerMap[aIssuer]; ok {
-		data := mi.issuerMap[aIssuer]
+	if _, ok := mi.issuerMap[aIssuer.ID()]; ok {
+		data := mi.issuerMap[aIssuer.ID()]
 		data.enrolled = true
-		mi.issuerMap[aIssuer] = data
+		mi.issuerMap[aIssuer.ID()] = data
 	}
 }
 
-func (mi *MozIssuers) IsIssuerInProgram(aIssuer string) bool {
-	_, ok := mi.issuerMap[aIssuer]
+func (mi *MozIssuers) IsIssuerInProgram(aIssuer storage.Issuer) bool {
+	_, ok := mi.issuerMap[aIssuer.ID()]
 	return ok
 }
 
-func (mi *MozIssuers) GetCertificateForIssuer(aIssuer string) (*x509.Certificate, error) {
+func (mi *MozIssuers) GetCertificateForIssuer(aIssuer storage.Issuer) (*x509.Certificate, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	entry, ok := mi.issuerMap[aIssuer]
+	entry, ok := mi.issuerMap[aIssuer.ID()]
 	if !ok {
-		return nil, fmt.Errorf("Unknown issuer: %s", aIssuer)
+		return nil, fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
 	}
 	return entry.cert, nil
 }
 
-func (mi *MozIssuers) GetSubjectForIssuer(aIssuer string) (string, error) {
+func (mi *MozIssuers) GetSubjectForIssuer(aIssuer storage.Issuer) (string, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	entry, ok := mi.issuerMap[aIssuer]
+	entry, ok := mi.issuerMap[aIssuer.ID()]
 	if !ok {
-		return "", fmt.Errorf("Unknown issuer: %s", aIssuer)
+		return "", fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
 	}
 	return entry.subjectDN, nil
 }
@@ -196,18 +196,8 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 			return err
 		}
 
-		var issuerID string
-		if len(cert.SubjectKeyId) < 8 {
-
-			digest := sha1.Sum(cert.RawSubjectPublicKeyInfo)
-			issuerID = base64.URLEncoding.EncodeToString(digest[0:])
-
-			glog.Warningf("[issuer: %s] SPKI is short: %v, using %s instead.", cert.Issuer.String(), cert.SubjectKeyId, issuerID)
-		} else {
-			issuerID = base64.URLEncoding.EncodeToString(cert.SubjectKeyId)
-		}
-
-		mi.issuerMap[issuerID] = IssuerData{
+		issuer := storage.NewIssuer(cert)
+		mi.issuerMap[issuer.ID()] = IssuerData{
 			cert:      cert,
 			subjectDN: cert.Subject.String(),
 			pemInfo:   strings.Trim(row[columnMap["PEM"]], "'"),

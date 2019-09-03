@@ -20,6 +20,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
+	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
@@ -44,6 +45,13 @@ var (
 	allowableAgeOfLocalCRL, _ = time.ParseDuration("336h")
 )
 
+type AggregateEngine struct {
+	storageDB storage.CertDatabase
+	backend   storage.StorageBackend
+	issuers   *rootprogram.MozIssuers
+	display   *mpb.Progress
+}
+
 func makeFilenameFromUrl(crlUrl url.URL) string {
 	filename := fmt.Sprintf("%s-%s", crlUrl.Hostname(), path.Base(crlUrl.Path))
 	filename = strings.ToLower(filename)
@@ -56,7 +64,7 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 	return filename
 }
 
-func findCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
+func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	lastTime := time.Now()
@@ -68,16 +76,20 @@ func findCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quit
 		case <-quitChan:
 			return
 		default:
-			meta := storage.GetIssuerMetadata(*ctconfig.CertPath, tuple.ExpDate, tuple.Issuer, permMode)
+			meta, err := ae.storageDB.GetIssuerMetadata(tuple.ExpDate, tuple.Issuer)
+			if err != nil {
+				glog.Errorf("Unexpected error getting issuer metadata: %+v: %v", tuple, err)
+				continue
+			}
 
-			crls, prs := issuerCrls[tuple.Issuer]
+			crls, prs := issuerCrls[tuple.Issuer.ID()]
 			if !prs {
 				crls = make(map[string]bool)
 			}
 			for _, url := range meta.Metadata.Crls {
 				crls[*url] = true
 			}
-			issuerCrls[tuple.Issuer] = crls
+			issuerCrls[tuple.Issuer.ID()] = crls
 
 			progBar.IncrBy(1, time.Since(lastTime))
 			lastTime = time.Now()
@@ -87,7 +99,7 @@ func findCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quit
 	resultChan <- issuerCrls
 }
 
-func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan types.IssuerCrlUrls, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
+func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan types.IssuerCrlUrls, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	lastTime := time.Now()
@@ -97,17 +109,17 @@ func crlFetchWorker(wg *sync.WaitGroup, display *mpb.Progress, crlsChan <-chan t
 
 		for _, crlUrl := range tuple.Urls {
 			filename := makeFilenameFromUrl(crlUrl)
-			err := os.MkdirAll(filepath.Join(*crlpath, tuple.Issuer), permModeDir)
+			err := os.MkdirAll(filepath.Join(*crlpath, tuple.Issuer.ID()), permModeDir)
 			if err != nil {
 				glog.Warningf("Couldn't make directory: %s", err)
 				continue
 			}
 
-			path := filepath.Join(*crlpath, tuple.Issuer, filename)
+			path := filepath.Join(*crlpath, tuple.Issuer.ID(), filename)
 
-			err = downloader.DownloadFileSync(display, crlUrl, path)
+			err = downloader.DownloadFileSync(ae.display, crlUrl, path)
 			if err != nil {
-				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer, crlUrl.String(), path, err)
+				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 				// Does it already exist on disk? If so, use that version and not die.
 
 				_, localDate, err := downloader.GetSizeAndDateOfFile(path)
@@ -167,8 +179,16 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 		glog.Warningf("[%s] CRL is expired, but proceeding anyway", aPath)
 	}
 
-	for _, ent := range crl.TBSCertList.RevokedCertificates {
-		newRevocation, err := aRevoked.WasUnknown(ent.SerialNumber)
+	// Decode the raw DER serial numbers
+	revokedList, err := types.DecodeRawTBSCertList(crl.TBSCertList.Raw)
+	if err != nil {
+		glog.Warningf("[%s] CRL list couldn't be decoded: %s", aPath, err)
+		return false
+	}
+
+	for _, ent := range revokedList.RevokedCertificates {
+		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
+		newRevocation, err := aRevoked.WasUnknown(serial)
 		if err != nil {
 			glog.Warningf("[%s] Error recording revocation [%v]: %s", aPath, ent.SerialNumber, err)
 		}
@@ -179,18 +199,16 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 	return true
 }
 
-func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
+func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	lastTime := time.Now()
 
 	for tuple := range workChan {
-		outfile := filepath.Join(outPath, fmt.Sprintf("%s.revoked", tuple.Issuer))
-
 		issuerEnrolled := false
-		revokedCerts := storage.NewKnownCertificates(outfile, 0644)
-		if err := revokedCerts.Load(); err != nil {
-			glog.Infof("Making new revocation storage file %s", outfile)
+		revokedCerts, err := ae.storageDB.GetKnownCertificates("revoked", tuple.Issuer)
+		if err != nil {
+			glog.Infof("Making new revocation storage file %s", tuple.Issuer.ID())
 		}
 
 		for _, crlPath := range tuple.CrlPaths {
@@ -198,32 +216,32 @@ func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, 
 			case <-quitChan:
 				if issuerEnrolled {
 					if err := revokedCerts.Save(); err != nil {
-						glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+						glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 					}
 				} else {
-					glog.Infof("Issuer %s not enrolled", tuple.Issuer)
+					glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 				}
 				return
 			default:
-				cert, err := mozIssuers.GetCertificateForIssuer(tuple.Issuer)
+				cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
 				if err != nil {
-					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer, err)
+					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 				}
 
 				if processCRL(crlPath, revokedCerts, cert) {
 					// Issuer is considered enrolled if at least one CRL processed successfully
 					issuerEnrolled = true
-					mozIssuers.Enroll(tuple.Issuer)
+					ae.issuers.Enroll(tuple.Issuer)
 				}
 			}
 		}
 
 		if issuerEnrolled {
 			if err := revokedCerts.Save(); err != nil {
-				glog.Fatalf("[%s] Could not save revoked certificates file: %s", outfile, err)
+				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 		} else {
-			glog.Infof("Issuer %s not enrolled", tuple.Issuer)
+			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 		}
 
 		progBar.IncrBy(1, time.Since(lastTime))
@@ -231,25 +249,25 @@ func aggregateCRLWorker(wg *sync.WaitGroup, mozIssuers *rootprogram.MozIssuers, 
 	}
 }
 
-func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssuers, storageDB storage.CertDatabase, sigChan <-chan os.Signal) types.IssuerCrlMap {
+func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.IssuerCrlMap {
 	var wg sync.WaitGroup
 
 	metaChan := make(chan types.MetadataTuple, 16*1024*1024)
 
-	expDates, err := storageDB.ListExpirationDates(time.Now())
+	expDates, err := ae.backend.ListExpirationDates(time.Now())
 	if err != nil {
 		glog.Fatalf("Could not list expiration dates: %s", err)
 	}
 
 	var count int64
 	for _, expDate := range expDates {
-		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
+		issuers, err := ae.backend.ListIssuersForExpirationDate(expDate)
 		if err != nil {
 			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
 		}
 
 		for _, issuer := range issuers {
-			if !mozissuers.IsIssuerInProgram(issuer) {
+			if !ae.issuers.IsIssuerInProgram(issuer) {
 				continue
 			}
 
@@ -257,7 +275,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 			case metaChan <- types.MetadataTuple{ExpDate: expDate, Issuer: issuer}:
 				count = count + 1
 			default:
-				glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer)
+				glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer.ID())
 			}
 		}
 	}
@@ -268,7 +286,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
-	progressBar := display.AddBar(count,
+	progressBar := ae.display.AddBar(count,
 		mpb.PrependDecorators(
 			decor.Name("Identify CRLs"),
 		),
@@ -285,7 +303,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go findCrlWorker(&wg, metaChan, quitChan, resultChan, progressBar)
+		go ae.findCrlWorker(&wg, metaChan, quitChan, resultChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -313,7 +331,7 @@ func identifyCrlsByIssuer(display *mpb.Progress, mozissuers *rootprogram.MozIssu
 	return mergedCrls
 }
 
-func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigChan <-chan os.Signal) (<-chan types.IssuerCrlPaths, int64) {
+func (ae *AggregateEngine) downloadCRLs(issuerToUrls types.IssuerCrlMap, sigChan <-chan os.Signal) (<-chan types.IssuerCrlPaths, int64) {
 	var wg sync.WaitGroup
 
 	// Exit signal, used by signals from the OS
@@ -335,7 +353,7 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 
 		if len(urls) > 0 {
 			crlChan <- types.IssuerCrlUrls{
-				Issuer: issuer,
+				Issuer: storage.NewIssuerFromString(issuer),
 				Urls:   urls,
 			}
 			count = count + 1
@@ -343,7 +361,7 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 	}
 	close(crlChan)
 
-	progressBar := display.AddBar(count,
+	progressBar := ae.display.AddBar(count,
 		mpb.PrependDecorators(
 			decor.Name("Download CRLs"),
 		),
@@ -360,7 +378,7 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go crlFetchWorker(&wg, display, crlChan, quitChan, resultChan, progressBar)
+		go ae.crlFetchWorker(&wg, crlChan, quitChan, resultChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -382,13 +400,13 @@ func downloadCRLs(display *mpb.Progress, issuerToUrls types.IssuerCrlMap, sigCha
 	return resultChan, count
 }
 
-func aggregateCRLs(display *mpb.Progress, mozIssuers *rootprogram.MozIssuers, count int64, crlPaths <-chan types.IssuerCrlPaths, outPath string, sigChan <-chan os.Signal) {
+func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.IssuerCrlPaths, outPath string, sigChan <-chan os.Signal) {
 	var wg sync.WaitGroup
 
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
-	progressBar := display.AddBar(count,
+	progressBar := ae.display.AddBar(count,
 		mpb.PrependDecorators(
 			decor.Name("Aggregate CRLs"),
 		),
@@ -403,7 +421,7 @@ func aggregateCRLs(display *mpb.Progress, mozIssuers *rootprogram.MozIssuers, co
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go aggregateCRLWorker(&wg, mozIssuers, outPath, crlPaths, quitChan, progressBar)
+		go ae.aggregateCRLWorker(&wg, outPath, crlPaths, quitChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -424,17 +442,9 @@ func aggregateCRLs(display *mpb.Progress, mozIssuers *rootprogram.MozIssuers, co
 }
 
 func main() {
-	var err error
-	var storageDB storage.CertDatabase
-	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		glog.Infof("Opening disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewDiskDatabase(*ctconfig.CacheSize, *ctconfig.CertPath, permMode)
-		if err != nil {
-			glog.Fatalf("Unable to open Certificate Path: %s: %s", *ctconfig.CertPath, err)
-		}
-	}
+	storageDB, backend := engine.GetConfiguredStorage(ctconfig)
 
-	if storageDB == nil || *outpath == "<path>" || *crlpath == "<path>" {
+	if *outpath == "<path>" || *crlpath == "<path>" {
 		ctconfig.Usage()
 		os.Exit(2)
 	}
@@ -446,6 +456,7 @@ func main() {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
 
+	var err error
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
 		err = mozIssuers.LoadFromDisk(*inccadb)
@@ -464,14 +475,21 @@ func main() {
 
 	display := mpb.New()
 
-	mergedCrls := identifyCrlsByIssuer(display, mozIssuers, storageDB, sigChan)
+	ae := AggregateEngine{
+		storageDB: storageDB,
+		backend:   backend,
+		issuers:   mozIssuers,
+		display:   display,
+	}
+
+	mergedCrls := ae.identifyCrlsByIssuer(sigChan)
 	if mergedCrls == nil {
 		return
 	}
 
-	crlPaths, count := downloadCRLs(display, mergedCrls, sigChan)
+	crlPaths, count := ae.downloadCRLs(mergedCrls, sigChan)
 
-	aggregateCRLs(display, mozIssuers, count, crlPaths, *outpath, sigChan)
+	ae.aggregateCRLs(count, crlPaths, *outpath, sigChan)
 	issuersPath := filepath.Join(*outpath, "knownIssuers.json")
 	if err = mozIssuers.SaveIssuersList(issuersPath); err != nil {
 		glog.Fatalf("Unable to save the crlite-informed intermediate issuers: %s", err)

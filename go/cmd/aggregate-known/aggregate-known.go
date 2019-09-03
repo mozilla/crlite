@@ -2,16 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
+	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb"
@@ -30,72 +29,66 @@ var (
 )
 
 type knownWorkUnit struct {
-	issuer   string
+	issuer   storage.Issuer
 	expDates []string
 }
 
-func knownWorker(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-chan struct{}, storageDB storage.CertDatabase, progBar *mpb.Bar) {
+type knownWorker struct {
+	loadStorage storage.StorageBackend
+	saveStorage storage.StorageBackend
+	progBar     *mpb.Bar
+}
+
+func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-chan struct{}) {
 	defer wg.Done()
 
 	lastTime := time.Now()
 
 	for tuple := range workChan {
-		aggKnownPath := filepath.Join(*outpath, fmt.Sprintf("%s.known", tuple.issuer))
-
-		aggKnownCerts := storage.NewKnownCertificates(aggKnownPath, permMode)
+		aggKnownCerts := storage.NewKnownCertificates("known", tuple.issuer, kw.saveStorage)
 		// TODO: Track differences
-		// if err := aggKnownCerts.Load(); err != nil {
-		// 	glog.Infof("Making new known storage file %s", aggKnownPath)
-		// }
 
 		for _, expDate := range tuple.expDates {
 			select {
 			case <-quitChan:
 				if err := aggKnownCerts.Save(); err != nil {
-					glog.Fatalf("[%s] Could not save known certificates file: %s", aggKnownPath, err)
+					glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 				}
 				return
 			default:
-				known := storage.GetKnownCertificates(*ctconfig.CertPath, expDate, tuple.issuer, permMode)
+				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.loadStorage)
 				if err := known.Load(); err != nil {
-					glog.Errorf("[%s] Could not load known certificates : %s", filepath.Join(*ctconfig.CertPath, expDate, tuple.issuer), err)
+					glog.Errorf("[%s] Could not load known certificates : %s", tuple.issuer.ID(), err)
 				}
 
 				if err := aggKnownCerts.Merge(known); err != nil {
-					glog.Errorf("[%s] Could not merge known certificates : %s", filepath.Join(*ctconfig.CertPath, expDate, tuple.issuer), err)
+					glog.Errorf("[%s] Could not merge known certificates : %s", tuple.issuer.ID(), err)
 				}
 
-				progBar.IncrBy(1, time.Since(lastTime))
+				kw.progBar.IncrBy(1, time.Since(lastTime))
 				lastTime = time.Now()
 			}
 		}
 
 		if err := aggKnownCerts.Save(); err != nil {
-			glog.Fatalf("[%s] Could not save known certificates file: %s", aggKnownPath, err)
+			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 	}
 
 }
 
 func main() {
-	var err error
-	var storageDB storage.CertDatabase
-	if ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0 {
-		glog.Infof("Opening disk at %s", *ctconfig.CertPath)
-		storageDB, err = storage.NewDiskDatabase(*ctconfig.NumThreads, *ctconfig.CertPath, permMode)
-		if err != nil {
-			glog.Fatalf("unable to open Certificate Path: %s: %s", *ctconfig.CertPath, err)
-		}
-	}
+	storageDB, loadBackend := engine.GetConfiguredStorage(ctconfig)
 
-	if storageDB == nil || *outpath == "<dir>" {
-		ctconfig.Usage()
-		os.Exit(2)
+	if *outpath == "<dir>" {
+		glog.Fatalf("You must set an output directory")
 	}
 
 	if err := os.MkdirAll(*outpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the output directory: %s", err)
 	}
+
+	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
@@ -138,15 +131,15 @@ func main() {
 				continue
 			}
 
-			glog.V(1).Infof("%s/%s", expDate, issuer)
+			glog.V(1).Infof("%s/%s", expDate, issuer.ID())
 			count = count + 1
 
-			wu, ok := issuerToWorkUnit[issuer]
+			wu, ok := issuerToWorkUnit[issuer.ID()]
 			if !ok {
 				wu = knownWorkUnit{issuer: issuer}
 			}
 			wu.expDates = append(wu.expDates, expDate)
-			issuerToWorkUnit[issuer] = wu
+			issuerToWorkUnit[issuer.ID()] = wu
 		}
 	}
 
@@ -176,7 +169,12 @@ func main() {
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go knownWorker(&wg, workChan, quitChan, storageDB, progressBar)
+		worker := knownWorker{
+			loadStorage: loadBackend,
+			saveStorage: saveBackend,
+			progBar:     progressBar,
+		}
+		go worker.run(&wg, workChan, quitChan)
 	}
 
 	// Set up a notifier for the workers closing
