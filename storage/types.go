@@ -125,9 +125,12 @@ func NewSerial(aCert *x509.Certificate) Serial {
 	if err != nil {
 		panic(err)
 	}
+	return NewSerialFromBytes(tbsCert.SerialNumber.Bytes)
+}
 
+func NewSerialFromBytes(b []byte) Serial {
 	obj := Serial{
-		serial: tbsCert.SerialNumber.Bytes,
+		serial: b,
 	}
 	return obj
 }
