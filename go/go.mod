@@ -8,7 +8,7 @@ require (
 	github.com/google/go-cmp v0.3.1 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20190812055157-5d271430af9f // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
-	github.com/jcjones/ct-mapreduce v1.0.3-0.20190903182917-40115a4a70a0
+	github.com/jcjones/ct-mapreduce v1.0.3-0.20190903235541-10e70ab95b2b
 	github.com/mattn/go-isatty v0.0.9 // indirect
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect

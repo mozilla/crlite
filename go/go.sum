@@ -49,8 +49,8 @@ github.com/hashicorp/golang-lru v0.5.1 h1:0hERBMJE1eitiLkihrMvRVBYAkpHzc/J3QdDN+
 github.com/hashicorp/golang-lru v0.5.1/go.mod h1:/m3WP610KZHVQ1SGc6re/UDhFvYD7pJ4Ao+sR/qLZy8=
 github.com/hashicorp/golang-lru v0.5.3 h1:YPkqC67at8FYaadspW/6uE0COsBxS2656RLEr8Bppgk=
 github.com/hashicorp/golang-lru v0.5.3/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
-github.com/jcjones/ct-mapreduce v1.0.3-0.20190903182917-40115a4a70a0 h1:RCay0dmojFeA4Xu5E5cQJAbaPVVjU+gbM4+BaHDrNVk=
-github.com/jcjones/ct-mapreduce v1.0.3-0.20190903182917-40115a4a70a0/go.mod h1:H+mzUQsu9QoOsfcDHozRi4NSV0n6ASesoAeq8w6izqE=
+github.com/jcjones/ct-mapreduce v1.0.3-0.20190903235541-10e70ab95b2b h1:mmfnjARHz5rVCyWThiULPiV9jz9TxY7yrLVxoj1F3IA=
+github.com/jcjones/ct-mapreduce v1.0.3-0.20190903235541-10e70ab95b2b/go.mod h1:H+mzUQsu9QoOsfcDHozRi4NSV0n6ASesoAeq8w6izqE=
 github.com/jpillora/backoff v0.0.0-20170918002102-8eab2debe79d/go.mod h1:2iMrUgbbvHEiQClaW2NsSzMyGHqN+rDFqY705q49KG0=
 github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1:6v2b51hI/fHJwM22ozAgKL4VKDeJcHhJFhtBdhmNjmU=
 github.com/jtolds/gls v4.2.1+incompatible h1:fSuqC+Gmlu6l/ZYAoZzx2pyucC8Xza35fpRVWLVmUEE=
