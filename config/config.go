@@ -159,13 +159,13 @@ func NewCTConfig() *CTConfig {
 	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(ret.CertPath, section, "certPath", "")
 	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
-	confUint64(ret.OutputRefreshMs, section, "output_refresh_ms", 125)
+	confUint64(ret.OutputRefreshMs, section, "outputRefreshMs", 125)
 
 	// Finally, CLI flags override
 	flag.Uint64Var(ret.Offset, "offset", *ret.Offset, "offset from the beginning")
 	flag.Uint64Var(ret.Limit, "limit", *ret.Limit, "limit processing to this many entries")
 	flag.BoolVar(ret.RunForever, "forever", *ret.RunForever, "poll for updates forever")
-	flag.Uint64Var(ret.OutputRefreshMs, "output_refresh_ms", *ret.OutputRefreshMs, "Speed for refreshing progress")
+	flag.Uint64Var(ret.OutputRefreshMs, "outputRefreshMs", *ret.OutputRefreshMs, "Speed for refreshing progress")
 
 	return &ret
 }
@@ -187,4 +187,5 @@ func (c *CTConfig) Usage() {
 	fmt.Println("numThreads = Use this many threads for database insertions")
 	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
+	fmt.Println("outputRefreshMs = Milliseconds between output publications")
 }
