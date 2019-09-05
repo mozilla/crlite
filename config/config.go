@@ -7,9 +7,12 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
+	"os/user"
+	"strconv"
+
 	"github.com/golang/glog"
 	"gopkg.in/ini.v1"
-	"os/user"
 )
 
 type CTConfig struct {
@@ -28,57 +31,155 @@ type CTConfig struct {
 	Config             *string
 }
 
+func confInt(p *int, section *ini.Section, key string, def int) {
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Int()
+			if err != nil {
+				*p = v
+			}
+		}
+	}
+	val, ok := os.LookupEnv(key)
+	if ok {
+		i, err := strconv.ParseInt(val, 10, 32)
+		if err == nil {
+			*p = int(i)
+		}
+	}
+}
+
+func confUint64(p *uint64, section *ini.Section, key string, def uint64) {
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Uint64()
+			if err != nil {
+				*p = v
+			}
+		}
+	}
+	val, ok := os.LookupEnv(key)
+	if ok {
+		u, err := strconv.ParseUint(val, 10, 64)
+		if err == nil {
+			*p = u
+		}
+	}
+}
+
+func confBool(p *bool, section *ini.Section, key string, def bool) {
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Bool()
+			if err != nil {
+				*p = v
+			}
+		}
+	}
+	val, ok := os.LookupEnv(key)
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			*p = b
+		}
+	}
+}
+
+func confString(p *string, section *ini.Section, key string, def string) {
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			*p = k.String()
+		}
+	}
+	val, ok := os.LookupEnv(key)
+	if ok {
+		*p = val
+	}
+}
+
 func NewCTConfig() *CTConfig {
-	userObj, err := user.Current()
-	confFile := ".ct-fetch.ini"
-	if err == nil {
-		confFile = fmt.Sprintf("%s/.ct-fetch.ini", userObj.HomeDir)
+	flag.Parse()
+
+	var confFile string
+	flag.StringVar(&confFile, "config", "", "configuration .ini file")
+	if len(confFile) == 0 {
+		userObj, err := user.Current()
+		if err == nil {
+			defPath := fmt.Sprintf("%s/.ct-fetch.ini", userObj.HomeDir)
+			if _, err := os.Stat(defPath); err == nil {
+				confFile = defPath
+			}
+		}
 	}
 
-	ret := &CTConfig{
-		Offset:             flag.Uint64("offset", 0, "offset from the beginning"),
-		Limit:              flag.Uint64("limit", 0, "limit processing to this many entries"),
-		Config:             flag.String("config", confFile, "configuration .ini file"),
+	ret := CTConfig{
+		Offset:             new(uint64),
+		Limit:              new(uint64),
 		LogUrlList:         new(string),
 		NumThreads:         new(int),
 		CacheSize:          new(int),
 		LogExpiredEntries:  new(bool),
-		RunForever:         flag.Bool("forever", false, "poll for updates forever"),
+		RunForever:         new(bool),
 		PollingDelay:       new(int),
 		IssuerCNFilter:     new(string),
 		CertPath:           new(string),
 		FirestoreProjectId: new(string),
-		OutputRefreshMs:    flag.Uint64("output_refresh_ms", 125, "Speed for refreshing progress"),
-	}
-	flag.Parse()
-
-	cfg, err := ini.Load(*ret.Config)
-	if err == nil {
-		glog.Infof("Loaded config file from %s\n", *ret.Config)
-		*ret.LogUrlList = cfg.Section("").Key("logList").String()
-		*ret.NumThreads = cfg.Section("").Key("numThreads").MustInt(1)
-		*ret.CacheSize = cfg.Section("").Key("cacheSize").MustInt(64)
-		*ret.LogExpiredEntries = cfg.Section("").Key("logExpiredEntries").MustBool(false)
-		*ret.RunForever = cfg.Section("").Key("runForever").MustBool(false)
-		*ret.PollingDelay = cfg.Section("").Key("pollingDelay").MustInt(10)
-		*ret.IssuerCNFilter = cfg.Section("").Key("issuerCNFilter").String()
-		*ret.CertPath = cfg.Section("").Key("certPath").String()
-		*ret.FirestoreProjectId = cfg.Section("").Key("firestoreProjectId").String()
-	} else {
-		glog.Errorf("Could not load config file: %s\n", err)
+		OutputRefreshMs:    new(uint64),
 	}
 
-	return ret
+	// First, check the config file, which might have come from a CLI paramater
+	var section *ini.Section
+	if len(confFile) > 0 {
+		cfg, err := ini.Load(confFile)
+		if err == nil {
+			glog.Infof("Loaded config file from %s\n", confFile)
+			section = cfg.Section("")
+		} else {
+			glog.Errorf("Could not load config file: %s\n", err)
+		}
+	}
+
+	// Fill in values, where conf file < env vars
+	confUint64(ret.Offset, section, "offset", 0)
+	confUint64(ret.Limit, section, "limit", 0)
+	confString(ret.LogUrlList, section, "logList", "")
+	confInt(ret.NumThreads, section, "numThreads", 1)
+	confInt(ret.CacheSize, section, "cacheSize", 64)
+	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
+	confBool(ret.RunForever, section, "runForever", false)
+	confInt(ret.PollingDelay, section, "pollingDelay", 10)
+	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
+	confString(ret.CertPath, section, "certPath", "")
+	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
+	confUint64(ret.OutputRefreshMs, section, "output_refresh_ms", 125)
+
+	// Finally, CLI flags override
+	flag.Uint64Var(ret.Offset, "offset", *ret.Offset, "offset from the beginning")
+	flag.Uint64Var(ret.Limit, "limit", *ret.Limit, "limit processing to this many entries")
+	flag.BoolVar(ret.RunForever, "forever", *ret.RunForever, "poll for updates forever")
+	flag.Uint64Var(ret.OutputRefreshMs, "output_refresh_ms", *ret.OutputRefreshMs, "Speed for refreshing progress")
+
+	return &ret
 }
 
 func (c *CTConfig) Usage() {
 	flag.Usage()
 
 	fmt.Println("")
-	fmt.Println("Config file directives:")
+	fmt.Println("Environment variable or config file directives:")
 	fmt.Println("")
+	fmt.Println("Choose one backing store:")
 	fmt.Println("certPath = Path under which to store full DER-encoded certificates")
 	fmt.Println("firestoreProjectId = Google Cloud Platform Project ID")
+	fmt.Println("")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
 	fmt.Println("pollingDelay = Wait this many minutes between polls")
