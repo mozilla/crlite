@@ -46,10 +46,11 @@ var (
 )
 
 type AggregateEngine struct {
-	storageDB storage.CertDatabase
-	backend   storage.StorageBackend
-	issuers   *rootprogram.MozIssuers
-	display   *mpb.Progress
+	loadStorageDB storage.CertDatabase
+	saveStorage   storage.StorageBackend
+
+	issuers *rootprogram.MozIssuers
+	display *mpb.Progress
 }
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
@@ -76,7 +77,7 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 		case <-quitChan:
 			return
 		default:
-			meta, err := ae.storageDB.GetIssuerMetadata(tuple.ExpDate, tuple.Issuer)
+			meta, err := ae.loadStorageDB.GetIssuerMetadata(tuple.ExpDate, tuple.Issuer)
 			if err != nil {
 				glog.Errorf("Unexpected error getting issuer metadata: %+v: %v", tuple, err)
 				continue
@@ -206,10 +207,8 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 
 	for tuple := range workChan {
 		issuerEnrolled := false
-		revokedCerts, err := ae.storageDB.GetKnownCertificates("revoked", tuple.Issuer)
-		if err != nil {
-			glog.Infof("Making new revocation storage file %s", tuple.Issuer.ID())
-		}
+		// Always start with a fresh view.
+		revokedCerts := storage.NewKnownCertificates("revoked", tuple.Issuer, ae.saveStorage)
 
 		for _, crlPath := range tuple.CrlPaths {
 			select {
@@ -254,14 +253,14 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.
 
 	metaChan := make(chan types.MetadataTuple, 16*1024*1024)
 
-	expDates, err := ae.backend.ListExpirationDates(time.Now())
+	expDates, err := ae.loadStorageDB.ListExpirationDates(time.Now())
 	if err != nil {
 		glog.Fatalf("Could not list expiration dates: %s", err)
 	}
 
 	var count int64
 	for _, expDate := range expDates {
-		issuers, err := ae.backend.ListIssuersForExpirationDate(expDate)
+		issuers, err := ae.loadStorageDB.ListIssuersForExpirationDate(expDate)
 		if err != nil {
 			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
 		}
@@ -442,7 +441,7 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 }
 
 func main() {
-	storageDB, backend := engine.GetConfiguredStorage(ctconfig)
+	storageDB, _ := engine.GetConfiguredStorage(ctconfig)
 
 	if *outpath == "<path>" || *crlpath == "<path>" {
 		ctconfig.Usage()
@@ -455,6 +454,8 @@ func main() {
 	if err := os.MkdirAll(*crlpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
+
+	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
 
 	var err error
 	mozIssuers := rootprogram.NewMozillaIssuers()
@@ -476,10 +477,10 @@ func main() {
 	display := mpb.New()
 
 	ae := AggregateEngine{
-		storageDB: storageDB,
-		backend:   backend,
-		issuers:   mozIssuers,
-		display:   display,
+		loadStorageDB: storageDB,
+		saveStorage:   saveBackend,
+		issuers:       mozIssuers,
+		display:       display,
 	}
 
 	mergedCrls := ae.identifyCrlsByIssuer(sigChan)
