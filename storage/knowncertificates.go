@@ -137,6 +137,9 @@ func (kc *KnownCertificates) Merge(other *KnownCertificates) error {
 }
 
 func (kc *KnownCertificates) IsSorted() bool {
+	kc.mutex.Lock()
+	defer kc.mutex.Unlock()
+
 	if len(kc.known) > 1 {
 		for i := 1; i < len(kc.known); i++ {
 			if kc.known[i].Cmp(kc.known[i-1]) < 0 {

@@ -1,8 +1,9 @@
 package storage
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"testing"
 )
@@ -280,14 +281,14 @@ func BenchmarkMerge(b *testing.B) {
 	backend := NewMockBackend()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	b.StopTimer()
-
 	left := NewKnownCertificates("date", testIssuer, backend)
 	right := NewKnownCertificates("date", testIssuer, backend)
 
-	var i int64
-	for i = 0; i < 128*1024*1024; i++ {
-		serial := NewSerialFromHex(fmt.Sprintf("%X", i))
+	var i uint64
+	for i = 0; i < uint64(b.N); i++ {
+		buf := make([]byte, binary.Size(i))
+		binary.BigEndian.PutUint64(buf, i)
+		serial := NewSerialFromHex(hex.EncodeToString(buf))
 		if i%2 == 0 {
 			left.known = append(left.known, serial)
 		} else {
@@ -295,7 +296,7 @@ func BenchmarkMerge(b *testing.B) {
 		}
 	}
 
-	b.StartTimer()
+	b.ResetTimer()
 
 	err := left.Merge(right)
 	if err != nil {
