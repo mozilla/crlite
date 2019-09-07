@@ -1,9 +1,0 @@
-[Unit]
-Description=update CRLite data 4x per day
-
-[Timer]
-OnCalendar=*-*-* 00,06,12,18:01:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target

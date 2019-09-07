@@ -10,4 +10,4 @@ if [ ! -d ${1} ] ; then
   exit 1
 fi
 
-${crlite_bin:-~/go/bin}/aggregate-known -config ${crlite_config:-~/.ct-fetch.ini} -outpath ${1}/known -log_dir ${crlite_log:-/tmp}
+${crlite_bin:-~/go/bin}/aggregate-known -outpath ${1}/known -log_dir ${crlite_log:-/tmp}

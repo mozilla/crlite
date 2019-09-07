@@ -1,10 +1,17 @@
 #!/bin/bash -xe
 
+if [ "x${credentials_data}x" != "xx" ] ; then
+  echo "GOT ME SOME credentials_data FOR GOOGLE_APPLICATION_CREDENTIALS"
+  echo "${credentials_data}" | base64 --decode >> /tmp/credentials.json
+  export GOOGLE_APPLICATION_CREDENTIALS=/tmp/credentials.json
+fi
+
 workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 
 # TODO: renumber
-${workflow}/6-cleanup-expired-ct-folders --path ${crlite_ctdata:-/ct}
-${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
+# TODO: port to firestore
+#${workflow}/6-cleanup-expired-ct-folders --path ${crlite_ctdata:-/ct}
+#${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
 
 ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
 

@@ -14,11 +14,12 @@ if [ "${remaining}" != "" ] ; then
   echo "WARNING: There may still be running ct-fetch instances at these PIDs: ${remaining}"
 fi
 
-refresh_ms=${crlite_refresh_ms:-60000}
 
-cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -config ${crlite_config:-~/.ct-fetch.ini} -output_refresh_ms ${refresh_ms}"
+cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/"
+env
+
 echo "Starting ${cmd}..."
-echo "Expect ${refresh_ms} millisecond lag for initial output."
+echo "Expect ${outputRefreshMs} millisecond lag for initial output."
 
 if [ -x /usr/bin/time ] ; then
   /usr/bin/time ${cmd}

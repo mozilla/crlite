@@ -12,12 +12,9 @@ To run the whole tool:
 ```
 docker run --rm -it \
   --mount type=bind,source=/tmp/dockerlog,target=/var/log \
-  --mount type=bind,source=/Users/jcjones/ct/data,target=/ctdata \
-  --mount type=bind,source=/Users/jcjones/ct/config,target=/config,readonly \
   --mount type=bind,source=/Users/jcjones/ct/processing,target=/processing \
-  -e "crlite_refresh_ms=1000" \
-  -e "KINTO_AUTH_USER=user" \
-  -e "KINTO_AUTH_PASSWORD=secretString" \
+  -e "FIRESTORE_EMULATOR_HOST=10.0.0.115:8403" \
+  -e "outputRefreshMs=1000" \
   crlite:0.1
 ```
 

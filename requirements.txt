@@ -8,3 +8,4 @@ pybloom-live==2.3.2
 pyOpenSSL>=17.5
 python-decouple>=3.1
 requests[socks]>=2.10.0
+stopwatch.py>=1.0
