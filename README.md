@@ -36,6 +36,7 @@ runForever = false
 certPath = /ct
 # Or use Google Cloud's Firestore
 firestoreProjectId = ctdata
+# But not both.
 
 EOF
 ```

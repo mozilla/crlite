@@ -106,10 +106,17 @@ func confString(p *string, section *ini.Section, key string, def string) {
 }
 
 func NewCTConfig() *CTConfig {
+	var confFile string
+	var flagOffset uint64
+	var flagLimit uint64
+	var flagOutputRefreshMs uint64
+	flag.StringVar(&confFile, "config", "", "configuration .ini file")
+	flag.Uint64Var(&flagOffset, "offset", 0, "offset from the beginning")
+	flag.Uint64Var(&flagLimit, "limit", 0, "limit processing to this many entries")
+	flag.Uint64Var(&flagOutputRefreshMs, "outputRefreshMs", 125, "Speed for refreshing progress")
+
 	flag.Parse()
 
-	var confFile string
-	flag.StringVar(&confFile, "config", "", "configuration .ini file")
 	if len(confFile) == 0 {
 		userObj, err := user.Current()
 		if err == nil {
@@ -162,10 +169,15 @@ func NewCTConfig() *CTConfig {
 	confUint64(ret.OutputRefreshMs, section, "outputRefreshMs", 125)
 
 	// Finally, CLI flags override
-	flag.Uint64Var(ret.Offset, "offset", *ret.Offset, "offset from the beginning")
-	flag.Uint64Var(ret.Limit, "limit", *ret.Limit, "limit processing to this many entries")
-	flag.BoolVar(ret.RunForever, "forever", *ret.RunForever, "poll for updates forever")
-	flag.Uint64Var(ret.OutputRefreshMs, "outputRefreshMs", *ret.OutputRefreshMs, "Speed for refreshing progress")
+	if flagOffset > 0 {
+		*ret.Offset = flagOffset
+	}
+	if flagLimit > 0 {
+		*ret.Limit = flagLimit
+	}
+	if flagOutputRefreshMs != 125 {
+		*ret.OutputRefreshMs = flagOutputRefreshMs
+	}
 
 	return &ret
 }

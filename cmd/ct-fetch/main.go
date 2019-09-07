@@ -92,9 +92,9 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 	twg := new(sync.WaitGroup)
 
-	refreshDur := time.Duration(*ctconfig.OutputRefreshMs) * time.Millisecond
+	refreshDur := time.Duration(int64(*ctconfig.OutputRefreshMs)) * time.Millisecond
 
-	glog.Infof("Progress bar refresh rate is every %v.\n", refreshDur)
+	glog.Infof("Progress bar refresh rate %d is every %s.\n", *ctconfig.OutputRefreshMs, refreshDur.String())
 
 	display := mpb.New(
 		mpb.WithWaitGroup(twg),
