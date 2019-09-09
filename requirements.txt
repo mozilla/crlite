@@ -1,5 +1,6 @@
 bsdiff4>=1.1
 cryptography>=2.2
+dbx-stopwatch>=1.5
 filtercascade>=0.1.3
 glog>=0.3
 kinto-http>=9.1
@@ -8,4 +9,3 @@ pybloom-live==2.3.2
 pyOpenSSL>=17.5
 python-decouple>=3.1
 requests[socks]>=2.10.0
-stopwatch.py>=1.0

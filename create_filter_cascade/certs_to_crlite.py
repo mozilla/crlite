@@ -51,7 +51,7 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
             knownpath = os.path.join(path, filename)
             knownlist = getCertList(knownpath, aki)
             # Get revoked serials for AKI, if any
-            revokedpath = os.path.join(args.revokedPath, "%s.revoked" % aki)
+            revokedpath = os.path.join(args.revokedPath, "%s.known" % aki)
             revlist = getCertList(revokedpath, aki)
             if knownlist is None or revlist is None:
                 # Skip AKI. No revocations for this AKI.  Not even empty list.
@@ -86,7 +86,7 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
                     log.debug("Only revoked certs for AKI {}".format(aki))
                     counts['crls'] = counts['crls'] + len(revlist)
                     revoked_certs.extend(revlist)
-    log.debug("R: %d KNR: %d KR: %d NOCRL: %d" %
+    log.debug("CRL Revocations: %d KNR: %d KR: %d NOCRL: %d" %
               (counts['crls'], counts['knownnotrevoked'],
                counts['knownrevoked'], counts['nocrl']))
 
