@@ -2,19 +2,20 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import json
-import os
-import sys
 import argparse
+import base64
 import bsdiff4
+import json
 import logging
+import os
 import stopwatch
+import sys
 from filtercascade import FilterCascade
 
 sw = stopwatch.StopWatch()
 
 
-def getCertList(certpath, aki):
+def getCertList(certpath, issuer):
     certlist = None
     if os.path.isfile(certpath):
         with open(certpath, "r") as f:
@@ -22,11 +23,14 @@ def getCertList(certpath, aki):
                 serials = json.load(f)
                 certlist = set()
                 for s in serials:
-                    certlist.add(aki + str(s))
+                    key = base64.urlsafe_b64decode(
+                            issuer) + base64.urlsafe_b64decode(s)
+                    certlist.add(key)
             except Exception as e:
+                breakpoint()
                 log.debug("{}".format(e))
                 log.error("Failed to load certs for {} from {}".format(
-                    aki, certpath))
+                    issuer, certpath))
     return certlist
 
 
@@ -39,54 +43,54 @@ def genCertLists(args, *, revoked_certs, nonrevoked_certs):
     log.info("Generating revoked/nonrevoked list {known} {revoked}".format(
         known=args.knownPath, revoked=args.revokedPath))
 
-    processedAKIs = set()
-    # Go through known AKIs/serials
+    processedIssuers = set()
+    # Go through known issuers/serials
     # generate a revoked/nonrevoked master list
     for path, dirs, files in os.walk(args.knownPath):
         for filename in files:
-            aki = os.path.splitext(filename)[0]
-            if aki in args.excludeaki:
+            issuer = os.path.splitext(filename)[0]
+            if issuer in args.excludeIssuer:
                 continue
-            # Get known serials for AKI
+            # Get known serials for the issuer
             knownpath = os.path.join(path, filename)
-            knownlist = getCertList(knownpath, aki)
-            # Get revoked serials for AKI, if any
-            revokedpath = os.path.join(args.revokedPath, "%s.known" % aki)
-            revlist = getCertList(revokedpath, aki)
+            knownlist = getCertList(knownpath, issuer)
+            # Get revoked serials for issuer, if any
+            revokedpath = os.path.join(args.revokedPath, "%s.known" % issuer)
+            revlist = getCertList(revokedpath, issuer)
             if knownlist is None or revlist is None:
-                # Skip AKI. No revocations for this AKI.  Not even empty list.
+                # Skip issuer. No revocations for this issuer.  Not even empty list.
                 counts['nocrl'] = counts['nocrl'] + 1
                 continue
-            processedAKIs.add(aki)
+            knownSet = set(knownlist)
+            revSet = set(revlist)
+            knownRevSet = knownSet & revSet
+            processedIssuers.add(issuer)
             counts['crls'] = counts['crls'] + len(revlist)
-            revoked_certs.extend(revlist)
+            counts['knownrevoked'] = counts['knownrevoked'] + len(knownRevSet)
+            revoked_certs.extend(knownRevSet)
             # Decide if know serial is revoked or valid
-            for key in knownlist:
-                if key not in revlist:
+            for key in knownSet:
+                if key not in revSet:
                     nonrevoked_certs.append(key)
                     counts['knownnotrevoked'] = counts['knownnotrevoked'] + 1
-                else:
-                    # The revoked keys were already processed above.
-                    # Just count it here.
-                    counts['knownrevoked'] = counts['knownrevoked'] + 1
 
-    # Go through revoked AKIs and process any that were not part of known AKIs
+    # Go through revoked issuers and process any that were not part of known issuers
     for path, dirs, files in os.walk(args.revokedPath):
         for filename in files:
-            aki = os.path.splitext(filename)[0]
-            if aki in args.excludeaki:
+            issuer = os.path.splitext(filename)[0]
+            if issuer in args.excludeIssuer:
                 continue
-            if aki not in processedAKIs:
+            if issuer not in processedIssuers:
                 revokedpath = os.path.join(path, filename)
-                revlist = getCertList(revokedpath, aki)
+                revlist = getCertList(revokedpath, issuer)
                 if revlist is None:
-                    # Skip AKI. No revocations for this AKI.  Not even empty list.
+                    # Skip issuer. No revocations for this issuer.  Not even empty list.
                     counts['nocrl'] = counts['nocrl'] + 1
                 else:
-                    log.debug("Only revoked certs for AKI {}".format(aki))
+                    log.debug("Only revoked certs for Issuer {}".format(issuer))
                     counts['crls'] = counts['crls'] + len(revlist)
                     revoked_certs.extend(revlist)
-    log.debug("CRL Revocations: %d KNR: %d KR: %d NOCRL: %d" %
+    log.debug("CRL Revocations: %d KNR: %d KR: %d Issuers w/ no CRLs: %d" %
               (counts['crls'], counts['knownnotrevoked'],
                counts['knownrevoked'], counts['nocrl']))
 
@@ -99,9 +103,9 @@ def saveCertLists(args, *, revoked_certs, nonrevoked_certs):
     with open(args.revokedKeys, 'w') as revfile, open(args.validKeys,
                                                       'w') as nonrevfile:
         for k in revoked_certs:
-            revfile.write("%s\n" % k)
+            revfile.write("%s\n" % base64.standard_b64encode(k).decode("utf-8"))
         for k in nonrevoked_certs:
-            nonrevfile.write("%s\n" % k)
+            nonrevfile.write("%s\n" % base64.standard_b64encode(k).decode("utf-8"))
 
 
 def loadCertLists(args, *, revoked_certs, nonrevoked_certs):
@@ -111,10 +115,10 @@ def loadCertLists(args, *, revoked_certs, nonrevoked_certs):
     revoked_certs.clear()
     with open(args.revokedKeys, 'r') as file:
         for line in file:
-            revoked_certs.append(line[:-1])
+            revoked_certs.append(base64.standard_b64decode(line[:-1].encode("utf-8")))
     with open(args.validKeys, 'r') as file:
         for line in file:
-            nonrevoked_certs.append(line[:-1])
+            nonrevoked_certs.append(base64.standard_b64decode(line[:-1].encode("utf-8")))
 
 
 def generateMLBF(args, *, revoked_certs, nonrevoked_certs):
@@ -178,11 +182,11 @@ def parseArgs(argv):
         default="/ct/processing")
     parser.add_argument(
         "-knownPath",
-        help="Directory containing known unexpired serials.  <AKI>.known JSON files."
+        help="Directory containing known unexpired serials. Like ID/known/"
     )
     parser.add_argument(
         "-revokedPath",
-        help="Directory containing known revoked serials.  <AKI>.revoked JSON files."
+        help="Directory containing known revoked serials, like ID/revoked/"
     )
     parser.add_argument(
         "-errorrate",
@@ -193,12 +197,12 @@ def parseArgs(argv):
     parser.add_argument(
         "-capacity", type=float, default="1.1", help="MLBF capacity.")
     parser.add_argument(
-        "-excludeaki",
+        "-excludeIssuer",
         nargs="*",
         default=[],
-        help="Exclude the specified AKIs")
+        help="Exclude the specified Issuers")
     parser.add_argument(
-        "-cachekeys",
+        "-cacheKeys",
         help="Save revoked/non-revoked sorted certs to file or load from file if it exists.",
         action="store_true")
     parser.add_argument(
@@ -227,7 +231,7 @@ def main():
 
     sw.start('crlite')
     sw.start('certs')
-    if args.cachekeys is True and os.path.isfile(
+    if args.cacheKeys is True and os.path.isfile(
             args.revokedKeys) and os.path.isfile(args.validKeys):
         loadCertLists(
             args,
@@ -238,7 +242,7 @@ def main():
             args,
             revoked_certs=revoked_certs,
             nonrevoked_certs=nonrevoked_certs)
-        if args.cachekeys is True:
+        if args.cacheKeys is True:
             saveCertLists(
                 args,
                 revoked_certs=revoked_certs,
