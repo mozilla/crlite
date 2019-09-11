@@ -307,7 +307,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	ctx := context.Background()
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 	defer close(sigChan)
 
@@ -344,7 +344,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			// Are there waiting signals?
 			select {
 			case sig := <-sigChan:
-				glog.V(1).Infof("[%s] Signal caught: %s", lw.LogURL, sig)
+				glog.Infof("[%s] Signal caught: %s", lw.LogURL, sig)
 				return index, lastTime, nil
 			case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
 				lastTime = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
@@ -395,7 +395,7 @@ func main() {
 				defer syncEngine.DownloaderWaitGroup.Done()
 
 				sigChan := make(chan os.Signal, 1)
-				signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
+				signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 				defer signal.Stop(sigChan)
 				defer close(sigChan)
 
@@ -416,7 +416,7 @@ func main() {
 
 					select {
 					case <-sigChan:
-						glog.Infof("[%s] Signal caught.", urlString)
+						glog.Infof("[%s] Signal caught. Exiting.", urlString)
 						return
 					case <-time.After(sleepTime):
 						continue
