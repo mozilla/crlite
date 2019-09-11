@@ -82,7 +82,7 @@ func (db *FirestoreBackend) StoreCertificatePEM(serial Serial, expDate string, i
 	})
 
 	if err != nil && status.Code(err) == codes.AlreadyExists {
-		glog.Warningf("Attempted to write a colliding document id=%s len=%d", id, len(b))
+		glog.V(1).Infof("Attempted to write a colliding document id=%s len=%d", id, len(b))
 		return nil
 	}
 
