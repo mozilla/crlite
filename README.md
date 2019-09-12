@@ -18,36 +18,101 @@ go install -u github.com/jcjones/ct-mapreduce/cmd/ct-fetch
 go install -u github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-crls
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-known
-go install -u github.com/mozilla/crlite/go/cmd/get-mozilla-issuers
 
-pip3 install -r requirements.txt
+pipenv install
 ```
 
 ### Configuration
 
-Configure a `~/.ct-fetch.ini`
+You can configure via a config file, or use environment variables.
+
+To use a configuration file,  `~/.ct-fetch.ini` (or any file selected on the CLI using `-config`), construct it as so:
+
 ```
 certPath = /ct
 numThreads = 16
-cacheSize = 2048
+cacheSize = 128
 ```
 
-Be sure to add the list of CT logs you wish to fetch. To get all current ones from
+
+#### Parameters
+
+You'll want to set a collection of configuration parameters:
+
+* `runForever` [true/false]
+* `logExpiredEntries` [true/false]
+* `numThreads` 16
+* `cacheSize` [number of cache entries. An individual entry contains an issuer-day's worth of serial numbers, which could be as much as 64 MB of RAM, but is generally closer to 1 MB.]
+* `outputRefreshMs` [milliseconds]
+
+The log list is all the logs you want to sync, comma separated, as URLs:
+* `logList` https://ct.googleapis.com/icarus, https://oak.ct.letsencrypt.org/2021/
+
+To get all current ones from
 [certificate-transparency.org](https://certificate-transparency.org/):
 ```
 echo "logList = $(setup/list_all_active_ct_logs)" >> ~/.ct-fetch.ini
 ```
 
+If running forever, set the delay on polling for new updates, per log. This will have some jitter added:
+* `pollingDelay` [minutes]
+
+If not running forever, you can give limits or slice up CT log data:
+* `limit` [uint]
+* `offset` [uint]
+
+Then choose either local storage or Firestore cloud storage by setting either
+* `firestoreProjectId` [project ID string]
+* `certPath` [path string]
+
+If you set `firestoreProjectId`, then choose a firestore instance type:
+* `GOOGLE_APPLICATION_CREDENTIALS` [base64-encoded string of the service credentials JSON]
+* `FIRESTORE_EMULATOR_HOST` [host]:[port]
+
+If you need to proxy the connection, perhaps via SSH, set the `HTTPS_PROXY` to something like `socks5://localhost:32547/"` as well.
+
 ## General Operation
 
-Run the scripts in [`workflow/`](https://github.com/mozilla/crlite/tree/master/workflow)
-in order, each time step desired.
+[`system/crlite-fullrun`](https://github.com/mozilla/crlite/tree/master/system/crlite-fullrun) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables. Generally, this is run from a Docker container.
+
+That script ultimately runs the scripts in [`workflow/`](https://github.com/mozilla/crlite/tree/master/workflow), in order. They can be run independently for fine control.
+
+## Running from a Docker Container
+
+To construct a container, see [`containers/README.md`](https://github.com/mozilla/crlite/tree/master/containers/README.md).
+
+To run with Firestore locally, you'll need the `gcloud` Google Cloud utility's Firestore emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
+
+```
+gcloud beta emulators firestore start --host-port="my_ip_address:8403"
+```
+
+
+```
+docker run --rm -it \
+  -e "FIRESTORE_EMULATOR_HOST=my_ip_address:8403" \
+  -e "outputRefreshMs=1000" \
+  crlite:0.1
+```
+
+To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
+```
+docker run --rm -it \
+  -e "certPath=/ctdata" \
+  -e "outputRefreshMs=1000" \
+  --mount type=bind,src=/tmp/ctlite_data,dst=/ctdata \
+  --mount type=bind,src=/tmp/crlite_results,dst=/processing \
+  crlite:0.1
+```
+
+
+To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work.
+
 
 ## Tools
 
 *`ct-fetch`*
-Downloads all CT entries' certificates to `certPath` and collects their metadata. The results are
-collated into `*certPath config*/*expiration date*/*issuer SKI base64*.pem{.known/.meta}`
+Downloads all CT entries' certificates to a Firestore instance and collects their metadata.
 
 *`reprocess-known-certs`*
 Reprocesses all `.pem` files to update the `.pem.meta` and `.pem.known` files. Needed if there's
@@ -60,10 +125,6 @@ into `*issuer SKI base64*.revoked` files.
 *`aggregate-known`*
 Collates all CT entries' unexpired certificates into `*issuer SKI base64*.known` files.
 
-*`get-mozilla-issuers`*
-Produces a JSON-formatted list of all `*issuer SKI base64*` identifiers in the Mozilla root program.
-The `aggregate-crls` and `aggregate-known` tools use that information, it can also be useful for
-other scripts, hence this utility.
 
 ## Credits
 

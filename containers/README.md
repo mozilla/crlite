@@ -7,19 +7,22 @@ Basic build:
 docker build -t crlite:0.1 .. -f Dockerfile
 ```
 
-To run the whole tool:
+To run the whole tool, you'll need an emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
+
+```
+gcloud beta emulators firestore start --host-port="ip:8403"
+```
+
+Then you can execute the docker container, setting any environment vars you want:
 
 ```
 docker run --rm -it \
-  --mount type=bind,source=/tmp/dockerlog,target=/var/log \
-  --mount type=bind,source=/Users/jcjones/ct/processing,target=/processing \
   -e "FIRESTORE_EMULATOR_HOST=10.0.0.115:8403" \
   -e "outputRefreshMs=1000" \
   crlite:0.1
 ```
 
-If you need to proxy the connection, set the `HTTPS_PROXY` like  `-e "HTTPS_PROXY=socks5://localhost:32547/"` as well.
-
+See the Running section for more environment variables.
 
 # Remote via Google Cloud:
 
@@ -30,10 +33,4 @@ Basic build:
 ```
 gcloud config set project crlite-beta
 gcloud builds submit --config containers/cloudbuild.yaml ..
-```
-
-
-# Kubernetes
-
-```
 ```
