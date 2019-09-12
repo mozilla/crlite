@@ -38,10 +38,15 @@ COPY kinto-publisher /app/kinto-publisher
 COPY system /app/system
 COPY workflow /app/workflow
 
+ENV TINI_VERSION v0.18.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+ENTRYPOINT ["/tini", "--"]
+
 USER appuser
 WORKDIR /app
 
-CMD /app/system/crlite-fullrun
+CMD [ "/bin/bash", "-xc", "/app/system/crlite-fullrun" ]
 
 ENV firestoreProjectId crlite-beta
 ENV runForever false
