@@ -12,13 +12,15 @@ func makeLocalDiskHarness(t *testing.T) *LocalDiskTestHarness {
 		t.Fatal(err)
 	}
 	db := NewLocalDiskBackend(0644, rootFolder)
-	return &LocalDiskTestHarness{t, rootFolder, db}
+	cache := NewMockRemoteCache()
+	return &LocalDiskTestHarness{t, rootFolder, db, cache}
 }
 
 type LocalDiskTestHarness struct {
-	t    *testing.T
-	root string
-	db   StorageBackend
+	t     *testing.T
+	root  string
+	db    StorageBackend
+	cache RemoteCache
 }
 
 func (h *LocalDiskTestHarness) Remove(id string) {
@@ -49,12 +51,6 @@ func Test_LocalDiskLogState(t *testing.T) {
 	h := makeLocalDiskHarness(t)
 	defer h.cleanup()
 	BackendTestLogState(t, h.db)
-}
-
-func Test_LocalDiskKnownCertificates(t *testing.T) {
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-	BackendTestKnownCertificates(t, h.db)
 }
 
 func Test_LocalDiskIssuerMetadata(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/storage"
 )
 
-func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, storage.StorageBackend) {
+func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache, storage.StorageBackend) {
 	var err error
 	var storageDB storage.CertDatabase
 	var backend storage.StorageBackend
@@ -23,6 +23,11 @@ func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, stor
 
 	if hasLocalDiskConfig && hasFirestoreConfig {
 		glog.Fatal("Local Disk and Firestore configurations both found. Exiting.")
+	}
+
+	remoteCache, err := storage.NewRedisCache(*ctconfig.RedisHost)
+	if err != nil {
+		glog.Fatalf("Unable to configure Redis cache for host %v", *ctconfig.RedisHost)
 	}
 
 	if hasLocalDiskConfig {
@@ -43,7 +48,7 @@ func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, stor
 			glog.Fatalf("Unable to configure Firestore for %s: %v", *ctconfig.FirestoreProjectId, err)
 		}
 
-		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend)
+		storageDB, err = storage.NewFilesystemDatabase(*ctconfig.CacheSize, backend, remoteCache)
 		if err != nil {
 			glog.Fatalf("Unable to construct Firestore DB for %s: %v", *ctconfig.FirestoreProjectId, err)
 		}
@@ -54,5 +59,5 @@ func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, stor
 		os.Exit(2)
 	}
 
-	return storageDB, backend
+	return storageDB, remoteCache, backend
 }

@@ -14,6 +14,11 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 		Addr: addr,
 	})
 
+	statusr := rdb.Ping()
+	if statusr.Err() != nil {
+		return nil, statusr.Err()
+	}
+
 	return &RedisCache{rdb}, nil
 }
 

@@ -152,12 +152,6 @@ func Test_FirestoreLogState(t *testing.T) {
 	BackendTestLogState(t, h.be)
 }
 
-func Test_FirestoreKnownCertificates(t *testing.T) {
-	h := makeFirestoreHarness(t)
-	defer h.cleanup()
-	BackendTestKnownCertificates(t, h.be)
-}
-
 func Test_FirestoreIssuerMetadata(t *testing.T) {
 	h := makeFirestoreHarness(t)
 	defer h.cleanup()

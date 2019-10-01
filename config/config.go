@@ -19,6 +19,7 @@ type CTConfig struct {
 	LogUrlList         *string
 	CertPath           *string
 	FirestoreProjectId *string
+	RedisHost          *string
 	Offset             *uint64
 	Limit              *uint64
 	NumThreads         *int
@@ -139,6 +140,7 @@ func NewCTConfig() *CTConfig {
 		IssuerCNFilter:     new(string),
 		CertPath:           new(string),
 		FirestoreProjectId: new(string),
+		RedisHost:          new(string),
 		OutputRefreshMs:    new(uint64),
 	}
 
@@ -166,6 +168,7 @@ func NewCTConfig() *CTConfig {
 	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(ret.CertPath, section, "certPath", "")
 	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
+	confString(ret.RedisHost, section, "redisHost", "")
 	confUint64(ret.OutputRefreshMs, section, "outputRefreshMs", 125)
 
 	// Finally, CLI flags override
@@ -192,6 +195,9 @@ func (c *CTConfig) Usage() {
 	fmt.Println("certPath = Path under which to store full DER-encoded certificates")
 	fmt.Println("firestoreProjectId = Google Cloud Platform Project ID")
 	fmt.Println("")
+	fmt.Println("redisHost = address:port of the Redis instance")
+	fmt.Println("")
+	fmt.Println("Options:")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
 	fmt.Println("pollingDelay = Wait this many minutes between polls")

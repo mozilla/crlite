@@ -82,7 +82,7 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 }
 
 func main() {
-	storageDB, _ := engine.GetConfiguredStorage(ctconfig)
+	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
 	var wg sync.WaitGroup
 	workUnitsChan := make(chan metadataTuple, 16*1024*1024)

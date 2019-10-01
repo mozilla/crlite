@@ -25,9 +25,10 @@ type CacheEntry struct {
 	known   *KnownCertificates
 	meta    *IssuerMetadata
 	backend StorageBackend
+	cache   RemoteCache
 }
 
-func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend) (*CacheEntry, error) {
+func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, aCache RemoteCache) (*CacheEntry, error) {
 	obj := CacheEntry{
 		mutex:   &sync.Mutex{},
 		expDate: aExpDate,
@@ -35,6 +36,7 @@ func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend) 
 		known:   nil,
 		meta:    nil,
 		backend: aBackend,
+		cache:   aCache,
 	}
 	obj.load()
 
@@ -42,14 +44,10 @@ func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend) 
 }
 
 func (ce *CacheEntry) load() {
-	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.backend)
-	err := ce.known.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new known certificates file for %s:%s", ce.expDate, ce.issuer.ID())
-	}
+	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.cache)
 
 	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.backend)
-	err = ce.meta.Load()
+	err := ce.meta.Load()
 	if err != nil {
 		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", ce.expDate, ce.issuer.ID())
 	}
@@ -59,18 +57,17 @@ func (ce *CacheEntry) Close() error {
 	ce.mutex.Lock()
 	defer ce.mutex.Unlock()
 
-	errKnown := ce.known.Save()
-	errMeta := ce.meta.Save()
-	if errMeta != nil || errKnown != nil {
-		return fmt.Errorf("Error saving data: Known=%s Meta=%s", errKnown, errMeta)
+	if errMeta := ce.meta.Save(); errMeta != nil {
+		return fmt.Errorf("Error saving data: Meta=%s", errMeta)
 	}
 
 	return nil
 }
 
 type FilesystemDatabase struct {
-	backend StorageBackend
-	cache   gcache.Cache
+	backend  StorageBackend
+	extCache RemoteCache
+	cache    gcache.Cache
 }
 
 type cacheId struct {
@@ -78,7 +75,7 @@ type cacheId struct {
 	issuerStr string
 }
 
-func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend) (*FilesystemDatabase, error) {
+func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
 	cache := gcache.New(aCacheSize).ARC().
 		EvictedFunc(func(key, value interface{}) {
 			err := value.(*CacheEntry).Close()
@@ -93,12 +90,13 @@ func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend) (*Filesystem
 
 			cacheId := key.(cacheId)
 
-			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend)
+			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend, aExtCache)
 		}).Build()
 
 	db := &FilesystemDatabase{
-		backend: aBackend,
-		cache:   cache,
+		backend:  aBackend,
+		cache:    cache,
+		extCache: aExtCache,
 	}
 
 	return db, nil
@@ -199,8 +197,8 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 }
 
 func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issuer) (*KnownCertificates, error) {
-	kc := NewKnownCertificates(aExpDate, aIssuer, db.backend)
-	return kc, kc.Load()
+	kc := NewKnownCertificates(aExpDate, aIssuer, db.extCache)
+	return kc, nil
 }
 
 func (db *FilesystemDatabase) GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error) {

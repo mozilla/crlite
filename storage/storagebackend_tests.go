@@ -153,37 +153,6 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 	}
 }
 
-func BackendTestKnownCertificates(t *testing.T, db StorageBackend) {
-	testIssuer := NewIssuerFromString("test issuer")
-
-	{
-		k := NewKnownCertificates("date", testIssuer, db)
-		err := k.Load()
-		if err == nil {
-			t.Errorf("Should have failed to load an unknown Known Certificates file")
-		}
-
-		k.known = []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
-		err = k.Save()
-		if err != nil {
-			t.Errorf("Should have saved safely %v", err)
-		}
-	}
-
-	loaded := NewKnownCertificates("date", testIssuer, db)
-	if len(loaded.Known()) != 0 {
-		t.Errorf("Should have started empty")
-	}
-	err := loaded.Load()
-	if err != nil {
-		t.Errorf("Should have loaded safely %v", err)
-	}
-
-	if len(loaded.Known()) != 3 {
-		t.Errorf("Should have had 3 entries: %v", loaded.Known())
-	}
-}
-
 func BackendTestIssuerMetadata(t *testing.T, db StorageBackend) {
 	{
 		meta := NewIssuerMetadata("date", NewIssuerFromString("issuer"), db)

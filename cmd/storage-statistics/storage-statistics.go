@@ -20,7 +20,7 @@ var (
 )
 
 func main() {
-	storageDB, backend := engine.GetConfiguredStorage(ctconfig)
+	storageDB, _, backend := engine.GetConfiguredStorage(ctconfig)
 
 	expDateList, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {

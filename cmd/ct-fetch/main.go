@@ -361,7 +361,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 }
 
 func main() {
-	storageDB, _ := engine.GetConfiguredStorage(ctconfig)
+	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
 		glog.Infof("IssuerCNFilter is set, but unsupported")

@@ -26,6 +26,13 @@ func getRedisCache(tb testing.TB) *RedisCache {
 	return rc
 }
 
+func Test_RedisInvalidHost(t *testing.T) {
+	_, err := NewRedisCache("unknown_host:999999")
+	if err == nil {
+		t.Error("Should have failed to construct invalid redis cache host")
+	}
+}
+
 func Test_RedisInsertion(t *testing.T) {
 	rc := getRedisCache(t)
 	defer rc.client.Del("key")

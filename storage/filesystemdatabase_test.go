@@ -65,7 +65,8 @@ EA==
 
 func getTestHarness(t *testing.T) (StorageBackend, CertDatabase) {
 	mockBackend := NewMockBackend()
-	storageDB, err := NewFilesystemDatabase(1, mockBackend)
+	mockCache := NewMockRemoteCache()
+	storageDB, err := NewFilesystemDatabase(1, mockBackend, mockCache)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
@@ -234,37 +235,6 @@ func Test_LogState(t *testing.T) {
 	}
 	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
-	}
-}
-
-func Test_GetKnownCertificates(t *testing.T) {
-	mockBackend, storageDB := getTestHarness(t)
-	testIssuer := NewIssuerFromString("test issuer")
-
-	known, err := storageDB.GetKnownCertificates("2017-11-28", testIssuer)
-	if err == nil {
-		t.Error("Expected an error for an unknown issuer for that date")
-	}
-	if len(known.known) != 0 {
-		t.Fatal("For an unknown issuer, metadata should be empty")
-	}
-
-	someSerials := []Serial{NewSerialFromHex("00FF00FF")}
-
-	if err := mockBackend.StoreIssuerKnownSerials("2017-11-28", testIssuer, someSerials); err != nil {
-		t.Error(err)
-	}
-
-	known, err = storageDB.GetKnownCertificates("2017-11-28", testIssuer)
-	if err != nil {
-		t.Error(err)
-	}
-	if len(known.known) != 1 {
-		t.Errorf("Should be a single known serial")
-	}
-
-	if reflect.DeepEqual(someSerials, known.known) == false {
-		t.Errorf("Expect the CRLs to match: %+v", known)
 	}
 }
 
