@@ -21,7 +21,7 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *
 }
 
 func (kc *KnownCertificates) id() string {
-	return fmt.Sprintf("%s::%s", kc.expDate, kc.issuer.ID())
+	return fmt.Sprintf("kc::%s::%s", kc.expDate, kc.issuer.ID())
 }
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial

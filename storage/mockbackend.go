@@ -65,16 +65,6 @@ func (db *MockBackend) StoreIssuerMetadata(expDate string, issuer Issuer, metada
 	return nil
 }
 
-func (db *MockBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
-	db.noteExpDateIssuer(expDate, issuer)
-	data, err := json.Marshal(serials)
-	if err != nil {
-		return err
-	}
-	db.store["serials"+expDate+issuer.ID()] = data
-	return nil
-}
-
 func (db *MockBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	data, ok := db.store["pem"+expDate+issuer.ID()+serial.ID()]
 	if ok {
@@ -101,16 +91,6 @@ func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metad
 		var meta *Metadata
 		err := json.Unmarshal(data, &meta)
 		return meta, err
-	}
-	return nil, fmt.Errorf("Couldn't find")
-}
-
-func (db *MockBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
-	data, ok := db.store["serials"+expDate+issuer.ID()]
-	if ok {
-		var serials []Serial
-		err := json.Unmarshal(data, &serials)
-		return serials, err
 	}
 	return nil, fmt.Errorf("Couldn't find")
 }

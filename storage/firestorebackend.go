@@ -37,7 +37,6 @@ const (
 	kFieldURL      = "shortUrl"
 	kFieldUnixTime = "unixTime"
 	kTypePEM       = "PEM"
-	kTypeSerials   = "Serials"
 	kTypeLogState  = "LogState"
 	kTypeExpDate   = "ExpDate"
 	kTypeMetadata  = "Metadata"
@@ -150,27 +149,6 @@ func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer Issuer, d
 	return err
 }
 
-func (db *FirestoreBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "known", "serials")
-	doc := db.client.Doc(id)
-	if doc == nil {
-		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
-	}
-
-	encoded, err := json.Marshal(serials)
-	if err != nil {
-		return err
-	}
-
-	_, err = doc.Set(db.ctx, map[string]interface{}{
-		kFieldType:    kTypeSerials,
-		kFieldExpDate: expDate,
-		kFieldIssuer:  issuer.ID(),
-		kFieldData:    encoded,
-	})
-	return err
-}
-
 func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", serial.ID())
 	doc := db.client.Doc(id)
@@ -248,28 +226,6 @@ func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*
 	var meta Metadata
 	err = json.Unmarshal(encoded.([]byte), &meta)
 	return &meta, err
-}
-
-func (db *FirestoreBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "known", "serials")
-	doc := db.client.Doc(id)
-	if doc == nil {
-		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
-	}
-
-	docsnap, err := doc.Get(db.ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	encoded, err := docsnap.DataAt(kFieldData)
-	if err != nil {
-		return nil, err
-	}
-
-	var serials []Serial
-	err = json.Unmarshal(encoded.([]byte), &serials)
-	return serials, err
 }
 
 func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {

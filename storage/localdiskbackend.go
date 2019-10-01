@@ -13,11 +13,10 @@ import (
 )
 
 const (
-	kStateDirName            = "state"
-	kSuffixKnownCertificates = ".known"
-	kSuffixIssuerMetadata    = ".meta"
-	kSuffixCertificates      = ".pem"
-	kDirtyMarker             = "dirty"
+	kStateDirName         = "state"
+	kSuffixIssuerMetadata = ".meta"
+	kSuffixCertificates   = ".pem"
+	kDirtyMarker          = "dirty"
 )
 
 type LocalDiskBackend struct {
@@ -163,17 +162,6 @@ func (db *LocalDiskBackend) StoreIssuerMetadata(expDate string, issuer Issuer, d
 	return db.store(path, encoded)
 }
 
-func (db *LocalDiskBackend) StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error {
-	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixKnownCertificates)
-
-	encoded, err := json.Marshal(serials)
-	if err != nil {
-		return err
-	}
-
-	return db.store(path, encoded)
-}
-
 func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
@@ -211,20 +199,4 @@ func (db *LocalDiskBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*
 	}
 
 	return &metadata, nil
-}
-
-func (db *LocalDiskBackend) LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error) {
-	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixKnownCertificates)
-
-	data, err := db.load(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var serials []Serial
-	if err = json.Unmarshal(data, &serials); err != nil {
-		return nil, err
-	}
-
-	return serials, nil
 }

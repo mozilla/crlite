@@ -40,12 +40,10 @@ type StorageBackend interface {
 	StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error
 	StoreLogState(log *CertificateLog) error
 	StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error
-	StoreIssuerKnownSerials(expDate string, issuer Issuer, serials []Serial) error
 
 	LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error)
 	LoadLogState(logURL string) (*CertificateLog, error)
 	LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error)
-	LoadIssuerKnownSerials(expDate string, issuer Issuer) ([]Serial, error)
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
