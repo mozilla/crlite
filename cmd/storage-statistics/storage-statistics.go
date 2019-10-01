@@ -56,7 +56,9 @@ func main() {
 				continue
 			}
 
-			countSerials := len(knownCerts.Known())
+			knownList := knownCerts.Known()
+
+			countSerials := len(knownList)
 			countCRLs := len(issuerMetadata.Metadata.Crls)
 
 			dateTotalSerials = dateTotalSerials + countSerials
@@ -68,10 +70,10 @@ func main() {
 			totalIssuers = totalIssuers + 1
 
 			glog.V(1).Infof(" * %s (%s): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), *issuerMetadata.Metadata.IssuerDNs[0], countSerials, countCRLs, len(issuerMetadata.Metadata.IssuerDNs))
-			glog.V(2).Infof("Serials: %v", knownCerts.Known())
+			glog.V(2).Infof("Serials: %v", knownList)
 
 			if glog.V(3) {
-				for _, serial := range knownCerts.Known() {
+				for _, serial := range knownList {
 					glog.Infof("Certificate issuer=%s serial=%s", issuer.ID(), serial.ID())
 
 					pemBytes, err := backend.LoadCertificatePEM(serial, expDate, issuer)
