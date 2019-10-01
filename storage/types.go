@@ -63,6 +63,12 @@ type CertDatabase interface {
 	GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error)
 }
 
+type RemoteCache interface {
+	SortedInsert(key string, serial Serial) (bool, error)
+	SortedContains(key string, serial Serial) (bool, error)
+	SortedList(key string) ([]Serial, error)
+}
+
 type Issuer struct {
 	id   *string
 	spki SPKI
@@ -174,4 +180,12 @@ func (s Serial) MarshalJSON() ([]byte, error) {
 
 func (s *Serial) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &s.serial)
+}
+
+func (s Serial) MarshalBinary() ([]byte, error) {
+	return s.MarshalJSON()
+}
+
+func (s *Serial) UnmarshalBinary(data []byte) error {
+	return s.UnmarshalJSON(data)
 }

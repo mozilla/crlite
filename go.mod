@@ -4,6 +4,7 @@ require (
 	cloud.google.com/go v0.43.0
 	github.com/VividCortex/ewma v1.1.1 // indirect
 	github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7
+	github.com/go-redis/redis v6.15.5+incompatible
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.3.2
 	github.com/google/certificate-transparency-go v1.0.21

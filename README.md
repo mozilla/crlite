@@ -48,3 +48,14 @@ ct-fetch -config ~/.ct-fetch.conf
 ```
 Note: Consider using `--offset X` to start from the `X`th log entry. Also, `--limit Y` will stop after
 processing `Y` certificates.
+
+
+## Tests
+
+```
+my_ip=$(ipconfig getifaddr en0) # macOS
+docker run redis:4-alpine
+gcloud beta emulators firestore start --host-port="${my_ip}:8403"
+
+FIRESTORE_EMULATOR_HOST=${my_ip}:8403 REDIS_HOST=${my_ip}:6379 go test -v ./...
+```
