@@ -57,5 +57,5 @@ my_ip=$(ipconfig getifaddr en0) # macOS
 docker run redis:4-alpine
 gcloud beta emulators firestore start --host-port="${my_ip}:8403"
 
-FIRESTORE_EMULATOR_HOST=${my_ip}:8403 REDIS_HOST=${my_ip}:6379 go test -v ./...
+FIRESTORE_EMULATOR_HOST=${my_ip}:8403 RedisHost=${my_ip}:6379 go test -v ./...
 ```

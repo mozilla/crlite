@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var kRedisHost = "REDIS_HOST"
+var kRedisHost = "RedisHost"
 
 func getRedisCache(tb testing.TB) *RedisCache {
 	setting, ok := os.LookupEnv(kRedisHost)
