@@ -52,9 +52,3 @@ func Test_LocalDiskLogState(t *testing.T) {
 	defer h.cleanup()
 	BackendTestLogState(t, h.db)
 }
-
-func Test_LocalDiskIssuerMetadata(t *testing.T) {
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-	BackendTestIssuerMetadata(t, h.db)
-}

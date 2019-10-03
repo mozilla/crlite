@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math"
+	"math/big"
 	"reflect"
 	"testing"
 	"time"
@@ -114,6 +115,15 @@ func TestSerialJson(t *testing.T) {
 
 	if !reflect.DeepEqual(serials, decoded) {
 		t.Errorf("Should match %+v %+v", serials, decoded)
+	}
+}
+
+func TestSerialBigInt(t *testing.T) {
+	bint := big.NewInt(0xCAFEDEAD)
+	serial := NewSerialFromBytes(bint.Bytes())
+	reflex := serial.AsBigInt()
+	if reflex.Cmp(bint) != 0 {
+		t.Errorf("Expected %v but got %v", bint, reflex)
 	}
 }
 

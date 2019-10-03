@@ -57,9 +57,12 @@ func main() {
 			}
 
 			knownList := knownCerts.Known()
+			crlList := issuerMetadata.CRLs()
+			issuerDNList := issuerMetadata.Issuers()
 
 			countSerials := len(knownList)
-			countCRLs := len(issuerMetadata.Metadata.Crls)
+			countCRLs := len(crlList)
+			countIssuerDNs := len(issuerDNList)
 
 			dateTotalSerials = dateTotalSerials + countSerials
 			dateTotalIssuers = dateTotalIssuers + 1
@@ -69,7 +72,11 @@ func main() {
 			totalCRLs = totalCRLs + countCRLs
 			totalIssuers = totalIssuers + 1
 
-			glog.V(1).Infof(" * %s (%s): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), *issuerMetadata.Metadata.IssuerDNs[0], countSerials, countCRLs, len(issuerMetadata.Metadata.IssuerDNs))
+			if countIssuerDNs == 0 {
+				glog.Warningf("No DNs for issuer %v on %s", issuer, expDate)
+			}
+
+			glog.V(1).Infof(" * %s (%v): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), issuerDNList, countSerials, countCRLs, countIssuerDNs)
 			glog.V(2).Infof("Serials: %v", knownList)
 
 			if glog.V(3) {

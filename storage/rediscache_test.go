@@ -17,7 +17,7 @@ func getRedisCache(tb testing.TB) *RedisCache {
 	if !ok {
 		tb.Skipf("%s is not set, unable to run %s. Skipping.", kRedisHost, tb.Name())
 	}
-	tb.Logf("Connecting to %s", setting)
+	tb.Logf("Connecting to Redis instance at %s", setting)
 
 	rc, err := NewRedisCache(setting)
 	if err != nil {
@@ -37,7 +37,15 @@ func Test_RedisInsertion(t *testing.T) {
 	rc := getRedisCache(t)
 	defer rc.client.Del("key")
 
-	firstInsert, err := rc.SortedInsert("key", NewSerialFromHex("FADEC00DEAD00DEAF00CAFE0"))
+	firstExists, err := rc.Exists("key")
+	if err != nil {
+		t.Error(err)
+	}
+	if firstExists == true {
+		t.Error("Key shouldn't exist yet")
+	}
+
+	firstInsert, err := rc.SortedInsert("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -45,7 +53,15 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("Should have inserted")
 	}
 
-	doubleInsert, err := rc.SortedInsert("key", NewSerialFromHex("FADEC00DEAD00DEAF00CAFE0"))
+	secondExists, err := rc.Exists("key")
+	if err != nil {
+		t.Error(err)
+	}
+	if secondExists == false {
+		t.Error("Key should now exist")
+	}
+
+	doubleInsert, err := rc.SortedInsert("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -53,7 +69,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("Shouldn't have re-inserted")
 	}
 
-	shouldntExist, err := rc.SortedContains("key", NewSerialFromHex("BEAC040FBAC040"))
+	shouldntExist, err := rc.SortedContains("key", "BEAC040FBAC040")
 	if err != nil {
 		t.Error(err)
 	}
@@ -61,7 +77,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("This serial should not have been saved")
 	}
 
-	shouldExist, err := rc.SortedContains("key", NewSerialFromHex("FADEC00DEAD00DEAF00CAFE0"))
+	shouldExist, err := rc.SortedContains("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -74,13 +90,13 @@ func Test_RedisSortedCache(t *testing.T) {
 	rc := getRedisCache(t)
 	defer rc.client.Del("sortedCache")
 
-	sortedSerials := make([]Serial, 999)
+	sortedSerials := make([]string, 999)
 
 	for i := 0; i < len(sortedSerials); i++ {
-		sortedSerials[i] = NewSerialFromHex(fmt.Sprintf("%04X", i))
+		sortedSerials[i] = fmt.Sprintf("%04X", i)
 	}
 
-	randomSerials := make([]Serial, len(sortedSerials))
+	randomSerials := make([]string, len(sortedSerials))
 	copy(randomSerials[:], sortedSerials)
 
 	rand.Shuffle(len(sortedSerials), func(i, j int) {
@@ -133,7 +149,7 @@ func BenchmarkSortedCacheInsertion(b *testing.B) {
 		buf := make([]byte, binary.Size(i))
 		binary.BigEndian.PutUint64(buf, i)
 		serial := NewSerialFromHex(hex.EncodeToString(buf))
-		_, err := rc.SortedInsert("sortedCacheBenchmark", serial)
+		_, err := rc.SortedInsert("sortedCacheBenchmark", serial.String())
 		if err != nil {
 			b.Error(err)
 		}

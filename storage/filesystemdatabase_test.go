@@ -63,7 +63,7 @@ EA==
 -----END CERTIFICATE-----`
 )
 
-func getTestHarness(t *testing.T) (StorageBackend, CertDatabase) {
+func getTestHarness(t *testing.T) (*MockBackend, CertDatabase) {
 	mockBackend := NewMockBackend()
 	mockCache := NewMockRemoteCache()
 	storageDB, err := NewFilesystemDatabase(1, mockBackend, mockCache)
@@ -114,15 +114,13 @@ func Test_ListExpiration(t *testing.T) {
 
 	testIssuer := NewIssuerFromString("test issuer")
 
-	blankMetadata := &Metadata{}
-
-	if err := mockBackend.StoreIssuerMetadata("2017-11-28", testIssuer, blankMetadata); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer("2017-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.StoreIssuerMetadata("2018-11-28", testIssuer, blankMetadata); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer("2018-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.StoreIssuerMetadata("2019-11-28", testIssuer, blankMetadata); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer("2019-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
 
@@ -235,48 +233,5 @@ func Test_LogState(t *testing.T) {
 	}
 	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
-	}
-}
-
-func Test_GetIssuerMetadata(t *testing.T) {
-	mockBackend, storageDB := getTestHarness(t)
-	testIssuer := NewIssuerFromString("test issuer")
-
-	meta, err := storageDB.GetIssuerMetadata("2017-11-28", testIssuer)
-	if err == nil {
-		t.Error("Expected an error for an unknown issuer for that date")
-	}
-	if len(meta.Metadata.Crls) > 0 || len(meta.Metadata.IssuerDNs) > 0 {
-		t.Fatal("For an unknown issuer, metadata should be nil")
-	}
-
-	issuerDNString := "an issuer"
-	crlString := "http://example.com/crl"
-
-	// someMetadata := &Metadata{
-	// 	IssuerDNs: []*string{"an issuer"},
-	// 	Crls: []*string{"http://example.com/crl"},
-	// }
-	// TODO: change to non-pointer Metadata arrays
-	someMetadata := &Metadata{
-		IssuerDNs: []*string{&issuerDNString},
-		Crls:      []*string{&crlString},
-	}
-	if err := mockBackend.StoreIssuerMetadata("2017-11-28", testIssuer, someMetadata); err != nil {
-		t.Error(err)
-	}
-
-	meta, err = storageDB.GetIssuerMetadata("2017-11-28", testIssuer)
-	if err != nil {
-		t.Error(err)
-	}
-	if len(meta.Metadata.Crls) != 1 || len(meta.Metadata.IssuerDNs) != 1 {
-		t.Errorf("The metadata should have one entry")
-	}
-	if reflect.DeepEqual(someMetadata.Crls, meta.Metadata.Crls) == false {
-		t.Errorf("Expect the CRLs to match: %+v", meta.Metadata)
-	}
-	if reflect.DeepEqual(someMetadata.IssuerDNs, meta.Metadata.IssuerDNs) == false {
-		t.Errorf("Expect the Issuer DNs to match: %+v", meta.Metadata)
 	}
 }

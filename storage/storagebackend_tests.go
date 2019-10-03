@@ -44,20 +44,17 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 }
 
 func BackendTestListFiles(t *testing.T, db StorageBackend) {
-	expectedFolders := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
+	expectedFolders := []string{"2019-11-28"}
 	issuerObj := NewIssuerFromString("aki")
-
-	for _, expDate := range expectedFolders {
-		md := NewIssuerMetadata(expDate, issuerObj, db)
-		err := db.StoreIssuerMetadata(expDate, issuerObj, &md.Metadata)
-		if err != nil {
-			t.Fatalf("Failed to store: %v", err)
-		}
-	}
 
 	err := db.StoreCertificatePEM(NewSerialFromHex("01"), "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
 	if err != nil {
 		t.Fatalf("%s", err.Error())
+	}
+	// Normally the FilesystemDatabase object is responsible for this allocation
+	err = db.AllocateExpDateAndIssuer("2019-11-28", issuerObj)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	refTime, err := time.Parse(time.RFC3339, "2016-11-29T15:04:05Z")
@@ -70,7 +67,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	}
 	sort.Strings(expDates)
 	if !reflect.DeepEqual(expectedFolders, expDates) {
-		t.Fatalf("Failed expected: %s result: %s", expectedFolders, expDates)
+		t.Fatalf("Failed ListExpirationDates expected: %s result: %s", expectedFolders, expDates)
 	}
 
 	issuers, err := db.ListIssuersForExpirationDate("2019-11-28")
@@ -81,7 +78,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 		NewIssuerFromString("aki"),
 	}
 	if !reflect.DeepEqual(expectedIssuers, issuers) {
-		t.Fatalf("Failed expected: %+v result: %+v", expectedIssuers, issuers)
+		t.Fatalf("Failed ListIssuersForExpirationDate expected: %+v result: %+v", expectedIssuers, issuers)
 	}
 }
 
@@ -150,34 +147,5 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 		if updatedLog.LastEntryTime.Unix() != 1567016306 {
 			t.Errorf("Expected the LastEntryTime to be 1567016306. %s", updatedLog.String())
 		}
-	}
-}
-
-func BackendTestIssuerMetadata(t *testing.T, db StorageBackend) {
-	{
-		meta := NewIssuerMetadata("date", NewIssuerFromString("issuer"), db)
-		err := meta.Load()
-		if err == nil {
-			t.Errorf("Should have failed to load an unknown Issuer Metadata file")
-		}
-
-		meta.addCRL("http://::1/file.crl")
-		err = meta.Save()
-		if err != nil {
-			t.Errorf("Should have saved safely %v", err)
-		}
-	}
-
-	m := NewIssuerMetadata("date", NewIssuerFromString("issuer"), db)
-	if len(m.Metadata.Crls) != 0 {
-		t.Errorf("Should have started empty")
-	}
-	err := m.Load()
-	if err != nil {
-		t.Errorf("Should have loaded safely %v", err)
-	}
-
-	if len(m.Metadata.Crls) != 1 {
-		t.Errorf("Should have loaded one CRL")
 	}
 }

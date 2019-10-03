@@ -13,10 +13,9 @@ import (
 )
 
 const (
-	kStateDirName         = "state"
-	kSuffixIssuerMetadata = ".meta"
-	kSuffixCertificates   = ".pem"
-	kDirtyMarker          = "dirty"
+	kStateDirName       = "state"
+	kSuffixCertificates = ".pem"
+	kDirtyMarker        = "dirty"
 )
 
 type LocalDiskBackend struct {
@@ -135,6 +134,11 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 	return issuers, err
 }
 
+func (db *LocalDiskBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
+	path := filepath.Join(db.rootPath, expDate, issuer.ID())
+	return makeDirectoryIfNotExist(path)
+}
+
 func (db *LocalDiskBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
 	glog.Warningf("Need to store into " + kSuffixCertificates)
 	return fmt.Errorf("Unimplemented")
@@ -144,17 +148,6 @@ func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
 	path := filepath.Join(db.rootPath, kStateDirName, log.ID())
 
 	encoded, err := json.Marshal(log)
-	if err != nil {
-		return err
-	}
-
-	return db.store(path, encoded)
-}
-
-func (db *LocalDiskBackend) StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error {
-	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixIssuerMetadata)
-
-	encoded, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
@@ -183,20 +176,4 @@ func (db *LocalDiskBackend) LoadLogState(logURL string) (*CertificateLog, error)
 	}
 
 	return &log, nil
-}
-
-func (db *LocalDiskBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
-	path := filepath.Join(db.rootPath, expDate, issuer.ID()+kSuffixIssuerMetadata)
-
-	data, err := db.load(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var metadata Metadata
-	if err = json.Unmarshal(data, &metadata); err != nil {
-		return nil, err
-	}
-
-	return &metadata, nil
 }

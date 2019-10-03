@@ -1,139 +1,105 @@
 package storage
 
 import (
+	"fmt"
 	"net/url"
-	"sort"
 	"strings"
-	"sync"
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 )
 
+const kIssuers = "issuer"
+const kCrls = "crl"
+
 type IssuerMetadata struct {
-	mutex    *sync.Mutex
-	Metadata Metadata
-	expDate  string
-	issuer   Issuer
-	backend  StorageBackend
+	expDate string
+	issuer  Issuer
+	cache   RemoteCache
 }
 
-// A separate type for future expandability
-type Metadata struct {
-	Crls      []*string `json:"crls"`
-	IssuerDNs []*string `json:"issuerDNs"`
-}
-
-func NewIssuerMetadata(aExpDate string, aIssuer Issuer, aBackend StorageBackend) *IssuerMetadata {
-	metadata := Metadata{
-		Crls:      []*string{},
-		IssuerDNs: []*string{},
-	}
+func NewIssuerMetadata(aExpDate string, aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
 	return &IssuerMetadata{
-		mutex:    &sync.Mutex{},
-		expDate:  aExpDate,
-		issuer:   aIssuer,
-		Metadata: metadata,
-		backend:  aBackend,
+		expDate: aExpDate,
+		issuer:  aIssuer,
+		cache:   aCache,
 	}
 }
 
 func (im *IssuerMetadata) id() string {
-	return im.expDate + "::" + im.issuer.ID()
+	return fmt.Sprintf("%s::%s", im.expDate, im.issuer.ID())
 }
 
-func (im *IssuerMetadata) Load() error {
-	im.mutex.Lock()
-	defer im.mutex.Unlock()
+func (im *IssuerMetadata) addCRL(aCRL string) error {
+	url, err := url.Parse(strings.TrimSpace(aCRL))
+	if err != nil {
+		glog.Warningf("Not a valid CRL DP URL: %s %s", aCRL, err)
+		return nil
+	}
 
-	data, err := im.backend.LoadIssuerMetadata(im.expDate, im.issuer)
+	if url.Scheme == "ldap" || url.Scheme == "ldaps" {
+		return nil
+	} else if url.Scheme != "http" && url.Scheme != "https" {
+		glog.V(3).Infof("Ignoring unknown CRL scheme: %v", url)
+		return nil
+	}
+
+	result, err := im.cache.SortedInsert(fmt.Sprintf("%s::%s", kCrls, im.id()), url.String())
 	if err != nil {
 		return err
 	}
 
-	im.Metadata = *data
+	if result {
+		glog.V(3).Infof("[%s] CRL unknown: %s", im.id(), url.String())
+	} else {
+		glog.V(3).Infof("[%s] CRL already known: %s", im.id(), url.String())
+	}
 	return nil
 }
 
-func (im *IssuerMetadata) Save() error {
-	im.mutex.Lock()
-	defer im.mutex.Unlock()
-
-	return im.backend.StoreIssuerMetadata(im.expDate, im.issuer, &im.Metadata)
-}
-
-func (im *IssuerMetadata) addCRL(aCRL string) {
-	// Assume that im.mutex is locked
-	count := len(im.Metadata.Crls)
-
-	url, err := url.Parse(strings.TrimSpace(aCRL))
+func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
+	result, err := im.cache.SortedInsert(fmt.Sprintf("%s::%s", kIssuers, im.id()), aIssuerDN)
 	if err != nil {
-		glog.Warningf("Not a valid CRL DP URL: %s %s", aCRL, err)
-		return
+		return err
 	}
 
-	if url.Scheme == "ldap" || url.Scheme == "ldaps" {
-		return
-	} else if url.Scheme != "http" && url.Scheme != "https" {
-		glog.V(3).Infof("Ignoring unknown CRL scheme: %v", url)
-		return
+	if result {
+		glog.V(3).Infof("[%s] IssuerDN unknown: %s", im.id(), aIssuerDN)
+	} else {
+		glog.V(3).Infof("[%s] IssuerDN already known: %s", im.id(), aIssuerDN)
 	}
-
-	idx := sort.Search(count, func(i int) bool {
-		return strings.Compare(url.String(), *im.Metadata.Crls[i]) <= 0
-	})
-
-	var cmp int
-	if idx < count {
-		cmp = strings.Compare(url.String(), *im.Metadata.Crls[idx])
-	}
-
-	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.id(), url.String(), idx)
-		return
-	}
-
-	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] CRL unknown: %s (pos=%d)", im.id(), url.String(), idx)
-	im.Metadata.Crls = append(im.Metadata.Crls, nil)
-	copy(im.Metadata.Crls[idx+1:], im.Metadata.Crls[idx:])
-	sanitizedCRL := url.String()
-	im.Metadata.Crls[idx] = &sanitizedCRL
-}
-
-func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) {
-	// Assume that im.mutex is locked
-	count := len(im.Metadata.IssuerDNs)
-
-	idx := sort.Search(count, func(i int) bool {
-		return strings.Compare(aIssuerDN, *im.Metadata.IssuerDNs[i]) <= 0
-	})
-
-	var cmp int
-	if idx < count {
-		cmp = strings.Compare(aIssuerDN, *im.Metadata.IssuerDNs[idx])
-	}
-
-	if idx < count && cmp == 0 {
-		glog.V(3).Infof("[%s] CRL already known: %s (pos=%d)", im.id(), aIssuerDN, idx)
-		return
-	}
-
-	// Non-allocating insert, see https://github.com/golang/go/wiki/SliceTricks
-	glog.V(3).Infof("[%s] IssuerDN unknown: %s (pos=%d)", im.id(), aIssuerDN, idx)
-	im.Metadata.IssuerDNs = append(im.Metadata.IssuerDNs, nil)
-	copy(im.Metadata.IssuerDNs[idx+1:], im.Metadata.IssuerDNs[idx:])
-	im.Metadata.IssuerDNs[idx] = &aIssuerDN
+	return nil
 }
 
 // Must tolerate duplicate information
-func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) {
-	im.mutex.Lock()
-	defer im.mutex.Unlock()
-
-	for _, dp := range aCert.CRLDistributionPoints {
-		im.addCRL(dp)
+func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
+	seenBefore, err := im.cache.Exists(fmt.Sprintf("%s::%s", kIssuers, im.id()))
+	if err != nil {
+		return seenBefore, err
 	}
 
-	im.addIssuerDN(aCert.Issuer.String())
+	for _, dp := range aCert.CRLDistributionPoints {
+		err := im.addCRL(dp)
+		if err != nil {
+			return seenBefore, err
+		}
+	}
+
+	return seenBefore, im.addIssuerDN(aCert.Issuer.String())
+}
+
+func (im *IssuerMetadata) Issuers() []string {
+	strList, err := im.cache.SortedList(fmt.Sprintf("%s::%s", kIssuers, im.id()))
+	if err != nil {
+		glog.Fatalf("Error obtaining list of issuers: %v", err)
+	}
+	return strList
+}
+
+func (im *IssuerMetadata) CRLs() []string {
+	strList, err := im.cache.SortedList(fmt.Sprintf("%s::%s", kCrls, im.id()))
+	if err != nil {
+		glog.Fatalf("Error obtaining list of CRLs: %v", err)
+	}
+	return strList
 }

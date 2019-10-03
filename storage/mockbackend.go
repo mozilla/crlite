@@ -24,7 +24,7 @@ func (db *MockBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *MockBackend) noteExpDateIssuer(expDate string, issuer Issuer) {
+func (db *MockBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
 	issuers, ok := db.expDateToIssuer[expDate]
 	if !ok {
 		issuers = []Issuer{}
@@ -38,10 +38,10 @@ func (db *MockBackend) noteExpDateIssuer(expDate string, issuer Issuer) {
 		issuers[i] = issuer
 		db.expDateToIssuer[expDate] = issuers
 	}
+	return nil
 }
 
 func (db *MockBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
-	db.noteExpDateIssuer(expDate, issuer)
 	db.store["pem"+expDate+issuer.ID()+serial.ID()] = b
 	return nil
 }
@@ -52,16 +52,6 @@ func (db *MockBackend) StoreLogState(log *CertificateLog) error {
 		return err
 	}
 	db.store["logstate"+log.ShortURL] = data
-	return nil
-}
-
-func (db *MockBackend) StoreIssuerMetadata(expDate string, issuer Issuer, metadata *Metadata) error {
-	db.noteExpDateIssuer(expDate, issuer)
-	data, err := json.Marshal(metadata)
-	if err != nil {
-		return err
-	}
-	db.store["metadata"+expDate+issuer.ID()] = data
 	return nil
 }
 
@@ -83,16 +73,6 @@ func (db *MockBackend) LoadLogState(logURL string) (*CertificateLog, error) {
 	return &CertificateLog{
 		ShortURL: logURL,
 	}, nil
-}
-
-func (db *MockBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
-	data, ok := db.store["metadata"+expDate+issuer.ID()]
-	if ok {
-		var meta *Metadata
-		err := json.Unmarshal(data, &meta)
-		return meta, err
-	}
-	return nil, fmt.Errorf("Couldn't find")
 }
 
 func (db *MockBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {

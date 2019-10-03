@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/url"
 	"time"
 
@@ -39,11 +40,11 @@ type StorageBackend interface {
 
 	StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error
 	StoreLogState(log *CertificateLog) error
-	StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error
 
 	LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error)
 	LoadLogState(logURL string) (*CertificateLog, error)
-	LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error)
+
+	AllocateExpDateAndIssuer(expDate string, issuer Issuer) error
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
@@ -62,9 +63,10 @@ type CertDatabase interface {
 }
 
 type RemoteCache interface {
-	SortedInsert(key string, serial Serial) (bool, error)
-	SortedContains(key string, serial Serial) (bool, error)
-	SortedList(key string) ([]Serial, error)
+	Exists(key string) (bool, error)
+	SortedInsert(key string, entry string) (bool, error)
+	SortedContains(key string, entry string) (bool, error)
+	SortedList(key string) ([]string, error)
 }
 
 type Issuer struct {
@@ -186,4 +188,10 @@ func (s Serial) MarshalBinary() ([]byte, error) {
 
 func (s *Serial) UnmarshalBinary(data []byte) error {
 	return s.UnmarshalJSON(data)
+}
+
+func (s *Serial) AsBigInt() *big.Int {
+	serialBigInt := big.NewInt(0)
+	serialBigInt.SetBytes(s.serial)
+	return serialBigInt
 }

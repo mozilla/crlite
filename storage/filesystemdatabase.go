@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -19,7 +18,6 @@ const (
 )
 
 type CacheEntry struct {
-	mutex   *sync.Mutex
 	expDate string
 	issuer  Issuer
 	known   *KnownCertificates
@@ -30,7 +28,6 @@ type CacheEntry struct {
 
 func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, aCache RemoteCache) (*CacheEntry, error) {
 	obj := CacheEntry{
-		mutex:   &sync.Mutex{},
 		expDate: aExpDate,
 		issuer:  NewIssuerFromString(aIssuerStr),
 		known:   nil,
@@ -45,22 +42,10 @@ func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, 
 
 func (ce *CacheEntry) load() {
 	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.cache)
-
-	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.backend)
-	err := ce.meta.Load()
-	if err != nil {
-		glog.V(1).Infof("Creating new issuer metadata file for %s:%s", ce.expDate, ce.issuer.ID())
-	}
+	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.cache)
 }
 
 func (ce *CacheEntry) Close() error {
-	ce.mutex.Lock()
-	defer ce.mutex.Unlock()
-
-	if errMeta := ce.meta.Save(); errMeta != nil {
-		return fmt.Errorf("Error saving data: Meta=%s", errMeta)
-	}
-
 	return nil
 }
 
@@ -177,13 +162,21 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	}
 
 	if certWasUnknown {
-		ce.mutex.Lock()
-		ce.meta.Accumulate(aCert)
-		err = db.backend.StoreCertificatePEM(serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
-		ce.mutex.Unlock()
-
+		seenBefore, err := ce.meta.Accumulate(aCert)
 		if err != nil {
 			return err
+		}
+		if !seenBefore {
+			// if the issuer/expdate was unknown in the cache
+			errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
+			if errAlloc != nil {
+				return errAlloc
+			}
+		}
+
+		errStore := db.backend.StoreCertificatePEM(serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
+		if errStore != nil {
+			return errStore
 		}
 	}
 
@@ -202,8 +195,8 @@ func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issu
 }
 
 func (db *FilesystemDatabase) GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error) {
-	im := NewIssuerMetadata(aExpDate, aIssuer, db.backend)
-	return im, im.Load()
+	im := NewIssuerMetadata(aExpDate, aIssuer, db.extCache)
+	return im, nil
 }
 
 func (db *FilesystemDatabase) Cleanup() error {

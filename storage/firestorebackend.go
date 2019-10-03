@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -122,31 +121,26 @@ func (db *FirestoreBackend) allocateExpDate(expDate string) error {
 	return err
 }
 
-func (db *FirestoreBackend) StoreIssuerMetadata(expDate string, issuer Issuer, data *Metadata) error {
-	// This wastes writes, but not as much as if we did it on StorePEM.
+func (db *FirestoreBackend) allocateIssuerExpDate(expDate string, issuer Issuer) error {
+	doc := db.client.Doc(filepath.Join("ct", expDate, "issuer", issuer.ID()))
+	if doc == nil {
+		return fmt.Errorf("Couldn't allocate document for exp date %s issuer %v", expDate, issuer)
+	}
+
+	_, err := doc.Set(db.ctx, map[string]interface{}{
+		kFieldType:    kTypeMetadata,
+		kFieldExpDate: expDate,
+		kFieldIssuer:  issuer.ID(),
+	})
+	return err
+}
+
+func (db *FirestoreBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
 	err := db.allocateExpDate(expDate)
 	if err != nil {
 		return err
 	}
-
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID())
-	doc := db.client.Doc(id)
-	if doc == nil {
-		return fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
-	}
-
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
-	_, err = doc.Set(db.ctx, map[string]interface{}{
-		kFieldType:    kTypeMetadata,
-		kFieldExpDate: expDate,
-		kFieldIssuer:  issuer.ID(),
-		kFieldData:    encoded,
-	})
-	return err
+	return db.allocateIssuerExpDate(expDate, issuer)
 }
 
 func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
@@ -204,28 +198,6 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 		LastEntryTime: time.Unix(timeSec.(int64), 0),
 	}
 	return logObj, err
-}
-
-func (db *FirestoreBackend) LoadIssuerMetadata(expDate string, issuer Issuer) (*Metadata, error) {
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID())
-	doc := db.client.Doc(id)
-	if doc == nil {
-		return nil, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
-	}
-
-	docsnap, err := doc.Get(db.ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	encoded, err := docsnap.DataAt(kFieldData)
-	if err != nil {
-		return nil, err
-	}
-
-	var meta Metadata
-	err = json.Unmarshal(encoded.([]byte), &meta)
-	return &meta, err
 }
 
 func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {

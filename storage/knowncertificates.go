@@ -21,13 +21,13 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *
 }
 
 func (kc *KnownCertificates) id() string {
-	return fmt.Sprintf("kc::%s::%s", kc.expDate, kc.issuer.ID())
+	return fmt.Sprintf("%s::%s", kc.expDate, kc.issuer.ID())
 }
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SortedInsert(kc.id(), aSerial)
+	result, err := kc.cache.SortedInsert(fmt.Sprintf("serials::%s", kc.id()), aSerial.String())
 	if err != nil {
 		return false, err
 	}
@@ -41,9 +41,13 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	serials, err := kc.cache.SortedList(kc.id())
+	strList, err := kc.cache.SortedList(fmt.Sprintf("serials::%s", kc.id()))
 	if err != nil {
 		glog.Fatalf("Error obtaining list of known certificates: %v", err)
+	}
+	serials := make([]Serial, len(strList))
+	for i, str := range strList {
+		serials[i] = NewSerialFromHex(str)
 	}
 	return serials
 }

@@ -19,7 +19,7 @@ func verifyEmulator(t *testing.T) {
 	if !ok {
 		t.Skipf("%s is not set, unable to run %s. Skipping.", kFirestoreEmulatorEnv, t.Name())
 	}
-	t.Logf("Connecting to %s", setting)
+	t.Logf("Connecting to Firestore instance at %s", setting)
 }
 
 func makeFirestoreHarness(t *testing.T) *FirestoreTestHarness {
@@ -150,10 +150,4 @@ func Test_FirestoreLogState(t *testing.T) {
 	h := makeFirestoreHarness(t)
 	defer h.cleanup()
 	BackendTestLogState(t, h.be)
-}
-
-func Test_FirestoreIssuerMetadata(t *testing.T) {
-	h := makeFirestoreHarness(t)
-	defer h.cleanup()
-	BackendTestIssuerMetadata(t, h.be)
 }

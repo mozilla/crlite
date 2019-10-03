@@ -22,39 +22,35 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 	return &RedisCache{rdb}, nil
 }
 
-func (rc *RedisCache) SortedInsert(key string, serial Serial) (bool, error) {
+func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
 	ir := rc.client.ZAdd(key, redis.Z{
 		Score:  0,
-		Member: serial.String(),
+		Member: entry,
 	})
 	added, err := ir.Result()
 	return added == 1, err
 }
 
-func (rc *RedisCache) SortedContains(key string, serial Serial) (bool, error) {
-	fr := rc.client.ZScore(key, serial.String())
+func (rc *RedisCache) SortedContains(key string, entry string) (bool, error) {
+	fr := rc.client.ZScore(key, entry)
 	if fr.Err() != nil {
 		if fr.Err().Error() == "redis: nil" {
-			glog.V(3).Infof("Redis does not contain key=%s, serial=%s", key, serial)
+			glog.V(3).Infof("Redis does not contain key=%s, entry=%s", key, entry)
 			return false, nil
 		}
-		glog.Warningf("Error at Redis caught, key=%s, serial=%s, err=%+v", key, serial, fr.Err())
+		glog.Warningf("Error at Redis caught, key=%s, entry=%s, err=%+v", key, entry, fr.Err())
 		return false, fr.Err()
 	}
 	return true, nil
 }
 
-func (rc *RedisCache) SortedList(key string) ([]Serial, error) {
+func (rc *RedisCache) SortedList(key string) ([]string, error) {
 	slicer := rc.client.ZRange(key, 0, -1)
-	strList, err := slicer.Result()
-	if err != nil {
-		return []Serial{}, err
-	}
+	return slicer.Result()
+}
 
-	serials := make([]Serial, len(strList))
-	for i, str := range strList {
-		serials[i] = NewSerialFromHex(str)
-	}
-
-	return serials, nil
+func (rc *RedisCache) Exists(key string) (bool, error) {
+	ir := rc.client.Exists(key)
+	count, err := ir.Result()
+	return count == 1, err
 }
