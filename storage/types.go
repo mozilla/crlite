@@ -48,6 +48,7 @@ type StorageBackend interface {
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
+	ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error)
 }
 
 type CertDatabase interface {
@@ -160,6 +161,14 @@ func NewSerialFromHex(s string) Serial {
 	return Serial{
 		serial: b,
 	}
+}
+
+func NewSerialFromIDString(s string) (Serial, error) {
+	bytes, err := base64.URLEncoding.DecodeString(s)
+	if err != nil {
+		return Serial{}, err
+	}
+	return NewSerialFromBytes(bytes), nil
 }
 
 func (s Serial) ID() string {

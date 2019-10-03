@@ -70,7 +70,41 @@ func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Is
 }
 
 func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer Issuer) error {
-	return fmt.Errorf("Disabled")
+	ce, err := db.fetch(expDate, issuer)
+	if err != nil {
+		glog.Fatalf("Couldn't retrieve from cache: %v", err)
+	}
+
+	serials, err := db.backend.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		return err
+	}
+	for _, serialNum := range serials {
+		certWasUnknown, err := ce.known.WasUnknown(serialNum)
+		if err != nil {
+			return err
+		}
+
+		if certWasUnknown {
+			pemBytes, err := db.backend.LoadCertificatePEM(serialNum, expDate, issuer)
+			if err != nil {
+				return err
+			}
+			block, rest := pem.Decode(pemBytes)
+			if len(rest) > 0 {
+				return fmt.Errorf("PEM data for %s %s %s had extra bytes: %+v", serialNum, expDate, issuer.ID(), rest)
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return err
+			}
+			_, err = ce.meta.Accumulate(cert)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {

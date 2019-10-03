@@ -151,3 +151,9 @@ func Test_FirestoreLogState(t *testing.T) {
 	defer h.cleanup()
 	BackendTestLogState(t, h.be)
 }
+
+func Test_FirestoreListSerialsForExpirationDateAndIssuer(t *testing.T) {
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
+	BackendTestListingCertificates(t, h.be)
+}

@@ -127,6 +127,22 @@ func TestSerialBigInt(t *testing.T) {
 	}
 }
 
+func TestSerialID(t *testing.T) {
+	x := NewSerialFromHex("DEADBEEF")
+	idStr := x.ID()
+	decoded, err := NewSerialFromIDString(idStr)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(x, decoded) {
+		t.Errorf("Should match %+v & %+v", x, decoded)
+	}
+
+	if _, err := NewSerialFromIDString("not base64"); err == nil {
+		t.Error("Expected an error decoding an invalid ID string")
+	}
+}
+
 func TestLog(t *testing.T) {
 	log := CertificateLog{
 		ShortURL:      "log.example.com/2525",

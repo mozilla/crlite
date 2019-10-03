@@ -134,6 +134,30 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 	return issuers, err
 }
 
+func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+	serials := make([]Serial, 0)
+
+	err := filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
+			return err
+		}
+		if strings.HasSuffix(info.Name(), kSuffixCertificates) {
+			id := strings.TrimSuffix(info.Name(), kSuffixCertificates)
+			// TODO: read file, pull out serials -- this isn't right
+			serial, err := NewSerialFromIDString(id)
+			if err != nil {
+				return err
+			}
+			serials = append(serials, serial)
+			return fmt.Errorf("Unimplemented")
+		}
+		return nil
+	})
+
+	return serials, err
+}
+
 func (db *LocalDiskBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
 	path := filepath.Join(db.rootPath, expDate, issuer.ID())
 	return makeDirectoryIfNotExist(path)

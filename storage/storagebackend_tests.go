@@ -149,3 +149,30 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 		}
 	}
 }
+
+func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
+	expDate := "2019-11-28"
+	issuer := NewIssuerFromString("issuerAKI")
+	expectedSerials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
+
+	for _, serial := range expectedSerials {
+		err := db.StoreCertificatePEM(serial, expDate, issuer, []byte{0xDA, 0xDA})
+		if err != nil {
+			t.Fatalf("%s", err.Error())
+		}
+	}
+
+	// // Normally the FilesystemDatabase object is responsible for this allocation
+	// err = db.AllocateExpDateAndIssuer("2019-11-28", issuerObj)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+
+	resultList, err := db.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(expectedSerials, resultList) {
+		t.Errorf("Expected equality %+v & %+v", expectedSerials, resultList)
+	}
+}

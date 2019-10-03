@@ -9,14 +9,16 @@ import (
 )
 
 type MockBackend struct {
-	expDateToIssuer map[string][]Issuer
-	store           map[string][]byte
+	expDateToIssuer          map[string][]Issuer
+	expDateIssuerIDToSerials map[string][]Serial
+	store                    map[string][]byte
 }
 
 func NewMockBackend() *MockBackend {
 	return &MockBackend{
-		expDateToIssuer: make(map[string][]Issuer),
-		store:           make(map[string][]byte),
+		expDateToIssuer:          make(map[string][]Issuer),
+		expDateIssuerIDToSerials: make(map[string][]Serial),
+		store:                    make(map[string][]byte),
 	}
 }
 
@@ -43,6 +45,11 @@ func (db *MockBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) e
 
 func (db *MockBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
 	db.store["pem"+expDate+issuer.ID()+serial.ID()] = b
+	val, ok := db.expDateIssuerIDToSerials[expDate+issuer.ID()]
+	if !ok {
+		val = []Serial{}
+	}
+	db.expDateIssuerIDToSerials[expDate+issuer.ID()] = append(val, serial)
 	return nil
 }
 
@@ -93,4 +100,8 @@ func (db *MockBackend) ListExpirationDates(aNotBefore time.Time) ([]string, erro
 
 func (db *MockBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
 	return db.expDateToIssuer[expDate], nil
+}
+
+func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+	return db.expDateIssuerIDToSerials[expDate+issuer.ID()], nil
 }

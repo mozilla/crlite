@@ -250,3 +250,34 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 
 	return issuers, nil
 }
+
+func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+	serials := []Serial{}
+
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
+	iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
+		Documents(db.ctx)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+
+		if err != nil || doc == nil {
+			glog.Warningf("ListIssuersForExpirationDate iter.Next err %+v\n", err)
+			return []Serial{}, err
+		}
+
+		glog.Infof("%v", doc.Ref.ID)
+
+		serialObj, err := NewSerialFromIDString(doc.Ref.ID)
+		if err != nil {
+			glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %+v", expDate, issuer.ID(), doc.Ref.ID)
+			continue
+		}
+
+		serials = append(serials, serialObj)
+	}
+
+	return serials, nil
+}
