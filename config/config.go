@@ -161,7 +161,7 @@ func NewCTConfig() *CTConfig {
 	confUint64(ret.Limit, section, "limit", 0)
 	confString(ret.LogUrlList, section, "logList", "")
 	confInt(ret.NumThreads, section, "numThreads", 1)
-	confInt(ret.CacheSize, section, "cacheSize", 64)
+	confInt(ret.CacheSize, section, "cacheSize", 2048)
 	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(ret.RunForever, section, "runForever", false)
 	confInt(ret.PollingDelay, section, "pollingDelay", 10)

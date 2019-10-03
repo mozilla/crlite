@@ -22,6 +22,7 @@ cat > ~/.ct-fetch.conf <<EOF
 # logExpiredEntries = Add expired entries to the database
 # numThreads = Use this many threads per CPU
 # logList = URLs of the CT Logs, comma delimited
+# cacheSize = Size of internal cache in entries, default is probably fine
 #
 # Examples
 #

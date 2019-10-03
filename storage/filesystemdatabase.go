@@ -18,35 +18,17 @@ const (
 )
 
 type CacheEntry struct {
-	expDate string
-	issuer  Issuer
-	known   *KnownCertificates
-	meta    *IssuerMetadata
-	backend StorageBackend
-	cache   RemoteCache
+	known *KnownCertificates
+	meta  *IssuerMetadata
 }
 
 func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, aCache RemoteCache) (*CacheEntry, error) {
+	issuer := NewIssuerFromString(aIssuerStr)
 	obj := CacheEntry{
-		expDate: aExpDate,
-		issuer:  NewIssuerFromString(aIssuerStr),
-		known:   nil,
-		meta:    nil,
-		backend: aBackend,
-		cache:   aCache,
+		known: NewKnownCertificates(aExpDate, issuer, aCache),
+		meta:  NewIssuerMetadata(aExpDate, issuer, aCache),
 	}
-	obj.load()
-
 	return &obj, nil
-}
-
-func (ce *CacheEntry) load() {
-	ce.known = NewKnownCertificates(ce.expDate, ce.issuer, ce.cache)
-	ce.meta = NewIssuerMetadata(ce.expDate, ce.issuer, ce.cache)
-}
-
-func (ce *CacheEntry) Close() error {
-	return nil
 }
 
 type FilesystemDatabase struct {
@@ -62,14 +44,6 @@ type cacheId struct {
 
 func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
 	cache := gcache.New(aCacheSize).ARC().
-		EvictedFunc(func(key, value interface{}) {
-			err := value.(*CacheEntry).Close()
-			glog.V(2).Infof("CACHE: closed datafile: %s [err=%s]", key, err)
-		}).
-		PurgeVisitorFunc(func(key, value interface{}) {
-			err := value.(*CacheEntry).Close()
-			glog.V(2).Infof("CACHE: shutdown closed datafile: %s [err=%s]", key, err)
-		}).
 		LoaderFunc(func(key interface{}) (interface{}, error) {
 			glog.V(2).Infof("CACHE: loaded datafile: %s", key)
 
@@ -151,7 +125,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 
 	ce, err := db.fetch(expDate, issuer)
 	if err != nil {
-		panic(err)
+		glog.Fatalf("Couldn't retrieve from cache: %v", err)
 	}
 
 	serialNum := NewSerial(aCert)
