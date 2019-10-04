@@ -3,6 +3,7 @@ package storage
 import (
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/go-redis/redis"
 	"github.com/golang/glog"
 )
@@ -25,6 +26,7 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 }
 
 func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
+	defer metrics.MeasureSince([]string{"SortedInsert"}, time.Now())
 	ir := rc.client.ZAdd(key, redis.Z{
 		Score:  0,
 		Member: entry,
@@ -34,6 +36,7 @@ func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
 }
 
 func (rc *RedisCache) SortedContains(key string, entry string) (bool, error) {
+	defer metrics.MeasureSince([]string{"SortedContains"}, time.Now())
 	fr := rc.client.ZScore(key, entry)
 	if fr.Err() != nil {
 		if fr.Err().Error() == "redis: nil" {
@@ -47,17 +50,20 @@ func (rc *RedisCache) SortedContains(key string, entry string) (bool, error) {
 }
 
 func (rc *RedisCache) SortedList(key string) ([]string, error) {
+	defer metrics.MeasureSince([]string{"SortedList"}, time.Now())
 	slicer := rc.client.ZRange(key, 0, -1)
 	return slicer.Result()
 }
 
 func (rc *RedisCache) Exists(key string) (bool, error) {
+	defer metrics.MeasureSince([]string{"Exists"}, time.Now())
 	ir := rc.client.Exists(key)
 	count, err := ir.Result()
 	return count == 1, err
 }
 
 func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
+	defer metrics.MeasureSince([]string{"ExpireAt"}, time.Now())
 	br := rc.client.ExpireAt(key, aExpTime)
 	return br.Err()
 }

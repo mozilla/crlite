@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
-	// "github.com/golang/protobuf/ptypes/timestamp"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -65,6 +65,7 @@ func (db *FirestoreBackend) MarkDirty(id string) error {
 }
 
 func (db *FirestoreBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
+	defer metrics.MeasureSince([]string{"StoreCertificatePEM"}, time.Now())
 	if len(expDate) == 0 {
 		panic(fmt.Sprintf("StoreCertificatePEM invalid arguments: expDate [%+v] issuer [%+v]", expDate, issuer))
 	}
@@ -93,6 +94,7 @@ func logNameToId(logURL string) string {
 }
 
 func (db *FirestoreBackend) StoreLogState(log *CertificateLog) error {
+	defer metrics.MeasureSince([]string{"StoreLogState"}, time.Now())
 	id := filepath.Join("logs", logNameToId(log.ShortURL))
 	doc := db.client.Doc(id)
 	if doc == nil {
@@ -136,6 +138,7 @@ func (db *FirestoreBackend) allocateIssuerExpDate(expDate string, issuer Issuer)
 }
 
 func (db *FirestoreBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
+	defer metrics.MeasureSince([]string{"AllocateExpDateAndIssuer"}, time.Now())
 	err := db.allocateExpDate(expDate)
 	if err != nil {
 		return err
@@ -144,6 +147,7 @@ func (db *FirestoreBackend) AllocateExpDateAndIssuer(expDate string, issuer Issu
 }
 
 func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
+	defer metrics.MeasureSince([]string{"LoadCertificatePEM"}, time.Now())
 	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", serial.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
@@ -160,6 +164,7 @@ func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, is
 }
 
 func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error) {
+	defer metrics.MeasureSince([]string{"LoadLogState"}, time.Now())
 	id := filepath.Join("logs", logNameToId(logURL))
 	doc := db.client.Doc(id)
 	if doc == nil {
@@ -201,6 +206,7 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 }
 
 func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+	defer metrics.MeasureSince([]string{"ListExpirationDates"}, time.Now())
 	expDates := []string{}
 	iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).Select().Documents(db.ctx)
 
@@ -222,6 +228,7 @@ func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string,
 }
 
 func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
+	defer metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
 	issuers := []Issuer{}
 
 	id := filepath.Join("ct", expDate, "issuer")
@@ -252,6 +259,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 }
 
 func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := []Serial{}
 
 	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")

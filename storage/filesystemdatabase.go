@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/bluele/gcache"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
@@ -71,10 +72,13 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 		glog.Fatalf("Couldn't retrieve from cache: %v", err)
 	}
 
+	startTime := time.Now()
 	serials, err := db.backend.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
 	if err != nil {
 		return err
 	}
+	metrics.MeasureSince([]string{"ReconstructIssuerMetadata-ListSerials"}, startTime)
+
 	for _, serialNum := range serials {
 		certWasUnknown, err := ce.known.WasUnknown(serialNum)
 		if err != nil {
@@ -82,10 +86,15 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 		}
 
 		if certWasUnknown {
+			unknownTime := time.Now()
+
 			pemBytes, err := db.backend.LoadCertificatePEM(serialNum, expDate, issuer)
 			if err != nil {
 				return err
 			}
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-Load"}, unknownTime)
+
+			decodeTime := time.Now()
 			block, rest := pem.Decode(pemBytes)
 			if len(rest) > 0 {
 				return fmt.Errorf("PEM data for %s %s %s had extra bytes: %+v", serialNum, expDate, issuer.ID(), rest)
@@ -94,6 +103,9 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			if err != nil {
 				return err
 			}
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-DecodeParse"}, decodeTime)
+
+			redisTime := time.Now()
 			issuerSeenBefore, err := ce.meta.Accumulate(cert)
 			if err != nil {
 				return err
@@ -103,8 +115,11 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 				ce.meta.SetExpiryFlag()
 				ce.known.SetExpiryFlag()
 			}
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-CacheInsertion"}, redisTime)
 		}
 	}
+
+	metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
 	return nil
 }
 
