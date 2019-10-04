@@ -11,10 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/jcjones/ct-mapreduce/telemetry"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -85,6 +87,18 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 func main() {
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
+	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	metricsSink := metrics.NewInmemSink(10*time.Second, time.Minute)
+	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
+	met, err := metrics.NewGlobal(metrics.DefaultConfig("reprocess-known-certs"), metricsSink)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var twg sync.WaitGroup
 	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
@@ -98,9 +112,12 @@ func main() {
 	quitChan := make(chan struct{})
 
 	// Start the display
-	refreshDur := time.Duration(int64(*ctconfig.OutputRefreshMs)) * time.Millisecond
+	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
+	if err != nil {
+		glog.Fatal(err)
+	}
 
-	glog.Infof("Progress bar refresh rate %d is every %s.\n", *ctconfig.OutputRefreshMs, refreshDur.String())
+	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
 
 	display := mpb.New(
 		mpb.WithWaitGroup(&twg),
@@ -108,10 +125,14 @@ func main() {
 		mpb.WithRefreshRate(refreshDur),
 	)
 
-	expDates, err := storageDB.ListExpirationDates(time.Now())
-	if err != nil {
-		glog.Fatalf("Could not list expiration dates: %+v", err)
-	}
+	expDates := func() []string {
+		defer met.MeasureSince([]string{"ListExpirationDates"}, time.Now())
+		expDates, err := storageDB.ListExpirationDates(time.Now())
+		if err != nil {
+			glog.Fatalf("Could not list expiration dates: %+v", err)
+		}
+		return expDates
+	}()
 
 	fetchingJobs := display.AddBar(int64(len(expDates)),
 		mpb.AppendDecorators(

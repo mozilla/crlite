@@ -16,21 +16,22 @@ import (
 )
 
 type CTConfig struct {
-	LogUrlList         *string
-	CertPath           *string
-	FirestoreProjectId *string
-	RedisHost          *string
-	Offset             *uint64
-	Limit              *uint64
-	NumThreads         *int
-	CacheSize          *int
-	RunForever         *bool
-	PollingDelay       *int
-	IssuerCNFilter     *string
-	LogExpiredEntries  *bool
-	OutputRefreshMs    *uint64
-	SavePeriod         *string
-	Config             *string
+	LogUrlList          *string
+	CertPath            *string
+	FirestoreProjectId  *string
+	RedisHost           *string
+	Offset              *uint64
+	Limit               *uint64
+	NumThreads          *int
+	CacheSize           *int
+	RunForever          *bool
+	PollingDelay        *int
+	IssuerCNFilter      *string
+	LogExpiredEntries   *bool
+	SavePeriod          *string
+	Config              *string
+	StatsRefreshPeriod  *string
+	OutputRefreshPeriod *string
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
@@ -97,7 +98,7 @@ func confString(p *string, section *ini.Section, key string, def string) {
 	*p = def
 	if section != nil {
 		k := section.Key(key)
-		if k != nil {
+		if k != nil && len(k.String()) > 0 {
 			*p = k.String()
 		}
 	}
@@ -111,11 +112,11 @@ func NewCTConfig() *CTConfig {
 	var confFile string
 	var flagOffset uint64
 	var flagLimit uint64
-	var flagOutputRefreshMs uint64
+	var flagOutputRefreshPeriod string
 	flag.StringVar(&confFile, "config", "", "configuration .ini file")
 	flag.Uint64Var(&flagOffset, "offset", 0, "offset from the beginning")
 	flag.Uint64Var(&flagLimit, "limit", 0, "limit processing to this many entries")
-	flag.Uint64Var(&flagOutputRefreshMs, "outputRefreshMs", 125, "Speed for refreshing progress")
+	flag.StringVar(&flagOutputRefreshPeriod, "outputRefreshPeriod", "125ms", "Speed for refreshing progress")
 
 	flag.Parse()
 
@@ -130,20 +131,21 @@ func NewCTConfig() *CTConfig {
 	}
 
 	ret := CTConfig{
-		Offset:             new(uint64),
-		Limit:              new(uint64),
-		LogUrlList:         new(string),
-		NumThreads:         new(int),
-		CacheSize:          new(int),
-		LogExpiredEntries:  new(bool),
-		RunForever:         new(bool),
-		PollingDelay:       new(int),
-		IssuerCNFilter:     new(string),
-		CertPath:           new(string),
-		FirestoreProjectId: new(string),
-		RedisHost:          new(string),
-		SavePeriod:         new(string),
-		OutputRefreshMs:    new(uint64),
+		Offset:              new(uint64),
+		Limit:               new(uint64),
+		LogUrlList:          new(string),
+		NumThreads:          new(int),
+		CacheSize:           new(int),
+		LogExpiredEntries:   new(bool),
+		RunForever:          new(bool),
+		PollingDelay:        new(int),
+		IssuerCNFilter:      new(string),
+		CertPath:            new(string),
+		FirestoreProjectId:  new(string),
+		RedisHost:           new(string),
+		SavePeriod:          new(string),
+		OutputRefreshPeriod: new(string),
+		StatsRefreshPeriod:  new(string),
 	}
 
 	// First, check the config file, which might have come from a CLI paramater
@@ -172,7 +174,8 @@ func NewCTConfig() *CTConfig {
 	confString(ret.CertPath, section, "certPath", "")
 	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
 	confString(ret.RedisHost, section, "redisHost", "")
-	confUint64(ret.OutputRefreshMs, section, "outputRefreshMs", 125)
+	confString(ret.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
+	confString(ret.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 
 	// Finally, CLI flags override
 	if flagOffset > 0 {
@@ -181,8 +184,8 @@ func NewCTConfig() *CTConfig {
 	if flagLimit > 0 {
 		*ret.Limit = flagLimit
 	}
-	if flagOutputRefreshMs != 125 {
-		*ret.OutputRefreshMs = flagOutputRefreshMs
+	if flagOutputRefreshPeriod != "125ms" {
+		*ret.OutputRefreshPeriod = flagOutputRefreshPeriod
 	}
 
 	return &ret
@@ -209,5 +212,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
-	fmt.Println("outputRefreshMs = Milliseconds between output publications")
+	fmt.Println("outputRefreshPeriod = Period between output publications")
+	fmt.Println("statsRefreshPeriod = Period between stats being dumped to stderr")
 }

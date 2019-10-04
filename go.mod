@@ -3,6 +3,7 @@ module github.com/jcjones/ct-mapreduce
 require (
 	cloud.google.com/go v0.43.0
 	github.com/VividCortex/ewma v1.1.1 // indirect
+	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878
 	github.com/bluele/gcache v0.0.0-20171010155617-472614239ac7
 	github.com/go-redis/redis v6.15.5+incompatible
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
