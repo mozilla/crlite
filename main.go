@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
@@ -25,6 +26,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/jcjones/ct-mapreduce/telemetry"
 	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -149,6 +151,8 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		var cert *x509.Certificate
 		var err error
 
+		parseTime := time.Now()
+
 		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
 		case ct.X509LogEntryType:
 			cert = ep.LogEntry.X509Cert
@@ -175,11 +179,14 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			glog.Errorf("Problem decoding issuing certificate: index: %d error: %s", ep.LogEntry.Index, err)
 			continue
 		}
+		metrics.MeasureSince([]string{"insertCTWorker-ParseCertificates"}, parseTime)
 
+		storeTime := time.Now()
 		err = ld.database.Store(cert, issuingCert, ep.LogURL, ep.LogEntry.Index)
 		if err != nil {
 			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
+		metrics.MeasureSince([]string{"insertCTWorker-Store"}, storeTime)
 	}
 }
 
@@ -302,6 +309,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 		lw.LogState.LastEntryTime = *entryTime
 	}
 
+	defer metrics.MeasureSince([]string{"LogWorker-saveState"}, time.Now())
 	glog.Infof("[%s] Saving log state: %s", lw.LogURL, lw.LogState)
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
@@ -340,6 +348,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 		if err != nil {
 			return index, lastTime, err
 		}
+		metrics.MeasureSince([]string{"LogWorker-GetRawEntries"}, cycleTime)
 
 		for _, entry := range resp.Entries {
 			index++
@@ -353,6 +362,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 				glog.Warningf("Erroneous certificate: %v", err)
 				continue
 			}
+
+			metrics.MeasureSince([]string{"LogWorker-LogEntryFromLeaf"}, cycleTime)
 
 			// Are there waiting signals?
 			select {
@@ -380,6 +391,18 @@ func main() {
 
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
 		glog.Infof("IssuerCNFilter is set, but unsupported")
+	}
+
+	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	metricsSink := metrics.NewInmemSink(10*time.Second, time.Minute)
+	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
+	_, err = metrics.NewGlobal(metrics.DefaultConfig("ct-fetch"), metricsSink)
+	if err != nil {
+		glog.Fatal(err)
 	}
 
 	logUrls := []url.URL{}
