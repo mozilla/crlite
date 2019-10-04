@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 )
 
 var kRedisHost = "RedisHost"
@@ -156,4 +157,27 @@ func BenchmarkSortedCacheInsertion(b *testing.B) {
 	}
 
 	b.StopTimer()
+}
+
+func Test_RedisExpiration(t *testing.T) {
+	rc := getRedisCache(t)
+	defer rc.client.Del("expTest")
+
+	success, err := rc.SortedInsert("expTest", "a")
+	if !success || err != nil {
+		t.Errorf("Should have inserted: %v", err)
+	}
+
+	if exists, err := rc.Exists("expTest"); exists == false || err != nil {
+		t.Errorf("Should exist: %v %v", exists, err)
+	}
+
+	anHourAgo := time.Now().Add(time.Hour * -1)
+	if err := rc.ExpireAt("expTest", anHourAgo); err != nil {
+		t.Error(err)
+	}
+
+	if exists, err := rc.Exists("expTest"); exists == true || err != nil {
+		t.Errorf("Should not exist anymore: %v %v", exists, err)
+	}
 }

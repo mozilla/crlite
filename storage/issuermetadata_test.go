@@ -14,7 +14,7 @@ import (
 )
 
 func Test_DuplicateCRLs(t *testing.T) {
-	meta := NewIssuerMetadata("date", NewIssuerFromString("issuer"), NewMockRemoteCache())
+	meta := NewIssuerMetadata("2525-06-06", NewIssuerFromString("issuer"), NewMockRemoteCache())
 
 	if err := meta.addCRL("ldaps://ldap.crl"); err != nil {
 		t.Error(err)
@@ -103,7 +103,7 @@ func Test_Accumulate(t *testing.T) {
 	firstCert := makeCert(t, issuerCN, "2001-01-01", NewSerialFromHex("00"))
 
 	issuerObj := NewIssuer(firstCert)
-	meta := NewIssuerMetadata("date", issuerObj, NewMockRemoteCache())
+	meta := NewIssuerMetadata("3535-09-01", issuerObj, NewMockRemoteCache())
 
 	seenBefore, err := meta.Accumulate(firstCert)
 	if err != nil {

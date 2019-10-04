@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"time"
+
 	"github.com/go-redis/redis"
 	"github.com/golang/glog"
 )
@@ -53,4 +55,9 @@ func (rc *RedisCache) Exists(key string) (bool, error) {
 	ir := rc.client.Exists(key)
 	count, err := ir.Result()
 	return count == 1, err
+}
+
+func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
+	br := rc.client.ExpireAt(key, aExpTime)
+	return br.Err()
 }

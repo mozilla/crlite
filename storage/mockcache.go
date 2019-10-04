@@ -3,17 +3,30 @@ package storage
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 )
 
 type MockRemoteCache struct {
-	Data map[string][]string
+	Data        map[string][]string
+	Expirations map[string]time.Time
 }
 
 func NewMockRemoteCache() *MockRemoteCache {
 	return &MockRemoteCache{
-		Data: make(map[string][]string),
+		Data:        make(map[string][]string),
+		Expirations: make(map[string]time.Time),
+	}
+}
+
+func (ec *MockRemoteCache) CleanupExpiry() {
+	now := time.Now()
+	for key, timestamp := range ec.Expirations {
+		if timestamp.Before(now) {
+			delete(ec.Data, key)
+			delete(ec.Expirations, key)
+		}
 	}
 }
 
@@ -43,6 +56,7 @@ func (ec *MockRemoteCache) SortedInsert(key string, entry string) (bool, error) 
 }
 
 func (ec *MockRemoteCache) SortedContains(key string, entry string) (bool, error) {
+	ec.CleanupExpiry()
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -62,10 +76,17 @@ func (ec *MockRemoteCache) SortedContains(key string, entry string) (bool, error
 }
 
 func (ec *MockRemoteCache) SortedList(key string) ([]string, error) {
+	ec.CleanupExpiry()
 	return ec.Data[key], nil
 }
 
 func (ec *MockRemoteCache) Exists(key string) (bool, error) {
+	ec.CleanupExpiry()
 	_, ok := ec.Data[key]
 	return ok, nil
+}
+
+func (ec *MockRemoteCache) ExpireAt(key string, expTime time.Time) error {
+	ec.Expirations[key] = expTime
+	return nil
 }

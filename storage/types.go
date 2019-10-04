@@ -15,6 +15,10 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 )
 
+const (
+	kExpirationFormat = "2006-01-02"
+)
+
 type CertificateLog struct {
 	ShortURL      string    `db:"url"`           // URL to the log
 	MaxEntry      int64     `db:"maxEntry"`      // The most recent entryID logged
@@ -65,9 +69,10 @@ type CertDatabase interface {
 
 type RemoteCache interface {
 	Exists(key string) (bool, error)
-	SortedInsert(key string, entry string) (bool, error)
-	SortedContains(key string, entry string) (bool, error)
+	SortedInsert(key string, aEntry string) (bool, error)
+	SortedContains(key string, aEntry string) (bool, error)
 	SortedList(key string) ([]string, error)
+	ExpireAt(key string, aExpTime time.Time) error
 }
 
 type Issuer struct {

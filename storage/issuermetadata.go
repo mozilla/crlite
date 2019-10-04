@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
@@ -73,19 +74,35 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
 
 // Must tolerate duplicate information
 func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
-	seenBefore, err := im.cache.Exists(fmt.Sprintf("%s::%s", kIssuers, im.id()))
+	issuerSeenBefore, err := im.cache.Exists(fmt.Sprintf("%s::%s", kIssuers, im.id()))
 	if err != nil {
-		return seenBefore, err
+		return issuerSeenBefore, err
 	}
 
 	for _, dp := range aCert.CRLDistributionPoints {
 		err := im.addCRL(dp)
 		if err != nil {
-			return seenBefore, err
+			return issuerSeenBefore, err
 		}
 	}
 
-	return seenBefore, im.addIssuerDN(aCert.Issuer.String())
+	issuerErr := im.addIssuerDN(aCert.Issuer.String())
+	return issuerSeenBefore, issuerErr
+}
+
+func (im *IssuerMetadata) SetExpiryFlag() {
+	expireTime, timeErr := time.ParseInLocation(kExpirationFormat, im.expDate, time.UTC)
+	if timeErr != nil {
+		glog.Errorf("Couldn't parse expiration time %s: %v", im.expDate, timeErr)
+		return
+	}
+
+	if err := im.cache.ExpireAt(fmt.Sprintf("%s::%s", kIssuers, im.id()), expireTime); err != nil {
+		glog.Errorf("Couldn't set expiration time %v for issuer %s: %v", expireTime, im.id(), err)
+	}
+	if err := im.cache.ExpireAt(fmt.Sprintf("%s::%s", kCrls, im.id()), expireTime); err != nil {
+		glog.Errorf("Couldn't set expiration time %v for crl %s: %v", expireTime, im.id(), err)
+	}
 }
 
 func (im *IssuerMetadata) Issuers() []string {

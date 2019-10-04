@@ -13,10 +13,6 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 )
 
-const (
-	kExpirationFormat = "2006-01-02"
-)
-
 type CacheEntry struct {
 	known *KnownCertificates
 	meta  *IssuerMetadata
@@ -98,9 +94,14 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			if err != nil {
 				return err
 			}
-			_, err = ce.meta.Accumulate(cert)
+			issuerSeenBefore, err := ce.meta.Accumulate(cert)
 			if err != nil {
 				return err
+			}
+
+			if !issuerSeenBefore {
+				ce.meta.SetExpiryFlag()
+				ce.known.SetExpiryFlag()
 			}
 		}
 	}
@@ -170,16 +171,18 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	}
 
 	if certWasUnknown {
-		seenBefore, err := ce.meta.Accumulate(aCert)
+		issuerSeenBefore, err := ce.meta.Accumulate(aCert)
 		if err != nil {
 			return err
 		}
-		if !seenBefore {
+		if !issuerSeenBefore {
 			// if the issuer/expdate was unknown in the cache
 			errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
 			if errAlloc != nil {
 				return errAlloc
 			}
+			ce.meta.SetExpiryFlag()
+			ce.known.SetExpiryFlag()
 		}
 
 		errStore := db.backend.StoreCertificatePEM(serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))

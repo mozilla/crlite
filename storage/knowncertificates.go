@@ -2,9 +2,12 @@ package storage
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/golang/glog"
 )
+
+const kSerials = "serials"
 
 type KnownCertificates struct {
 	expDate string
@@ -27,7 +30,7 @@ func (kc *KnownCertificates) id() string {
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SortedInsert(fmt.Sprintf("serials::%s", kc.id()), aSerial.String())
+	result, err := kc.cache.SortedInsert(fmt.Sprintf("%s::%s", kSerials, kc.id()), aSerial.String())
 	if err != nil {
 		return false, err
 	}
@@ -41,7 +44,7 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	strList, err := kc.cache.SortedList(fmt.Sprintf("serials::%s", kc.id()))
+	strList, err := kc.cache.SortedList(fmt.Sprintf("%s::%s", kSerials, kc.id()))
 	if err != nil {
 		glog.Fatalf("Error obtaining list of known certificates: %v", err)
 	}
@@ -50,4 +53,16 @@ func (kc *KnownCertificates) Known() []Serial {
 		serials[i] = NewSerialFromHex(str)
 	}
 	return serials
+}
+
+func (kc *KnownCertificates) SetExpiryFlag() {
+	expireTime, timeErr := time.ParseInLocation(kExpirationFormat, kc.expDate, time.UTC)
+	if timeErr != nil {
+		glog.Errorf("Couldn't parse expiration time %s: %v", kc.expDate, timeErr)
+		return
+	}
+
+	if err := kc.cache.ExpireAt(fmt.Sprintf("%s::%s", kSerials, kc.id()), expireTime); err != nil {
+		glog.Errorf("Couldn't set expiration time %v for serials %s: %v", expireTime, kc.id(), err)
+	}
 }
