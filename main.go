@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"net/url"
 	"os"
@@ -70,22 +69,22 @@ type LogSyncEngine struct {
 	DownloaderWaitGroup *sync.WaitGroup
 	database            storage.CertDatabase
 	entryChan           chan CtLogEntry
-	logWorkers          []*LogWorker
 	display             mpb.Progress
 	cancelTrigger       context.CancelFunc
 }
 
 // Operates on a single log
 type LogWorker struct {
-	Bar      *mpb.Bar
-	Database storage.CertDatabase
-	Client   *client.LogClient
-	LogURL   string
-	STH      *ct.SignedTreeHead
-	LogState *storage.CertificateLog
-	StartPos uint64
-	EndPos   uint64
-	Backoff  *backoff.Backoff
+	Bar        *mpb.Bar
+	Database   storage.CertDatabase
+	Client     *client.LogClient
+	LogURL     string
+	STH        *ct.SignedTreeHead
+	LogState   *storage.CertificateLog
+	StartPos   uint64
+	EndPos     uint64
+	SaveTicker *time.Ticker
+	Backoff    *backoff.Backoff
 }
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
@@ -106,8 +105,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan CtLogEntry, 1024),
-		logWorkers:          make([]*LogWorker, 1),
+		entryChan:           make(chan CtLogEntry, 16),
 		display:             *display,
 		cancelTrigger:       cancel,
 	}
@@ -126,7 +124,6 @@ func (ld *LogSyncEngine) SyncLog(logURL string) error {
 		return err
 	}
 
-	ld.logWorkers = append(ld.logWorkers, worker)
 	return worker.Run(ld.entryChan)
 }
 
@@ -229,6 +226,13 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		endPos = startPos + *ctconfig.Limit
 	}
 
+	savePeriod, err := time.ParseDuration(*ctconfig.SavePeriod)
+	if err != nil {
+		glog.Errorf("Couldn't parse save period: %s err=%v", savePeriod, err)
+		return nil, err
+	}
+	saveTicker := time.NewTicker(savePeriod)
+
 	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 
 	progressBar := ld.display.AddBar((int64)(endPos-startPos),
@@ -246,14 +250,15 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	)
 
 	return &LogWorker{
-		Bar:      progressBar,
-		Database: ld.database,
-		Client:   ctLog,
-		LogState: logObj,
-		LogURL:   ctLogUrl,
-		STH:      sth,
-		StartPos: startPos,
-		EndPos:   endPos,
+		Bar:        progressBar,
+		Database:   ld.database,
+		Client:     ctLog,
+		LogState:   logObj,
+		LogURL:     ctLogUrl,
+		STH:        sth,
+		StartPos:   startPos,
+		EndPos:     endPos,
+		SaveTicker: saveTicker,
 		Backoff: &backoff.Backoff{
 			Min:    10 * time.Millisecond,
 			Max:    1 * time.Second,
@@ -263,6 +268,8 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 }
 
 func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
+	defer lw.SaveTicker.Stop()
+
 	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)", lw.LogURL, lw.StartPos, lw.EndPos, float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
 
 	if lw.StartPos == lw.EndPos {
@@ -278,25 +285,29 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s", lw.LogURL, err, finalIndex, finalTime)
 	}
 
-	if finalIndex > 9223372036854775807 {
-		glog.Errorf("[%s] Log final index overflows int64.", lw.LogURL)
-		return fmt.Errorf("int64 overrflow")
+	lw.saveState(finalIndex, finalTime)
+	return err
+}
+
+func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
+	if index > 9223372036854775807 {
+		glog.Errorf("[%s] Log final index overflows int64. This shouldn't happen: %+v.", lw.LogURL, index)
+		return
 	}
 
-	lw.LogState.MaxEntry = int64(finalIndex)
-	if finalTime != nil {
-		lw.LogState.LastEntryTime = *finalTime
+	lw.LogState.MaxEntry = int64(index)
+	if entryTime != nil {
+		lw.LogState.LastEntryTime = *entryTime
 	}
 
-	glog.Infof("[%s] Saving log state: %s [err=%v]", lw.LogURL, lw.LogState, err)
+	glog.Infof("[%s] Saving log state: %s", lw.LogURL, lw.LogState)
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
 		glog.Errorf("[%s] Failed to save log state: %s [SaveErr=%s]", lw.LogURL, lw.LogState, saveErr)
-		return saveErr
+		return
 	}
 
-	glog.Infof("[%s] Saved log state: %s [err=%v]", lw.LogURL, lw.LogState, err)
-	return err
+	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
 }
 
 // DownloadRange downloads log entries from the given starting index till one
@@ -350,6 +361,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 				lastTime = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
 
 				lw.Backoff.Reset()
+			case <-lw.SaveTicker.C:
+				lw.saveState(index, lastTime)
 			default:
 				// Channel full, retry
 				time.Sleep(lw.Backoff.Duration())
