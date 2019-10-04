@@ -64,8 +64,6 @@ func shouldProcess(expDate string, issuer string) bool {
 func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan struct{}, progBar *mpb.Bar, storageDB storage.CertDatabase) {
 	defer wg.Done()
 
-	lastTime := time.Now()
-
 	for tuple := range metaChan {
 		select {
 		case <-quitChan:
@@ -74,12 +72,14 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 			path := filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer.ID())
 			glog.V(1).Infof("Processing %s", path)
 
+			startTime := time.Now()
+
 			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
 				glog.Errorf("%s: Error reconstructing issuer metadata, file not totally read. Err=%s", path, err)
 			}
 
-			progBar.IncrBy(1, time.Since(lastTime))
-			lastTime = time.Now()
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
+			progBar.IncrBy(1, time.Since(startTime))
 		}
 	}
 }
@@ -145,10 +145,14 @@ func main() {
 
 	var count int64
 	for _, expDate := range expDates {
-		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
-		if err != nil {
-			glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
-		}
+		issuers := func() []storage.Issuer {
+			defer met.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
+			issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
+			if err != nil {
+				glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
+			}
+			return issuers
+		}()
 
 		lastTime := time.Now()
 		for _, issuer := range issuers {
