@@ -29,6 +29,7 @@ type CTConfig struct {
 	IssuerCNFilter     *string
 	LogExpiredEntries  *bool
 	OutputRefreshMs    *uint64
+	SavePeriod         *string
 	Config             *string
 }
 
@@ -141,6 +142,7 @@ func NewCTConfig() *CTConfig {
 		CertPath:           new(string),
 		FirestoreProjectId: new(string),
 		RedisHost:          new(string),
+		SavePeriod:         new(string),
 		OutputRefreshMs:    new(uint64),
 	}
 
@@ -165,6 +167,7 @@ func NewCTConfig() *CTConfig {
 	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(ret.RunForever, section, "runForever", false)
 	confInt(ret.PollingDelay, section, "pollingDelay", 10)
+	confString(ret.SavePeriod, section, "savePeriod", "15m")
 	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(ret.CertPath, section, "certPath", "")
 	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
@@ -204,6 +207,7 @@ func (c *CTConfig) Usage() {
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for database insertions")
 	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")
+	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 	fmt.Println("outputRefreshMs = Milliseconds between output publications")
 }

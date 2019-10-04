@@ -268,8 +268,6 @@ func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(expDate string
 			return []Serial{}, err
 		}
 
-		glog.Infof("%v", doc.Ref.ID)
-
 		serialObj, err := NewSerialFromIDString(doc.Ref.ID)
 		if err != nil {
 			glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %+v", expDate, issuer.ID(), doc.Ref.ID)
