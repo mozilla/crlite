@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"os/signal"
@@ -84,7 +85,8 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 func main() {
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
-	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	var twg sync.WaitGroup
 	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
 
 	// Handle signals from the OS
@@ -95,10 +97,30 @@ func main() {
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
+	// Start the display
+	refreshDur := time.Duration(int64(*ctconfig.OutputRefreshMs)) * time.Millisecond
+
+	glog.Infof("Progress bar refresh rate %d is every %s.\n", *ctconfig.OutputRefreshMs, refreshDur.String())
+
+	display := mpb.New(
+		mpb.WithWaitGroup(&twg),
+		mpb.WithContext(ctx),
+		mpb.WithRefreshRate(refreshDur),
+	)
+
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
 		glog.Fatalf("Could not list expiration dates: %+v", err)
 	}
+
+	fetchingJobs := display.AddBar(int64(len(expDates)),
+		mpb.AppendDecorators(
+			decor.Percentage(),
+			decor.Name(" Filling Queue"),
+			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+		),
+	)
 
 	var count int64
 	for _, expDate := range expDates {
@@ -107,7 +129,11 @@ func main() {
 			glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
 		}
 
+		lastTime := time.Now()
 		for _, issuer := range issuers {
+			fetchingJobs.IncrBy(1, time.Since(lastTime))
+			lastTime = time.Now()
+
 			if shouldProcess(expDate, issuer.ID()) {
 				select {
 				case workUnitsChan <- metadataTuple{expDate, issuer}:
@@ -122,13 +148,10 @@ func main() {
 	// Signal that was the last work
 	close(workUnitsChan)
 
-	// Start the display
-	display := mpb.New()
-
 	progressBar := display.AddBar(count,
 		mpb.AppendDecorators(
 			decor.Percentage(),
-			decor.Name(""),
+			decor.Name(" ExpDate/Issuers"),
 			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
@@ -136,8 +159,8 @@ func main() {
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
-		wg.Add(1)
-		go metadataWorker(&wg, workUnitsChan, quitChan, progressBar, storageDB)
+		twg.Add(1)
+		go metadataWorker(&twg, workUnitsChan, quitChan, progressBar, storageDB)
 	}
 
 	// Set up a notifier for the workers closing
@@ -145,13 +168,15 @@ func main() {
 	go func(wait *sync.WaitGroup) {
 		wait.Wait()
 		doneChan <- true
-	}(&wg)
+	}(&twg)
 
 	select {
 	case <-sigChan:
 		glog.Infof("Signal caught, stopping threads at next opportunity.")
+		cancel()
 		quitChan <- struct{}{}
 	case <-doneChan:
+		cancel()
 		glog.Infof("Completed.")
 	}
 }
