@@ -42,8 +42,6 @@ type cacheId struct {
 func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
 	cache := gcache.New(aCacheSize).ARC().
 		LoaderFunc(func(key interface{}) (interface{}, error) {
-			glog.V(2).Infof("CACHE: loaded datafile: %s", key)
-
 			cacheId := key.(cacheId)
 
 			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend, aExtCache)
