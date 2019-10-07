@@ -116,6 +116,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 }
 
 func (ld *LogSyncEngine) StartDatabaseThreads() {
+	glog.Infof("Starting %d threads...", *ctconfig.NumThreads)
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		go ld.insertCTWorker()
 	}
