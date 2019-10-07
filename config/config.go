@@ -25,73 +25,84 @@ type CTConfig struct {
 	NumThreads          *int
 	CacheSize           *int
 	RunForever          *bool
-	PollingDelay        *int
 	IssuerCNFilter      *string
 	LogExpiredEntries   *bool
 	SavePeriod          *string
-	Config              *string
+	PollingDelayMean    *string
+	PollingDelayStdDev  *int
 	StatsRefreshPeriod  *string
 	OutputRefreshPeriod *string
+	Config              *string
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
-	*p = def
-	if section != nil {
-		k := section.Key(key)
-		if k != nil {
-			v, err := k.Int()
-			if err != nil {
-				*p = v
-			}
-		}
-	}
 	val, ok := os.LookupEnv(key)
 	if ok {
 		i, err := strconv.ParseInt(val, 10, 32)
 		if err == nil {
 			*p = int(i)
+			return
+		}
+	}
+
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Int()
+			if err == nil {
+				*p = v
+			}
 		}
 	}
 }
 
 func confUint64(p *uint64, section *ini.Section, key string, def uint64) {
-	*p = def
-	if section != nil {
-		k := section.Key(key)
-		if k != nil {
-			v, err := k.Uint64()
-			if err != nil {
-				*p = v
-			}
-		}
-	}
+	// Final override is the environment variable
 	val, ok := os.LookupEnv(key)
 	if ok {
 		u, err := strconv.ParseUint(val, 10, 64)
 		if err == nil {
 			*p = u
+			return
+		}
+	}
+
+	// Assume default
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Uint64()
+			if err == nil {
+				*p = v
+			}
 		}
 	}
 }
 
 func confBool(p *bool, section *ini.Section, key string, def bool) {
-	*p = def
-	if section != nil {
-		k := section.Key(key)
-		if k != nil {
-			v, err := k.Bool()
-			if err != nil {
-				*p = v
-			}
-		}
-	}
+	// Final override is the environment variable
 	val, ok := os.LookupEnv(key)
 	if ok {
 		b, err := strconv.ParseBool(val)
 		if err == nil {
 			*p = b
+			return
 		}
 	}
+
+	*p = def
+	if section != nil {
+		k := section.Key(key)
+		if k != nil {
+			v, err := k.Bool()
+			if err == nil {
+				*p = v
+			}
+		}
+	}
+
 }
 
 func confString(p *string, section *ini.Section, key string, def string) {
@@ -138,7 +149,6 @@ func NewCTConfig() *CTConfig {
 		CacheSize:           new(int),
 		LogExpiredEntries:   new(bool),
 		RunForever:          new(bool),
-		PollingDelay:        new(int),
 		IssuerCNFilter:      new(string),
 		CertPath:            new(string),
 		FirestoreProjectId:  new(string),
@@ -146,6 +156,8 @@ func NewCTConfig() *CTConfig {
 		SavePeriod:          new(string),
 		OutputRefreshPeriod: new(string),
 		StatsRefreshPeriod:  new(string),
+		PollingDelayMean:    new(string),
+		PollingDelayStdDev:  new(int),
 	}
 
 	// First, check the config file, which might have come from a CLI paramater
@@ -168,7 +180,8 @@ func NewCTConfig() *CTConfig {
 	confInt(ret.CacheSize, section, "cacheSize", 2048)
 	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(ret.RunForever, section, "runForever", false)
-	confInt(ret.PollingDelay, section, "pollingDelay", 10)
+	confInt(ret.PollingDelayStdDev, section, "pollingDelayStdDev", 100)
+	confString(ret.PollingDelayMean, section, "pollingDelayMean", "10m")
 	confString(ret.SavePeriod, section, "savePeriod", "15m")
 	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(ret.CertPath, section, "certPath", "")
@@ -206,7 +219,8 @@ func (c *CTConfig) Usage() {
 	fmt.Println("Options:")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
-	fmt.Println("pollingDelay = Wait this many minutes between polls")
+	fmt.Println("PollingDelayMean = Wait a mean of this long between polls")
+	fmt.Println("PollingDelayStdDev = Use this standard deviation between polls")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for database insertions")
 	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")

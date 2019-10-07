@@ -348,7 +348,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 		if err != nil {
 			return index, lastTime, err
 		}
-		metrics.MeasureSince([]string{"LogWorker-GetRawEntries"}, cycleTime)
+		metrics.MeasureSince([]string{"LogWorker-GetRawEntries", lw.LogURL}, cycleTime)
 
 		for _, entry := range resp.Entries {
 			index++
@@ -396,6 +396,11 @@ func main() {
 	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
 	if err != nil {
 		glog.Fatal(err)
+	}
+
+	pollingDelayMean, err := time.ParseDuration(*ctconfig.PollingDelayMean)
+	if err != nil {
+		glog.Fatalf("Could not parse PollingDelayMean: %v", err)
 	}
 
 	metricsSink := metrics.NewInmemSink(10*time.Second, time.Minute)
@@ -447,10 +452,8 @@ func main() {
 						return
 					}
 
-					// Sleep PollingDelay + rand(15) minutes
-					timeJitter := time.Duration(rand.Int63n(int64(time.Minute * 15)))
-					sleepTime := time.Duration(*ctconfig.PollingDelay)*time.Minute + timeJitter
-					glog.Infof("[%s] Stopped. Polling again in %s.", urlString, sleepTime)
+					sleepTime := time.Duration(rand.NormFloat64()*float64(*ctconfig.PollingDelayStdDev))*time.Second + pollingDelayMean
+					glog.Infof("[%s] Stopped. Polling again in %v. %v", urlString, sleepTime, *ctconfig.PollingDelayStdDev)
 
 					select {
 					case <-sigChan:

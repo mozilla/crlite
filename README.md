@@ -18,7 +18,8 @@ cat > ~/.ct-fetch.conf <<EOF
 # certPath = Path under which to store full DER-encoded certificates
 # issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited
 # runForever = Run forever, pausing `pollingDelay` between runs
-# pollingDelay = Wait this many minutes between polls
+# pollingDelayMean = Mean polling delay duration
+# pollingDelayStdDev = A standard deviation, like 100, or 1000.
 # logExpiredEntries = Add expired entries to the database
 # numThreads = Use this many threads per CPU
 # logList = URLs of the CT Logs, comma delimited
