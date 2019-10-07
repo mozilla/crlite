@@ -40,6 +40,7 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 	// Skip unimportant entries, if configured
 
 	if aCert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+		metrics.IncrCounter([]string{"certIsFilteredOut", "expired"}, 1)
 		return true
 	}
 
@@ -51,7 +52,10 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 		}
 	}
 
-	glog.V(4).Infof("Skipping inserting cert issued by %s", aCert.Issuer.CommonName)
+	if skip {
+		metrics.IncrCounter([]string{"certIsFilteredOut", "cn-filtered"}, 1)
+		glog.V(4).Infof("Skipping inserting cert issued by %s", aCert.Issuer.CommonName)
+	}
 	return skip
 }
 
@@ -171,7 +175,8 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if len(ep.LogEntry.Chain) < 1 {
-			glog.Warningf("No issuer known for certificate log=%s index=%d serial=%+v issuer=%+v", ep.LogURL, ep.LogEntry.Index, *cert.SerialNumber, cert.Issuer)
+			glog.Warningf("No issuer known for certificate log=%s index=%d serial=%+v issuer=%+v",
+				ep.LogURL, ep.LogEntry.Index, *cert.SerialNumber, cert.Issuer)
 			continue
 		}
 
@@ -243,7 +248,8 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	}
 	saveTicker := time.NewTicker(savePeriod)
 
-	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize, uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
+	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize,
+		uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 
 	progressBar := ld.display.AddBar((int64)(endPos-startPos),
 		mpb.PrependDecorators(
@@ -280,7 +286,9 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	defer lw.SaveTicker.Stop()
 
-	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)", lw.LogURL, lw.StartPos, lw.EndPos, float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
+	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)",
+		lw.LogURL, lw.StartPos, lw.EndPos,
+		float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
 
 	if lw.StartPos == lw.EndPos {
 		glog.Infof("[%s] Nothing to do", lw.LogURL)
@@ -292,7 +300,8 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
 	if err != nil {
-		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s", lw.LogURL, err, finalIndex, finalTime)
+		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s",
+			lw.LogURL, err, finalIndex, finalTime)
 	}
 
 	lw.saveState(finalIndex, finalTime)
@@ -301,7 +310,8 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 	if index > 9223372036854775807 {
-		glog.Errorf("[%s] Log final index overflows int64. This shouldn't happen: %+v.", lw.LogURL, index)
+		glog.Errorf("[%s] Log final index overflows int64. This shouldn't happen: %+v.",
+			lw.LogURL, index)
 		return
 	}
 
@@ -333,7 +343,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	defer signal.Stop(sigChan)
 	defer close(sigChan)
 
-	var lastTime *time.Time
+	var lastEntryTimestamp *time.Time
 	var cycleTime time.Time
 
 	index := lw.StartPos
@@ -347,7 +357,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
-			return index, lastTime, err
+			glog.Warningf("Failed to get entries: %v", err)
+			metrics.IncrCounter([]string{"downloadCTRangeToChannel", "GetRawEntries-error"}, 1)
+			return index, lastEntryTimestamp, err
 		}
 		metrics.MeasureSince([]string{"LogWorker-GetRawEntries", lw.LogURL}, cycleTime)
 
@@ -361,6 +373,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				glog.Warningf("Erroneous certificate: %v", err)
+				metrics.IncrCounter([]string{"downloadCTRangeToChannel", "error"}, 1)
 				continue
 			}
 
@@ -370,21 +383,25 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			select {
 			case sig := <-sigChan:
 				glog.Infof("[%s] Signal caught: %s", lw.LogURL, sig)
-				return index, lastTime, nil
+				return index, lastEntryTimestamp, nil
 			case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
-				lastTime = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
+				lastEntryTimestamp = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
 
 				lw.Backoff.Reset()
 			case <-lw.SaveTicker.C:
-				lw.saveState(index, lastTime)
+				lw.saveState(index, lastEntryTimestamp)
 			default:
 				// Channel full, retry
-				time.Sleep(lw.Backoff.Duration())
+				duration := lw.Backoff.Duration()
+				metrics.IncrCounter([]string{"downloadCTRangeToChannel", "channelFull"}, 1)
+				metrics.AddSample([]string{"downloadCTRangeToChannel", "channelFullBackoff"},
+					float32(duration.Milliseconds()))
+				time.Sleep(duration)
 			}
 		}
 	}
 
-	return index, lastTime, nil
+	return index, lastEntryTimestamp, nil
 }
 
 func main() {
@@ -453,8 +470,10 @@ func main() {
 						return
 					}
 
-					sleepTime := time.Duration(rand.NormFloat64()*float64(*ctconfig.PollingDelayStdDev))*time.Second + pollingDelayMean
-					glog.Infof("[%s] Stopped. Polling again in %v. %v", urlString, sleepTime, *ctconfig.PollingDelayStdDev)
+					sampledSeconds := rand.NormFloat64() * float64(*ctconfig.PollingDelayStdDev)
+					sleepTime := time.Duration(sampledSeconds)*time.Second + pollingDelayMean
+					glog.Infof("[%s] Stopped. Polling again in %v. %v", urlString,
+						sleepTime, *ctconfig.PollingDelayStdDev)
 
 					select {
 					case <-sigChan:
