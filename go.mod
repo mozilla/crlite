@@ -22,3 +22,5 @@ require (
 	google.golang.org/grpc v1.21.1
 	gopkg.in/ini.v1 v1.38.3
 )
+
+go 1.13
