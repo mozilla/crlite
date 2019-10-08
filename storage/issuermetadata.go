@@ -14,16 +14,18 @@ const kIssuers = "issuer"
 const kCrls = "crl"
 
 type IssuerMetadata struct {
-	expDate string
-	issuer  Issuer
-	cache   RemoteCache
+	expDate    string
+	issuer     Issuer
+	cache      RemoteCache
+	seenBefore bool
 }
 
 func NewIssuerMetadata(aExpDate string, aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
 	return &IssuerMetadata{
-		expDate: aExpDate,
-		issuer:  aIssuer,
-		cache:   aCache,
+		expDate:    aExpDate,
+		issuer:     aIssuer,
+		cache:      aCache,
+		seenBefore: false,
 	}
 }
 
@@ -74,6 +76,11 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
 
 // Must tolerate duplicate information
 func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
+	if im.seenBefore {
+		// Avoid hitting external cache on subsequent accumulates
+		return true, nil
+	}
+
 	issuerSeenBefore, err := im.cache.Exists(fmt.Sprintf("%s::%s", kIssuers, im.id()))
 	if err != nil {
 		return issuerSeenBefore, err
@@ -87,6 +94,7 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
 	}
 
 	issuerErr := im.addIssuerDN(aCert.Issuer.String())
+	im.seenBefore = true // Definitely seen now.
 	return issuerSeenBefore, issuerErr
 }
 

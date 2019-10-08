@@ -321,14 +321,13 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 	}
 
 	defer metrics.MeasureSince([]string{"LogWorker-saveState"}, time.Now())
-	glog.Infof("[%s] Saving log state: %s", lw.LogURL, lw.LogState)
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
 		glog.Errorf("[%s] Failed to save log state: %s [SaveErr=%s]", lw.LogURL, lw.LogState, saveErr)
 		return
 	}
 
-	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
+	glog.V(1).Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
 }
 
 // DownloadRange downloads log entries from the given starting index till one
@@ -348,7 +347,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 	index := lw.StartPos
 	for index < lw.EndPos {
-		max := index + 1024
+		max := index + 32768
 		if max >= lw.EndPos {
 			max = lw.EndPos - 1
 		}

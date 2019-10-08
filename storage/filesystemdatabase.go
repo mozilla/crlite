@@ -44,7 +44,12 @@ func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache Re
 		LoaderFunc(func(key interface{}) (interface{}, error) {
 			cacheId := key.(cacheId)
 
+			metrics.IncrCounter([]string{"cache", "load"}, 1)
+
 			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend, aExtCache)
+		}).
+		EvictedFunc(func(key, value interface{}) {
+			metrics.IncrCounter([]string{"cache", "evicted"}, 1)
 		}).Build()
 
 	db := &FilesystemDatabase{
