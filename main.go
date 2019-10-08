@@ -424,7 +424,7 @@ func main() {
 	glog.Infof("ct-fetch is starting. Stats Dump:%s Forever: %v, Mean Poll: %s",
 		infoDumpPeriod, *ctconfig.RunForever, pollingDelayMean)
 
-	metricsSink := metrics.NewInmemSink(10*time.Second, time.Minute)
+	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
 	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
 	_, err = metrics.NewGlobal(metrics.DefaultConfig("ct-fetch"), metricsSink)
 	if err != nil {
