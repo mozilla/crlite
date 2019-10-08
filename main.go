@@ -39,6 +39,11 @@ var (
 func certIsFilteredOut(aCert *x509.Certificate) bool {
 	// Skip unimportant entries, if configured
 
+	if aCert.BasicConstraintsValid && aCert.IsCA {
+		metrics.IncrCounter([]string{"certIsFilteredOut", "CA"}, 1)
+		return true
+	}
+
 	if aCert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
 		metrics.IncrCounter([]string{"certIsFilteredOut", "expired"}, 1)
 		return true
@@ -155,6 +160,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	for ep := range ld.entryChan {
 		var cert *x509.Certificate
 		var err error
+		precert := false
 
 		parseTime := time.Now()
 
@@ -163,6 +169,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			cert = ep.LogEntry.X509Cert
 		case ct.PrecertLogEntryType:
 			cert, err = x509.ParseCertificate(ep.LogEntry.Precert.Submitted.Data)
+			precert = true
 		}
 
 		if err != nil {
@@ -175,8 +182,8 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if len(ep.LogEntry.Chain) < 1 {
-			glog.Warningf("No issuer known for certificate log=%s index=%d serial=%+v issuer=%+v",
-				ep.LogURL, ep.LogEntry.Index, *cert.SerialNumber, cert.Issuer)
+			glog.Warningf("No issuer known for certificate log=%s precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+				ep.LogURL, precert, ep.LogEntry.Index, storage.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 			continue
 		}
 
