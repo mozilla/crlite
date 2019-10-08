@@ -180,7 +180,7 @@ func NewCTConfig() *CTConfig {
 	confInt(ret.CacheSize, section, "cacheSize", 2048)
 	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(ret.RunForever, section, "runForever", false)
-	confInt(ret.PollingDelayStdDev, section, "pollingDelayStdDev", 100)
+	confInt(ret.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
 	confString(ret.PollingDelayMean, section, "pollingDelayMean", "10m")
 	confString(ret.SavePeriod, section, "savePeriod", "15m")
 	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
