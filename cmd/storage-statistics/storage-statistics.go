@@ -28,7 +28,7 @@ func main() {
 	}
 
 	totalSerials := 0
-	totalIssuers := 0
+	knownIssuers := make(map[string]bool)
 	totalCRLs := 0
 
 	for _, expDate := range expDateList {
@@ -44,6 +44,8 @@ func main() {
 		}
 
 		for _, issuer := range issuers {
+			knownIssuers[issuer.ID()] = true
+
 			knownCerts, err := storageDB.GetKnownCertificates(expDate, issuer)
 			if err != nil {
 				glog.Errorf("Couldn't get known certs for %s-%s: %v", expDate, issuer.ID(), err)
@@ -68,12 +70,15 @@ func main() {
 			dateTotalIssuers = dateTotalIssuers + 1
 			dateTotalCRLs = dateTotalCRLs + countCRLs
 
+			if countSerials == 0 {
+				continue
+			}
+
 			totalSerials = totalSerials + countSerials
 			totalCRLs = totalCRLs + countCRLs
-			totalIssuers = totalIssuers + 1
 
 			if countIssuerDNs == 0 {
-				glog.Warningf("No DNs for issuer %v on %s", issuer, expDate)
+				glog.Warningf("No DNs for issuer %v on %s", issuer.ID(), expDate)
 			}
 
 			glog.V(1).Infof(" * %s (%v): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), issuerDNList, countSerials, countCRLs, countIssuerDNs)
@@ -99,7 +104,7 @@ func main() {
 		glog.Infof("%s totals: %d issuers, %d serials, %d crls", expDate, dateTotalIssuers, dateTotalSerials, dateTotalCRLs)
 	}
 
-	glog.Infof("overall totals: %d issuers, %d serials, %d crls", totalIssuers, totalSerials, totalCRLs)
+	glog.Infof("overall totals: %d issuers, %d serials, %d crls", len(knownIssuers), totalSerials, totalCRLs)
 	glog.Infof("")
 	glog.Infof("Log status:")
 

@@ -80,7 +80,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 	if err != nil {
 		return err
 	}
-	metrics.MeasureSince([]string{"ReconstructIssuerMetadata-ListSerials"}, startTime)
+	metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
 
 	for _, serialNum := range serials {
 		certWasUnknown, err := ce.known.WasUnknown(serialNum)
@@ -89,13 +89,14 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 		}
 
 		if certWasUnknown {
+			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
 			unknownTime := time.Now()
 
 			pemBytes, err := db.backend.LoadCertificatePEM(serialNum, expDate, issuer)
 			if err != nil {
 				return err
 			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-Load"}, unknownTime)
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, unknownTime)
 
 			decodeTime := time.Now()
 			block, rest := pem.Decode(pemBytes)
@@ -106,7 +107,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			if err != nil {
 				return err
 			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-DecodeParse"}, decodeTime)
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
 
 			redisTime := time.Now()
 			issuerSeenBefore, err := ce.meta.Accumulate(cert)
@@ -115,10 +116,17 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			}
 
 			if !issuerSeenBefore {
+				// if the issuer/expdate was unknown in the cache
+				errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
+				if errAlloc != nil {
+					return errAlloc
+				}
 				ce.meta.SetExpiryFlag()
 				ce.known.SetExpiryFlag()
 			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata-CacheInsertion"}, redisTime)
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
+		} else {
+			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasKnown"}, 1)
 		}
 	}
 

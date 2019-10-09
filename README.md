@@ -56,7 +56,8 @@ processing `Y` certificates.
 
 ```
 my_ip=$(ipconfig getifaddr en0) # macOS
-docker run redis:4-alpine
+docker run redis:4
+# for some reason `docker run -p 6379:7000 redis:4 --port 7000` is needed for me
 gcloud beta emulators firestore start --host-port="${my_ip}:8403"
 
 FIRESTORE_EMULATOR_HOST=${my_ip}:8403 RedisHost=${my_ip}:6379 go test -v ./...
