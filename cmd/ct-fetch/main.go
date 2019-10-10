@@ -367,7 +367,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries", lw.LogURL}, cycleTime)
 
 		for _, entry := range resp.Entries {
-			index++
 			if lw.Bar != nil {
 				lw.Bar.IncrBy(1, time.Since(cycleTime))
 			}
@@ -379,6 +378,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 					lw.LogURL, index, err)
 
 				metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "error"}, 1)
+				index++
 				continue
 			}
 
@@ -401,6 +401,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 					break entrySavedLoop // proceed
 				}
 			}
+
+			index++
 		}
 	}
 
