@@ -27,7 +27,6 @@ import (
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jcjones/ct-mapreduce/telemetry"
-	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -95,7 +94,6 @@ type LogWorker struct {
 	StartPos   uint64
 	EndPos     uint64
 	SaveTicker *time.Ticker
-	Backoff    *backoff.Backoff
 }
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
@@ -118,7 +116,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan CtLogEntry, 16),
+		entryChan:           make(chan CtLogEntry, 1024),
 		display:             *display,
 		cancelTrigger:       cancel,
 	}
@@ -139,6 +137,10 @@ func (ld *LogSyncEngine) SyncLog(logURL string) error {
 	}
 
 	return worker.Run(ld.entryChan)
+}
+
+func (ld *LogSyncEngine) ApproximateRemainingEntries() int {
+	return len(ld.entryChan)
 }
 
 func (ld *LogSyncEngine) Stop() {
@@ -192,14 +194,14 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			glog.Errorf("Problem decoding issuing certificate: index: %d error: %s", ep.LogEntry.Index, err)
 			continue
 		}
-		metrics.MeasureSince([]string{"insertCTWorker-ParseCertificates"}, parseTime)
+		metrics.MeasureSince([]string{"insertCTWorker", "ParseCertificates"}, parseTime)
 
 		storeTime := time.Now()
 		err = ld.database.Store(cert, issuingCert, ep.LogURL, ep.LogEntry.Index)
 		if err != nil {
 			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
 		}
-		metrics.MeasureSince([]string{"insertCTWorker-Store"}, storeTime)
+		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
 	}
 }
 
@@ -282,11 +284,6 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		StartPos:   startPos,
 		EndPos:     endPos,
 		SaveTicker: saveTicker,
-		Backoff: &backoff.Backoff{
-			Min:    10 * time.Millisecond,
-			Max:    1 * time.Second,
-			Jitter: true,
-		},
 	}, nil
 }
 
@@ -327,7 +324,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 		lw.LogState.LastEntryTime = *entryTime
 	}
 
-	defer metrics.MeasureSince([]string{"LogWorker-saveState"}, time.Now())
+	defer metrics.MeasureSince([]string{"LogWorker", "saveState"}, time.Now())
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
 		glog.Errorf("[%s] Failed to save log state: %s [SaveErr=%s]", lw.LogURL, lw.LogState, saveErr)
@@ -364,10 +361,10 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
 			glog.Warningf("Failed to get entries: %v", err)
-			metrics.IncrCounter([]string{"downloadCTRangeToChannel", "GetRawEntries-error"}, 1)
+			metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "GetRawEntries-error"}, 1)
 			return index, lastEntryTimestamp, err
 		}
-		metrics.MeasureSince([]string{"LogWorker-GetRawEntries", lw.LogURL}, cycleTime)
+		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries", lw.LogURL}, cycleTime)
 
 		for _, entry := range resp.Entries {
 			index++
@@ -379,30 +376,28 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				glog.Warningf("Erroneous certificate: %v", err)
-				metrics.IncrCounter([]string{"downloadCTRangeToChannel", "error"}, 1)
+				metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "error"}, 1)
 				continue
 			}
 
-			metrics.MeasureSince([]string{"LogWorker-LogEntryFromLeaf"}, cycleTime)
+			metrics.MeasureSince([]string{"LogWorker", "LogEntryFromLeaf"}, cycleTime)
 
 			// Are there waiting signals?
-			select {
-			case sig := <-sigChan:
-				glog.Infof("[%s] Signal caught: %s", lw.LogURL, sig)
-				return index, lastEntryTimestamp, nil
-			case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
-				lastEntryTimestamp = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
-
-				lw.Backoff.Reset()
-			case <-lw.SaveTicker.C:
-				lw.saveState(index, lastEntryTimestamp)
-			default:
-				// Channel full, retry
-				duration := lw.Backoff.Duration()
-				metrics.IncrCounter([]string{"downloadCTRangeToChannel", "channelFull"}, 1)
-				metrics.AddSample([]string{"downloadCTRangeToChannel", "channelFullBackoff"},
-					float32(duration.Milliseconds()))
-				time.Sleep(duration)
+			submitToChannelTime := time.Now()
+		entrySavedLoop:
+			for {
+				select {
+				case sig := <-sigChan:
+					glog.Infof("[%s] Signal caught: %s, at %d time %v", lw.LogURL, sig, index, lastEntryTimestamp)
+					return index, lastEntryTimestamp, nil
+				case <-lw.SaveTicker.C:
+					lw.saveState(index, lastEntryTimestamp)
+					// continue trying to store logEntry
+				case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
+					lastEntryTimestamp = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
+					metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, submitToChannelTime)
+					break entrySavedLoop // proceed
+				}
 			}
 		}
 	}
@@ -496,9 +491,17 @@ func main() {
 		}
 
 		syncEngine.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
-		syncEngine.Stop()                     // Stop workers
-		syncEngine.ThreadWaitGroup.Wait()     // Wait for workers to stop
-		syncEngine.Cleanup()                  // Ensure cache is coherent
+		go func() {
+			for {
+				glog.Infof("Waiting on database writes to complete: %d remaining",
+					syncEngine.ApproximateRemainingEntries())
+				time.Sleep(time.Second)
+			}
+		}()
+		syncEngine.Stop()                 // Stop workers
+		syncEngine.ThreadWaitGroup.Wait() // Wait for workers to stop
+		syncEngine.Cleanup()              // Ensure cache is coherent
+		glog.Flush()
 
 		os.Exit(0)
 	}
