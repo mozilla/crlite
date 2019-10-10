@@ -375,7 +375,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
-				glog.Warningf("Erroneous certificate: %v", err)
+				glog.Warningf("Erroneous certificate: log=%s index=%d err=%v",
+					lw.LogURL, index, err)
+
 				metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "error"}, 1)
 				continue
 			}
