@@ -116,7 +116,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan CtLogEntry, 1024),
+		entryChan:           make(chan CtLogEntry, 8096),
 		display:             *display,
 		cancelTrigger:       cancel,
 	}
