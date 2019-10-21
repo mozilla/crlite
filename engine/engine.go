@@ -7,10 +7,13 @@ package engine
 import (
 	"context"
 	"os"
+	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/jcjones/ct-mapreduce/telemetry"
 )
 
 func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache, storage.StorageBackend) {
@@ -60,4 +63,21 @@ func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, stor
 	}
 
 	return storageDB, remoteCache, backend
+}
+
+func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
+	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
+	if err != nil {
+		glog.Fatalf("Could not parse StatsRefreshPeriod: %v", err)
+	}
+
+	glog.Infof("%s is starting. Statistics will emit every: %s",
+		utilName, infoDumpPeriod)
+
+	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
+	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
+	_, err = metrics.NewGlobal(metrics.DefaultConfig(utilName), metricsSink)
+	if err != nil {
+		glog.Fatal(err)
+	}
 }
