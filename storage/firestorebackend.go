@@ -211,84 +211,149 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 	return logObj, err
 }
 
+func (db *FirestoreBackend) StreamExpirationDates(aNotBefore time.Time) (<-chan string, error) {
+	c := make(chan string)
+	go func() {
+		defer metrics.MeasureSince([]string{"StreamExpirationDates"}, time.Now())
+		defer close(c)
+
+		iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).
+			Select().Documents(db.ctx)
+
+		for {
+			cycleTime := time.Now()
+
+			doc, err := iter.Next()
+			if err == iterator.Done {
+				return
+			}
+
+			if err != nil || doc == nil {
+				glog.Warningf("StreamExpirationDates iter.Next err %v", err)
+				return
+			}
+
+			c <- doc.Ref.ID
+			metrics.MeasureSince([]string{"StreamExpirationDates-Next"}, cycleTime)
+		}
+	}()
+
+	return c, nil
+}
+
 func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
 	defer metrics.MeasureSince([]string{"ListExpirationDates"}, time.Now())
 	expDates := []string{}
-	iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).Select().Documents(db.ctx)
-
-	for {
-		doc, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-
-		if err != nil || doc == nil {
-			glog.Warningf("ListExpirationDates iter.Next err %+v\n", err)
-			return []string{}, err
-		}
-
-		expDates = append(expDates, doc.Ref.ID)
+	dateChan, err := db.StreamExpirationDates(aNotBefore)
+	if err != nil {
+		return expDates, err
 	}
 
+	for expDate := range dateChan {
+		expDates = append(expDates, expDate)
+	}
 	return expDates, nil
+}
+
+func (db *FirestoreBackend) StreamIssuersForExpirationDate(expDate string) (<-chan Issuer, error) {
+	c := make(chan Issuer)
+
+	go func() {
+		defer metrics.MeasureSince([]string{"StreamIssuersForExpirationDate"}, time.Now())
+		defer close(c)
+
+		id := filepath.Join("ct", expDate, "issuer")
+		iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
+			Documents(db.ctx)
+		for {
+			cycleTime := time.Now()
+
+			doc, err := iter.Next()
+			if err == iterator.Done {
+				return
+			}
+
+			if err != nil || doc == nil {
+				glog.Warningf("StreamIssuersForExpirationDate iter.Next err %v", err)
+				return
+			}
+
+			name, err := doc.DataAt(kFieldIssuer)
+			if err != nil {
+				glog.Warningf("Invalid issuer object: %+v :: %v", doc, err)
+				continue
+			}
+
+			c <- NewIssuerFromString(name.(string))
+			metrics.MeasureSince([]string{"StreamIssuersForExpirationDate-Next"}, cycleTime)
+		}
+	}()
+
+	return c, nil
 }
 
 func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
 	defer metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
 	issuers := []Issuer{}
 
-	id := filepath.Join("ct", expDate, "issuer")
-	iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
-		Documents(db.ctx)
-	for {
-		doc, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-
-		if err != nil || doc == nil {
-			glog.Warningf("ListIssuersForExpirationDate iter.Next err %+v\n", err)
-			return []Issuer{}, err
-		}
-
-		name, err := doc.DataAt(kFieldIssuer)
-		if err != nil {
-			return []Issuer{}, err
-		}
-
-		issuerObj := NewIssuerFromString(name.(string))
-
-		issuers = append(issuers, issuerObj)
+	issuerChan, err := db.StreamIssuersForExpirationDate(expDate)
+	if err != nil {
+		return issuers, err
 	}
 
+	for issuer := range issuerChan {
+		issuers = append(issuers, issuer)
+	}
 	return issuers, nil
+}
+
+func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+	c := make(chan Serial)
+
+	go func() {
+		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, time.Now())
+		defer close(c)
+		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
+		iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
+			Documents(db.ctx)
+		for {
+			cycleTime := time.Now()
+
+			doc, err := iter.Next()
+			if err == iterator.Done {
+				return
+			}
+
+			if err != nil || doc == nil {
+				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next err %v", err)
+				return
+			}
+
+			serialObj, err := NewSerialFromIDString(doc.Ref.ID)
+			if err != nil {
+				glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %v", expDate, issuer.ID(), doc.Ref.ID)
+				continue
+			}
+
+			c <- serialObj
+			metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Next"}, cycleTime)
+		}
+	}()
+
+	return c, nil
 }
 
 func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := []Serial{}
 
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
-	iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
-		Documents(db.ctx)
-	for {
-		doc, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		return serials, err
+	}
 
-		if err != nil || doc == nil {
-			glog.Warningf("ListIssuersForExpirationDate iter.Next err %+v\n", err)
-			return []Serial{}, err
-		}
-
-		serialObj, err := NewSerialFromIDString(doc.Ref.ID)
-		if err != nil {
-			glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %+v", expDate, issuer.ID(), doc.Ref.ID)
-			continue
-		}
-
-		serials = append(serials, serialObj)
+	for serial := range serialChan {
+		serials = append(serials, serial)
 	}
 
 	return serials, nil
