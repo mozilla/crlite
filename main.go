@@ -27,7 +27,6 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/jcjones/ct-mapreduce/telemetry"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -418,24 +417,11 @@ func main() {
 		glog.Infof("IssuerCNFilter is set, but unsupported")
 	}
 
-	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
-	if err != nil {
-		glog.Fatal(err)
-	}
+	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
 	pollingDelayMean, err := time.ParseDuration(*ctconfig.PollingDelayMean)
 	if err != nil {
 		glog.Fatalf("Could not parse PollingDelayMean: %v", err)
-	}
-
-	glog.Infof("ct-fetch is starting. Stats Dump:%s Forever: %v, Mean Poll: %s",
-		infoDumpPeriod, *ctconfig.RunForever, pollingDelayMean)
-
-	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
-	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
-	_, err = metrics.NewGlobal(metrics.DefaultConfig("ct-fetch"), metricsSink)
-	if err != nil {
-		glog.Fatal(err)
 	}
 
 	logUrls := []url.URL{}
