@@ -20,6 +20,8 @@ func main() {
 	flag.Uint64Var(&index, "index", 0, "index")
 	flag.Parse()
 
+	defer glog.Flush()
+
 	ctClient, err := client.New(logURL, nil, jsonclient.Options{})
 	if err != nil {
 		glog.Fatalf("[%s] Unable to construct CT log client: %s", logURL, err)

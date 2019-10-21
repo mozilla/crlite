@@ -88,6 +88,8 @@ func main() {
 	ctconfig.Init()
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
+	defer glog.Flush()
+
 	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
 	if err != nil {
 		glog.Fatal(err)
