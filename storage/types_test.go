@@ -141,6 +141,10 @@ func TestSerialID(t *testing.T) {
 	if _, err := NewSerialFromIDString("not base64"); err == nil {
 		t.Error("Expected an error decoding an invalid ID string")
 	}
+
+	if x.HexString() != "deadbeef" {
+		t.Errorf("Expected HexString to match %s", x.HexString())
+	}
 }
 
 func TestLog(t *testing.T) {

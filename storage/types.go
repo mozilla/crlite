@@ -37,6 +37,17 @@ func (o *CertificateLog) ID() string {
 	return CertificateLogIDFromShortURL(o.ShortURL)
 }
 
+type SerialUseType string
+
+func (s SerialUseType) ID() string {
+	return (string)(s)
+}
+
+const (
+	Known   SerialUseType = "known"
+	Revoked SerialUseType = "revoked"
+)
+
 type DocumentType int
 
 type StorageBackend interface {
@@ -44,6 +55,7 @@ type StorageBackend interface {
 
 	StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error
 	StoreLogState(log *CertificateLog) error
+	StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error
 
 	LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error)
 	LoadLogState(logURL string) (*CertificateLog, error)
@@ -181,6 +193,10 @@ func (s Serial) ID() string {
 }
 
 func (s Serial) String() string {
+	return s.HexString()
+}
+
+func (s Serial) HexString() string {
 	return hex.EncodeToString(s.serial)
 }
 

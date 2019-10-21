@@ -179,6 +179,20 @@ func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
 	return db.store(path, encoded)
 }
 
+func (db *LocalDiskBackend) StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error {
+	path := filepath.Join(db.rootPath, useType.ID(), issuer.ID())
+	if err := makeDirectoryIfNotExist(path); err != nil {
+		return err
+	}
+
+	encoded, err := json.Marshal(serials)
+	if err != nil {
+		return err
+	}
+
+	return db.store(path, encoded)
+}
+
 func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }

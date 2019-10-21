@@ -62,6 +62,16 @@ func (db *MockBackend) StoreLogState(log *CertificateLog) error {
 	return nil
 }
 
+func (db *MockBackend) StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error {
+	encoded, err := json.Marshal(serials)
+	if err != nil {
+		return err
+	}
+
+	db.store[useType.ID()+issuer.ID()] = encoded
+	return nil
+}
+
 func (db *MockBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	data, ok := db.store["pem"+expDate+issuer.ID()+serial.ID()]
 	if ok {

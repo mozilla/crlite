@@ -112,6 +112,10 @@ func (db *FirestoreBackend) StoreLogState(log *CertificateLog) error {
 	return err
 }
 
+func (db *FirestoreBackend) StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error {
+	panic("Not implemented")
+}
+
 func (db *FirestoreBackend) allocateExpDate(expDate string) error {
 	doc := db.client.Doc(filepath.Join("ct", expDate))
 	if doc == nil {
