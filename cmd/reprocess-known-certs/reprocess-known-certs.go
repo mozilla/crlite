@@ -85,6 +85,7 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 }
 
 func main() {
+	ctconfig.Init()
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
 	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)

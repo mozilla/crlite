@@ -120,6 +120,27 @@ func confString(p *string, section *ini.Section, key string, def string) {
 }
 
 func NewCTConfig() *CTConfig {
+	return &CTConfig{
+		Offset:              new(uint64),
+		Limit:               new(uint64),
+		LogUrlList:          new(string),
+		NumThreads:          new(int),
+		CacheSize:           new(int),
+		LogExpiredEntries:   new(bool),
+		RunForever:          new(bool),
+		IssuerCNFilter:      new(string),
+		CertPath:            new(string),
+		FirestoreProjectId:  new(string),
+		RedisHost:           new(string),
+		SavePeriod:          new(string),
+		OutputRefreshPeriod: new(string),
+		StatsRefreshPeriod:  new(string),
+		PollingDelayMean:    new(string),
+		PollingDelayStdDev:  new(int),
+	}
+}
+
+func (c *CTConfig) Init() {
 	var confFile string
 	var flagOffset uint64
 	var flagLimit uint64
@@ -141,25 +162,6 @@ func NewCTConfig() *CTConfig {
 		}
 	}
 
-	ret := CTConfig{
-		Offset:              new(uint64),
-		Limit:               new(uint64),
-		LogUrlList:          new(string),
-		NumThreads:          new(int),
-		CacheSize:           new(int),
-		LogExpiredEntries:   new(bool),
-		RunForever:          new(bool),
-		IssuerCNFilter:      new(string),
-		CertPath:            new(string),
-		FirestoreProjectId:  new(string),
-		RedisHost:           new(string),
-		SavePeriod:          new(string),
-		OutputRefreshPeriod: new(string),
-		StatsRefreshPeriod:  new(string),
-		PollingDelayMean:    new(string),
-		PollingDelayStdDev:  new(int),
-	}
-
 	// First, check the config file, which might have come from a CLI paramater
 	var section *ini.Section
 	if len(confFile) > 0 {
@@ -173,35 +175,33 @@ func NewCTConfig() *CTConfig {
 	}
 
 	// Fill in values, where conf file < env vars
-	confUint64(ret.Offset, section, "offset", 0)
-	confUint64(ret.Limit, section, "limit", 0)
-	confString(ret.LogUrlList, section, "logList", "")
-	confInt(ret.NumThreads, section, "numThreads", 1)
-	confInt(ret.CacheSize, section, "cacheSize", 2048)
-	confBool(ret.LogExpiredEntries, section, "logExpiredEntries", false)
-	confBool(ret.RunForever, section, "runForever", false)
-	confInt(ret.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
-	confString(ret.PollingDelayMean, section, "pollingDelayMean", "10m")
-	confString(ret.SavePeriod, section, "savePeriod", "15m")
-	confString(ret.IssuerCNFilter, section, "issuerCNFilter", "")
-	confString(ret.CertPath, section, "certPath", "")
-	confString(ret.FirestoreProjectId, section, "firestoreProjectId", "")
-	confString(ret.RedisHost, section, "redisHost", "")
-	confString(ret.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
-	confString(ret.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
+	confUint64(c.Offset, section, "offset", 0)
+	confUint64(c.Limit, section, "limit", 0)
+	confString(c.LogUrlList, section, "logList", "")
+	confInt(c.NumThreads, section, "numThreads", 1)
+	confInt(c.CacheSize, section, "cacheSize", 2048)
+	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
+	confBool(c.RunForever, section, "runForever", false)
+	confInt(c.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
+	confString(c.PollingDelayMean, section, "pollingDelayMean", "10m")
+	confString(c.SavePeriod, section, "savePeriod", "15m")
+	confString(c.IssuerCNFilter, section, "issuerCNFilter", "")
+	confString(c.CertPath, section, "certPath", "")
+	confString(c.FirestoreProjectId, section, "firestoreProjectId", "")
+	confString(c.RedisHost, section, "redisHost", "")
+	confString(c.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
+	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 
 	// Finally, CLI flags override
 	if flagOffset > 0 {
-		*ret.Offset = flagOffset
+		*c.Offset = flagOffset
 	}
 	if flagLimit > 0 {
-		*ret.Limit = flagLimit
+		*c.Limit = flagLimit
 	}
 	if flagOutputRefreshPeriod != "125ms" {
-		*ret.OutputRefreshPeriod = flagOutputRefreshPeriod
+		*c.OutputRefreshPeriod = flagOutputRefreshPeriod
 	}
-
-	return &ret
 }
 
 func (c *CTConfig) Usage() {
