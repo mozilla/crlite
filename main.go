@@ -411,6 +411,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 }
 
 func main() {
+	ctconfig.Init()
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
