@@ -22,6 +22,7 @@ var (
 func main() {
 	ctconfig.Init()
 	storageDB, _, backend := engine.GetConfiguredStorage(ctconfig)
+	engine.PrepareTelemetry("storage-statistics", ctconfig)
 
 	expDateList, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
