@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"net/url"
 	"os"
@@ -175,7 +176,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if err != nil {
-			glog.Errorf("Problem decoding certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
 			continue
 		}
 
@@ -184,14 +185,14 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if len(ep.LogEntry.Chain) < 1 {
-			glog.Warningf("No issuer known for certificate log=%s precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+			glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
 				ep.LogURL, precert, ep.LogEntry.Index, storage.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 			continue
 		}
 
 		issuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
 		if err != nil {
-			glog.Errorf("Problem decoding issuing certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
 			continue
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "ParseCertificates"}, parseTime)
@@ -199,7 +200,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		storeTime := time.Now()
 		err = ld.database.Store(cert, issuingCert, ep.LogURL, ep.LogEntry.Index)
 		if err != nil {
-			glog.Errorf("Problem inserting certificate: index: %d error: %s", ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
 	}
@@ -313,7 +314,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 }
 
 func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
-	if index > 9223372036854775807 {
+	if index > math.MaxInt64 {
 		glog.Errorf("[%s] Log final index overflows int64. This shouldn't happen: %+v.",
 			lw.LogURL, index)
 		return
