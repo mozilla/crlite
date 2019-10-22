@@ -19,7 +19,7 @@ cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -alsologtost
 env
 
 echo "Starting ${cmd}..."
-echo "Expect ${outputRefreshMs} millisecond lag for initial output."
+echo "Expect ${outputRefreshPeriod} millisecond lag for initial output."
 
 if [ -x /usr/bin/time ] ; then
   /usr/bin/time ${cmd}

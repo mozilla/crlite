@@ -48,3 +48,29 @@ func Test_DecodeCRL(t *testing.T) {
 		t.Errorf("Expected %s, but got %s", expectedSerial, actualSerial)
 	}
 }
+
+func Test_SerialSet(t *testing.T) {
+	testSerials := []storage.Serial{
+		storage.NewSerialFromHex("BB"),
+		storage.NewSerialFromHex("AA"),
+	}
+
+	set := NewSerialSet()
+	isNew := set.Add(testSerials[0])
+	if isNew == false {
+		t.Error("Should have been new")
+	}
+	isNew = set.Add(testSerials[0])
+	if isNew == true {
+		t.Error("Should not have been new")
+	}
+	isNew = set.Add(testSerials[1])
+	if isNew == false {
+		t.Error("Should have been new")
+	}
+
+	actualSerials := set.List()
+	if !reflect.DeepEqual(testSerials, actualSerials) {
+		t.Errorf("Expected %v but got %v", testSerials, actualSerials)
+	}
+}

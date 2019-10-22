@@ -36,8 +36,8 @@ const (
 
 var (
 	inccadb  = flag.String("ccadb", "<path>", "input CCADB CSV path")
-	crlpath  = flag.String("crls", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
-	outpath  = flag.String("out", "<path>", "output folder of revoked serial files of the form <issuer>.revoked")
+	crlpath  = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
+	outpath  = flag.String("outpath", "<path>", "output folder of revoked serial files of the form <issuer>.revoked")
 	ctconfig = config.NewCTConfig()
 
 	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\./]`)
@@ -48,6 +48,7 @@ var (
 type AggregateEngine struct {
 	loadStorageDB storage.CertDatabase
 	saveStorage   storage.StorageBackend
+	remoteCache   storage.RemoteCache
 
 	issuers *rootprogram.MozIssuers
 	display *mpb.Progress
@@ -87,8 +88,8 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 			if !prs {
 				crls = make(map[string]bool)
 			}
-			for _, url := range meta.Metadata.Crls {
-				crls[*url] = true
+			for _, url := range meta.CRLs() {
+				crls[url] = true
 			}
 			issuerCrls[tuple.Issuer.ID()] = crls
 
@@ -157,7 +158,7 @@ func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan ty
 	}
 }
 
-func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *x509.Certificate) bool {
+func processCRL(aPath string, aRevoked *types.SerialSet, aIssuerCert *x509.Certificate) bool {
 	glog.Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
@@ -189,10 +190,7 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 
 	for _, ent := range revokedList.RevokedCertificates {
 		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
-		newRevocation, err := aRevoked.WasUnknown(serial)
-		if err != nil {
-			glog.Warningf("[%s] Error recording revocation [%v]: %s", aPath, ent.SerialNumber, err)
-		}
+		newRevocation := aRevoked.Add(serial)
 		if newRevocation {
 			glog.V(2).Infof("[%s] Newly seen revocation: [%v]", aPath, ent.SerialNumber)
 		}
@@ -203,23 +201,15 @@ func processCRL(aPath string, aRevoked *storage.KnownCertificates, aIssuerCert *
 func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
 	defer wg.Done()
 
-	lastTime := time.Now()
-
 	for tuple := range workChan {
+		cycleTime := time.Now()
+
 		issuerEnrolled := false
-		// Always start with a fresh view.
-		revokedCerts := storage.NewKnownCertificates("revoked", tuple.Issuer, ae.saveStorage)
+		serials := types.NewSerialSet()
 
 		for _, crlPath := range tuple.CrlPaths {
 			select {
 			case <-quitChan:
-				if issuerEnrolled {
-					if err := revokedCerts.Save(); err != nil {
-						glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
-					}
-				} else {
-					glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
-				}
 				return
 			default:
 				cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
@@ -227,7 +217,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 				}
 
-				if processCRL(crlPath, revokedCerts, cert) {
+				if processCRL(crlPath, serials, cert) {
 					// Issuer is considered enrolled if at least one CRL processed successfully
 					issuerEnrolled = true
 					ae.issuers.Enroll(tuple.Issuer)
@@ -236,15 +226,14 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 		}
 
 		if issuerEnrolled {
-			if err := revokedCerts.Save(); err != nil {
+			if err := ae.saveStorage.StoreKnownCertificateList(storage.Revoked, tuple.Issuer, serials.List()); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 		} else {
 			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 		}
 
-		progBar.IncrBy(1, time.Since(lastTime))
-		lastTime = time.Now()
+		progBar.IncrBy(1, time.Since(cycleTime))
 	}
 }
 
@@ -441,9 +430,17 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 }
 
 func main() {
-	storageDB, _ := engine.GetConfiguredStorage(ctconfig)
+	ctconfig.Init()
+	storageDB, remoteCache, _ := engine.GetConfiguredStorage(ctconfig)
 
-	if *outpath == "<path>" || *crlpath == "<path>" {
+	if *outpath == "<path>" {
+		glog.Error("outpath is not set")
+		ctconfig.Usage()
+		os.Exit(2)
+	}
+
+	if *crlpath == "<path>" {
+		glog.Error("crlpath is not set")
 		ctconfig.Usage()
 		os.Exit(2)
 	}
@@ -454,6 +451,8 @@ func main() {
 	if err := os.MkdirAll(*crlpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
+
+	engine.PrepareTelemetry("aggregate-crls", ctconfig)
 
 	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
 
@@ -479,6 +478,7 @@ func main() {
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
 		saveStorage:   saveBackend,
+		remoteCache:   remoteCache,
 		issuers:       mozIssuers,
 		display:       display,
 	}

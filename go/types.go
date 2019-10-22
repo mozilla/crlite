@@ -68,3 +68,28 @@ func DecodeRawTBSCertList(data []byte) (*TBSCertificateListWithRawSerials, error
 	_, err := asn1.Unmarshal(data, &tbsCertList)
 	return &tbsCertList, err
 }
+
+type SerialSet struct {
+	setData map[string]struct{}
+}
+
+func NewSerialSet() *SerialSet {
+	return &SerialSet{
+		setData: make(map[string]struct{}),
+	}
+}
+
+func (s *SerialSet) Add(serial storage.Serial) bool {
+	_, alreadyExisted := s.setData[serial.ID()]
+	s.setData[serial.ID()] = struct{}{}
+	return !alreadyExisted
+}
+
+func (s SerialSet) List() []storage.Serial {
+	serialList := make([]storage.Serial, 0, len(s.setData))
+	for idString := range s.setData {
+		serial, _ := storage.NewSerialFromIDString(idString)
+		serialList = append(serialList, serial)
+	}
+	return serialList
+}

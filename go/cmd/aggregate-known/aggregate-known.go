@@ -12,6 +12,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -36,41 +37,34 @@ type knownWorkUnit struct {
 type knownWorker struct {
 	loadStorage storage.StorageBackend
 	saveStorage storage.StorageBackend
+	remoteCache storage.RemoteCache
 	progBar     *mpb.Bar
 }
 
 func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-chan struct{}) {
 	defer wg.Done()
 
-	lastTime := time.Now()
-
 	for tuple := range workChan {
-		aggKnownCerts := storage.NewKnownCertificates("known", tuple.issuer, kw.saveStorage)
-		// TODO: Track differences
+		serials := types.NewSerialSet()
 
 		for _, expDate := range tuple.expDates {
+			cycleTime := time.Now()
+
 			select {
 			case <-quitChan:
-				if err := aggKnownCerts.Save(); err != nil {
-					glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
-				}
 				return
 			default:
-				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.loadStorage)
-				if err := known.Load(); err != nil {
-					glog.Errorf("[%s] Could not load known certificates : %s", tuple.issuer.ID(), err)
+				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.remoteCache)
+
+				for _, serial := range known.Known() {
+					_ = serials.Add(serial)
 				}
 
-				if err := aggKnownCerts.Merge(known); err != nil {
-					glog.Errorf("[%s] Could not merge known certificates : %s", tuple.issuer.ID(), err)
-				}
-
-				kw.progBar.IncrBy(1, time.Since(lastTime))
-				lastTime = time.Now()
+				kw.progBar.IncrBy(1, time.Since(cycleTime))
 			}
 		}
 
-		if err := aggKnownCerts.Save(); err != nil {
+		if err := kw.saveStorage.StoreKnownCertificateList(storage.Known, tuple.issuer, serials.List()); err != nil {
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 	}
@@ -78,7 +72,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 }
 
 func main() {
-	storageDB, loadBackend := engine.GetConfiguredStorage(ctconfig)
+	ctconfig.Init()
+	storageDB, remoteCache, loadBackend := engine.GetConfiguredStorage(ctconfig)
 
 	if *outpath == "<dir>" {
 		glog.Fatalf("You must set an output directory")
@@ -87,6 +82,8 @@ func main() {
 	if err := os.MkdirAll(*outpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the output directory: %s", err)
 	}
+
+	engine.PrepareTelemetry("aggregate-known", ctconfig)
 
 	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
 
@@ -101,6 +98,8 @@ func main() {
 		}
 	}
 
+	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
+
 	var wg sync.WaitGroup
 	workChan := make(chan knownWorkUnit, 16*1024*1024)
 
@@ -112,10 +111,12 @@ func main() {
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
+	glog.Infof("Listing expiration dates...")
 	expDates, err := storageDB.ListExpirationDates(time.Now())
 	if err != nil {
 		glog.Fatalf("Could not list expiration dates: %s", err)
 	}
+	glog.Infof("Processing %d expiration dates...", len(expDates))
 
 	issuerToWorkUnit := make(map[string]knownWorkUnit)
 
@@ -126,12 +127,14 @@ func main() {
 			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
 		}
 
+		glog.V(1).Infof("Issuers for %s (%d)", expDate, len(issuers))
+
 		for _, issuer := range issuers {
 			if !mozIssuers.IsIssuerInProgram(issuer) {
 				continue
 			}
 
-			glog.V(1).Infof("%s/%s", expDate, issuer.ID())
+			glog.V(1).Infof("(%d) Collating %s/%s", count, expDate, issuer.ID())
 			count = count + 1
 
 			wu, ok := issuerToWorkUnit[issuer.ID()]
@@ -143,6 +146,7 @@ func main() {
 		}
 	}
 
+	glog.V(1).Infof("Filling work channel...")
 	for _, wu := range issuerToWorkUnit {
 		select {
 		case workChan <- wu:
@@ -166,6 +170,8 @@ func main() {
 		),
 	)
 
+	glog.Infof("Starting worker processes to handle %d work units", count)
+
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
@@ -173,6 +179,7 @@ func main() {
 			loadStorage: loadBackend,
 			saveStorage: saveBackend,
 			progBar:     progressBar,
+			remoteCache: remoteCache,
 		}
 		go worker.run(&wg, workChan, quitChan)
 	}

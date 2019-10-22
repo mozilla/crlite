@@ -1,0 +1,10 @@
+#!/bin/bash
+
+cmd="${crlite_bin:-~/go/bin}/reprocess-known-certs -logtostderr"
+echo "Starting ${cmd}..."
+
+if [ -x /usr/bin/time ] ; then
+  /usr/bin/time ${cmd}
+else
+  ${cmd}
+fi

@@ -18,6 +18,7 @@ Then you can execute the docker container, setting any environment vars you want
 ```
 docker run --rm -it \
   -e "FIRESTORE_EMULATOR_HOST=10.0.0.115:8403" \
+  -e "redisHost=10.0.0.115:6379" \
   -e "outputRefreshMs=1000" \
   crlite:0.1
 ```

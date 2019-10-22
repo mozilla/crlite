@@ -56,9 +56,9 @@ def getCertList(certpath, issuer):
             try:
                 serials = json.load(f)
                 certlist = set()
-                for s in serials:
+                for sHex in serials:
                     key = base64.urlsafe_b64decode(
-                            issuer) + base64.urlsafe_b64decode(s)
+                            issuer) + bytearray.fromhex(sHex)
                     certlist.add(key)
             except Exception as e:
                 breakpoint()
@@ -110,7 +110,7 @@ def genCertLists(args, stats, *, revoked_certs, nonrevoked_certs):
             stats['Issuers'][issuer]['known'] = len(knownlist)
 
             # Get revoked serials for issuer, if any
-            revokedpath = os.path.join(args.revokedPath, "%s.known" % issuer)
+            revokedpath = os.path.join(args.revokedPath, issuer)
             revlist = getCertList(revokedpath, issuer)
 
             if revlist:

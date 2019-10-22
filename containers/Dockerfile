@@ -1,4 +1,4 @@
-FROM golang:1.12-stretch as builder
+FROM golang:1.13-stretch as builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
@@ -8,9 +8,9 @@ ENV GOPATH /build/gopath
 # Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
-# Pull a specific version of ct-mapreduce's ct-fetch
-# TODO: Go back to mainline
-RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@firestore
+RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch
+RUN go get github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
+RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics
 
 FROM python:3.7-stretch
 RUN apt update && apt install -y ca-certificates && \
