@@ -1,4 +1,4 @@
-#!/bin/bash -xe
+#!/bin/bash -e
 
 if [ "x${credentials_data}x" != "xx" ] ; then
   echo "GOT ME SOME credentials_data FOR GOOGLE_APPLICATION_CREDENTIALS"
@@ -14,6 +14,10 @@ workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 #${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
 
 ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
+
+if [ "x${reprocess_certs}x" != "xx" ]; then
+  ${workflow}/0-reprocess_certs
+fi
 
 ${workflow}/1-ct-fetch
 ${workflow}/2-produce_revocation_data ${ID}
