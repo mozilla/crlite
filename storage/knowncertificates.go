@@ -30,7 +30,7 @@ func (kc *KnownCertificates) id() string {
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SortedInsert(fmt.Sprintf("%s::%s", kSerials, kc.id()), aSerial.String())
+	result, err := kc.cache.SortedInsert(fmt.Sprintf("%s::%s", kSerials, kc.id()), aSerial.HexString())
 	if err != nil {
 		return false, err
 	}
