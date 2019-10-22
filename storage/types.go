@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/ascii85"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
@@ -188,6 +189,20 @@ func NewSerialFromIDString(s string) (Serial, error) {
 	return NewSerialFromBytes(bytes), nil
 }
 
+func NewSerialFromAscii85(s string) (Serial, error) {
+	dst := make([]byte, 4*len(s))
+	ndst, nsrc, err := ascii85.Decode(dst, []byte(s), true)
+	if err != nil {
+		return Serial{}, err
+	}
+	if nsrc != len(s) {
+		return Serial{}, fmt.Errorf("Problem decoding Ascii85 str=[%s]: decoded %d/%d: %+v", s, nsrc, ndst, dst)
+	}
+	return Serial{
+		serial: dst[0:ndst],
+	}, nil
+}
+
 func (s Serial) ID() string {
 	return base64.URLEncoding.EncodeToString(s.serial)
 }
@@ -198,6 +213,12 @@ func (s Serial) String() string {
 
 func (s Serial) HexString() string {
 	return hex.EncodeToString(s.serial)
+}
+
+func (s Serial) Ascii85() string {
+	dst := make([]byte, ascii85.MaxEncodedLen(len(s.serial)))
+	n := ascii85.Encode(dst, s.serial)
+	return string(dst[0:n])
 }
 
 func (s Serial) Cmp(o Serial) int {

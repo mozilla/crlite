@@ -127,6 +127,27 @@ func TestSerialBigInt(t *testing.T) {
 	}
 }
 
+func TestSerialAscii85(t *testing.T) {
+	serials := []Serial{
+		NewSerialFromHex("ABCDEF"),
+		NewSerialFromHex("001100"),
+		NewSerialFromHex("ABCDEF0100101010010101010100101010"),
+		NewSerialFromHex("00ABCDEF01001010101010101010010101"),
+	}
+
+	for _, s := range serials {
+		astr := s.Ascii85()
+
+		decoded, err := NewSerialFromAscii85(astr)
+		if err != nil {
+			t.Error(err)
+		}
+		if !reflect.DeepEqual(s, decoded) {
+			t.Errorf("Expected to match %v != %v", s, decoded)
+		}
+	}
+}
+
 func TestSerialID(t *testing.T) {
 	x := NewSerialFromHex("DEADBEEF")
 	idStr := x.ID()

@@ -16,7 +16,6 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/jcjones/ct-mapreduce/telemetry"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 )
@@ -88,19 +87,8 @@ func main() {
 	ctconfig.Init()
 	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
 
+	engine.PrepareTelemetry("reprocess-known-certs", ctconfig)
 	defer glog.Flush()
-
-	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	metricsSink := metrics.NewInmemSink(10*time.Second, time.Minute)
-	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
-	met, err := metrics.NewGlobal(metrics.DefaultConfig("reprocess-known-certs"), metricsSink)
-	if err != nil {
-		glog.Fatal(err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var twg sync.WaitGroup
@@ -129,7 +117,7 @@ func main() {
 	)
 
 	expDates := func() []string {
-		defer met.MeasureSince([]string{"ListExpirationDates"}, time.Now())
+		defer metrics.MeasureSince([]string{"ListExpirationDates"}, time.Now())
 		expDates, err := storageDB.ListExpirationDates(time.Now())
 		if err != nil {
 			glog.Fatalf("Could not list expiration dates: %+v", err)
@@ -149,7 +137,7 @@ func main() {
 	var count int64
 	for _, expDate := range expDates {
 		issuers := func() []storage.Issuer {
-			defer met.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
+			defer metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
 			issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
 			if err != nil {
 				glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)

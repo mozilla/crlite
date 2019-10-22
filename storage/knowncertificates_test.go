@@ -12,12 +12,17 @@ func Test_Unknown(t *testing.T) {
 
 	kc := NewKnownCertificates("date", testIssuer, backend)
 
-	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03"), NewSerialFromHex("04")}
+	testList := []Serial{
+		NewSerialFromHex("01"),
+		NewSerialFromHex("02"),
+		NewSerialFromHex("03"),
+		NewSerialFromHex("04"),
+	}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
-		testStrings[i] = serial.String()
+		testStrings[i] = serial.Ascii85()
 	}
-	backend.Data["serials::"+kc.id()] = testStrings
+	backend.Data[kc.serialId()] = testStrings
 
 	for _, bi := range testList {
 		if u, _ := kc.WasUnknown(bi); u == true {
@@ -33,12 +38,12 @@ func Test_Unknown(t *testing.T) {
 		t.Error("5 should now have been known")
 	}
 
-	endText, err := json.Marshal(backend.Data["serials::"+kc.id()])
+	endText, err := json.Marshal(backend.Data[kc.serialId()])
 	if err != nil {
 		t.Error(err)
 	}
 
-	if string(endText) != `["01","02","03","04","05"]` {
+	if string(endText) != `["!\u003c","!W","!r","\"9","\"T"]` {
 		t.Errorf("Invalid end %s", endText)
 	}
 }
@@ -52,12 +57,12 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
-		testStrings[i] = serial.String()
+		testStrings[i] = serial.Ascii85()
 	}
-	backend.Data["serials::"+kc.id()] = testStrings
+	backend.Data[kc.serialId()] = testStrings
 
 	result := kc.Known()
 	if !reflect.DeepEqual(testList, result) {
-		t.Errorf("Known should get the data")
+		t.Errorf("Known should get the data: %+v // %+v", testList, result)
 	}
 }

@@ -27,10 +27,14 @@ func (kc *KnownCertificates) id() string {
 	return fmt.Sprintf("%s::%s", kc.expDate, kc.issuer.ID())
 }
 
+func (kc *KnownCertificates) serialId() string {
+	return fmt.Sprintf("%s::%s", kSerials, kc.id())
+}
+
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SortedInsert(fmt.Sprintf("%s::%s", kSerials, kc.id()), aSerial.HexString())
+	result, err := kc.cache.SortedInsert(kc.serialId(), aSerial.Ascii85())
 	if err != nil {
 		return false, err
 	}
@@ -44,13 +48,16 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	strList, err := kc.cache.SortedList(fmt.Sprintf("%s::%s", kSerials, kc.id()))
+	strList, err := kc.cache.SortedList(kc.serialId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of known certificates: %v", err)
 	}
 	serials := make([]Serial, len(strList))
 	for i, str := range strList {
-		serials[i] = NewSerialFromHex(str)
+		serials[i], err = NewSerialFromAscii85(str)
+		if err != nil {
+			glog.Errorf("Failed to populate serial idx %d str=[%s] %v", i, str, err)
+		}
 	}
 	return serials
 }
@@ -62,7 +69,7 @@ func (kc *KnownCertificates) SetExpiryFlag() {
 		return
 	}
 
-	if err := kc.cache.ExpireAt(fmt.Sprintf("%s::%s", kSerials, kc.id()), expireTime); err != nil {
+	if err := kc.cache.ExpireAt(kc.serialId(), expireTime); err != nil {
 		glog.Errorf("Couldn't set expiration time %v for serials %s: %v", expireTime, kc.id(), err)
 	}
 }
