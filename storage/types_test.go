@@ -110,7 +110,7 @@ func TestSerialJson(t *testing.T) {
 	var decoded []Serial
 	err = json.Unmarshal(data, &decoded)
 	if err != nil {
-		t.Error(err)
+		t.Errorf("Decoding %s got error %v", string(data), err)
 	}
 
 	if !reflect.DeepEqual(serials, decoded) {

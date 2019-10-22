@@ -205,11 +205,16 @@ func (s Serial) Cmp(o Serial) int {
 }
 
 func (s Serial) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.serial)
+	return json.Marshal(s.HexString())
 }
 
 func (s *Serial) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &s.serial)
+	if data[0] != '"' || data[len(data)-1] != '"' {
+		return fmt.Errorf("Expected surrounding quotes")
+	}
+	b, err := hex.DecodeString(string(data[1 : len(data)-1]))
+	s.serial = b
+	return err
 }
 
 func (s Serial) MarshalBinary() ([]byte, error) {
