@@ -116,14 +116,12 @@ func main() {
 		mpb.WithRefreshRate(refreshDur),
 	)
 
-	expDates := func() []string {
-		defer metrics.MeasureSince([]string{"ListExpirationDates"}, time.Now())
-		expDates, err := storageDB.ListExpirationDates(time.Now())
-		if err != nil {
-			glog.Fatalf("Could not list expiration dates: %+v", err)
-		}
-		return expDates
-	}()
+	listExpDateTime := time.Now()
+	expDates, err := storageDB.ListExpirationDates(time.Now())
+	if err != nil {
+		glog.Fatalf("Could not list expiration dates: %+v", err)
+	}
+	metrics.MeasureSince([]string{"ListExpirationDates"}, listExpDateTime)
 
 	fetchingJobs := display.AddBar(int64(len(expDates)),
 		mpb.AppendDecorators(
@@ -136,14 +134,12 @@ func main() {
 
 	var count int64
 	for _, expDate := range expDates {
-		issuers := func() []storage.Issuer {
-			defer metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
-			issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
-			if err != nil {
-				glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
-			}
-			return issuers
-		}()
+		listIssuersTime := time.Now()
+		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
+		if err != nil {
+			glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
+		}
+		metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, listIssuersTime)
 
 		lastTime := time.Now()
 		for _, issuer := range issuers {

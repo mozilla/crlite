@@ -65,7 +65,9 @@ type StorageBackend interface {
 
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
+
 	ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error)
+	StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error)
 }
 
 type CertDatabase interface {

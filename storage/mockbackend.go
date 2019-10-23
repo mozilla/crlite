@@ -115,3 +115,16 @@ func (db *MockBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, e
 func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
 	return db.expDateIssuerIDToSerials[expDate+issuer.ID()], nil
 }
+
+func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+	// Does not have to be performant! Not benchmarking the mock
+	allSerials, err := db.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		return nil, err
+	}
+	sChan := make(chan Serial, len(allSerials))
+	for _, s := range allSerials {
+		sChan <- s
+	}
+	return sChan, nil
+}

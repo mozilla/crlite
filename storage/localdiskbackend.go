@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 )
 
@@ -135,7 +136,23 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 }
 
 func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := make([]Serial, 0)
+
+	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		return serials, err
+	}
+
+	for serial := range serialChan {
+		serials = append(serials, serial)
+	}
+
+	return serials, nil
+}
+
+func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+	sChan := make(chan Serial)
 
 	err := filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -149,13 +166,13 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(expDate string
 			if err != nil {
 				return err
 			}
-			serials = append(serials, serial)
+			sChan <- serial
 			return fmt.Errorf("Unimplemented")
 		}
 		return nil
 	})
 
-	return serials, err
+	return sChan, err
 }
 
 func (db *LocalDiskBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
