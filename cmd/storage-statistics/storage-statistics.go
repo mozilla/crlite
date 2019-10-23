@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"strings"
@@ -21,7 +22,7 @@ var (
 
 func main() {
 	ctconfig.Init()
-	storageDB, _, backend := engine.GetConfiguredStorage(ctconfig)
+	storageDB, _, backend := engine.GetConfiguredStorage(context.Background(), ctconfig)
 	engine.PrepareTelemetry("storage-statistics", ctconfig)
 	defer glog.Flush()
 

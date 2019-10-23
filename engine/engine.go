@@ -16,7 +16,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/telemetry"
 )
 
-func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache, storage.StorageBackend) {
+func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache, storage.StorageBackend) {
 	var err error
 	var storageDB storage.CertDatabase
 	var backend storage.StorageBackend
@@ -44,8 +44,6 @@ func GetConfiguredStorage(ctconfig *config.CTConfig) (storage.CertDatabase, stor
 	}
 
 	if hasFirestoreConfig {
-		ctx := context.Background()
-
 		backend, err = storage.NewFirestoreBackend(ctx, *ctconfig.FirestoreProjectId)
 		if err != nil {
 			glog.Fatalf("Unable to configure Firestore for %s: %v", *ctconfig.FirestoreProjectId, err)

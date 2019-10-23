@@ -85,12 +85,16 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 
 func main() {
 	ctconfig.Init()
-	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
+
+	// Long context is required for these operations
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 
 	engine.PrepareTelemetry("reprocess-known-certs", ctconfig)
 	defer glog.Flush()
 
-	ctx, cancel := context.WithCancel(context.Background())
 	var twg sync.WaitGroup
 	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
 
