@@ -88,8 +88,8 @@ github.com/hashicorp/golang-lru v0.5.3 h1:YPkqC67at8FYaadspW/6uE0COsBxS2656RLEr8
 github.com/hashicorp/golang-lru v0.5.3/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/hpcloud/tail v1.0.0 h1:nfCOvKYfkgYP8hkirhJocXT2+zOD8yUNjXaWfTlyFKI=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
-github.com/jcjones/ct-mapreduce v1.0.4-0.20191023001242-da1ea7d7afbb h1:fplry75oJaCg51+pbjQ1qAvJdBRJznvsYAiaMIWxAYY=
-github.com/jcjones/ct-mapreduce v1.0.4-0.20191023001242-da1ea7d7afbb/go.mod h1:UJMBpxFnucLqxsjhkD9JDyJyKi7v+/inA4gG01DVfyg=
+github.com/jcjones/ct-mapreduce v1.0.4-0.20191023201922-a4fb3d424f4e h1:BKuEOXxMi03m2bJj0NahTzKEvxETmxpv2hGXtu2z9DU=
+github.com/jcjones/ct-mapreduce v1.0.4-0.20191023201922-a4fb3d424f4e/go.mod h1:UJMBpxFnucLqxsjhkD9JDyJyKi7v+/inA4gG01DVfyg=
 github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1:6v2b51hI/fHJwM22ozAgKL4VKDeJcHhJFhtBdhmNjmU=
 github.com/jstemmer/go-junit-report v0.9.1 h1:6QPYqodiu3GuPL+7mfx+NwDdp2eTkp9IfEUpgAwUN0o=
 github.com/jstemmer/go-junit-report v0.9.1/go.mod h1:Brl9GWCQeLvo8nXZwPNNblvFj/XSXhF0NWZEnDohbsk=

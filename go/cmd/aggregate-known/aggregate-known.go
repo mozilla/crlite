@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"os/signal"
@@ -73,7 +74,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 
 func main() {
 	ctconfig.Init()
-	storageDB, remoteCache, loadBackend := engine.GetConfiguredStorage(ctconfig)
+	ctx := context.Background()
+	storageDB, remoteCache, loadBackend := engine.GetConfiguredStorage(ctx, ctconfig)
 
 	if *outpath == "<dir>" {
 		glog.Fatalf("You must set an output directory")

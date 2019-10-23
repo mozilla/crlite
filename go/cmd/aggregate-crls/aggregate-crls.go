@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
@@ -427,7 +428,8 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 
 func main() {
 	ctconfig.Init()
-	storageDB, remoteCache, _ := engine.GetConfiguredStorage(ctconfig)
+	ctx := context.Background()
+	storageDB, remoteCache, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 
 	if *outpath == "<path>" {
 		glog.Error("outpath is not set")
