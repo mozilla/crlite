@@ -33,7 +33,7 @@ func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
 		Member: entry,
 	})
 	added, err := ir.Result()
-	if strings.HasPrefix(err.Error(), "OOM") {
+	if err != nil && strings.HasPrefix(err.Error(), "OOM") {
 		glog.Fatalf("Out of memory on Redis insert of entry %s into key %s, error %v", entry, key, err.Error())
 	}
 	return added == 1, err
