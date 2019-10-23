@@ -311,12 +311,15 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 	c := make(chan Serial, 1*1024*1024)
 
 	go func() {
+		longContext, ctxCancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer ctxCancel()
+
 		totalTime := time.Now()
 		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 		defer close(c)
 		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
 		iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
-			Documents(db.ctx)
+			Documents(longContext)
 		for {
 			cycleTime := time.Now()
 
