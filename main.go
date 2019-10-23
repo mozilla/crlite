@@ -411,7 +411,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 func main() {
 	ctconfig.Init()
-	storageDB, _, _ := engine.GetConfiguredStorage(ctconfig)
+	ctx := context.Background()
+
+	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
