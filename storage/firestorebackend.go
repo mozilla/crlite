@@ -308,7 +308,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
-	c := make(chan Serial, 16*1024*1024)
+	c := make(chan Serial, 1*1024*1024)
 
 	go func() {
 		totalTime := time.Now()
@@ -326,8 +326,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 			}
 
 			if err != nil || doc == nil {
-				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) err %v",
-					time.Since(totalTime), err)
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) (queue len=%d) err %v",
+					time.Since(totalTime), len(c), err)
 				return
 			}
 
