@@ -78,11 +78,7 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 		case <-quitChan:
 			return
 		default:
-			meta, err := ae.loadStorageDB.GetIssuerMetadata(tuple.ExpDate, tuple.Issuer)
-			if err != nil {
-				glog.Errorf("Unexpected error getting issuer metadata: %+v: %v", tuple, err)
-				continue
-			}
+			meta := ae.loadStorageDB.GetIssuerMetadata(tuple.Issuer)
 
 			crls, prs := issuerCrls[tuple.Issuer.ID()]
 			if !prs {
