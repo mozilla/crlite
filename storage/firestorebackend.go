@@ -212,7 +212,7 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 }
 
 func (db *FirestoreBackend) StreamExpirationDates(aNotBefore time.Time) (<-chan string, error) {
-	c := make(chan string)
+	c := make(chan string, 2048)
 	go func() {
 		defer metrics.MeasureSince([]string{"StreamExpirationDates"}, time.Now())
 		defer close(c)
@@ -256,7 +256,7 @@ func (db *FirestoreBackend) ListExpirationDates(aNotBefore time.Time) ([]string,
 }
 
 func (db *FirestoreBackend) StreamIssuersForExpirationDate(expDate string) (<-chan Issuer, error) {
-	c := make(chan Issuer)
+	c := make(chan Issuer, 2048)
 
 	go func() {
 		defer metrics.MeasureSince([]string{"StreamIssuersForExpirationDate"}, time.Now())
@@ -308,7 +308,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
-	c := make(chan Serial)
+	c := make(chan Serial, 256*1024)
 
 	go func() {
 		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, time.Now())
