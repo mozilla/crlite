@@ -308,10 +308,11 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
-	c := make(chan Serial, 256*1024)
+	c := make(chan Serial, 16*1024*1024)
 
 	go func() {
-		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, time.Now())
+		totalTime := time.Now()
+		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 		defer close(c)
 		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
 		iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
@@ -325,7 +326,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 			}
 
 			if err != nil || doc == nil {
-				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next err %v", err)
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) err %v",
+					time.Since(totalTime), err)
 				return
 			}
 

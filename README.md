@@ -40,10 +40,19 @@ certPath = /ct
 firestoreProjectId = ctdata
 # But not both.
 
+# Redis cache server
+RedisHost = 10.10.10.5:6379
+
 EOF
 ```
 
-## Populating your disk with CT certificates
+### Redis
+
+You'll also need to configure your Redis instance with `maxmemory_policy:noeviction`, which is checked
+programmatically and a warning will go to the logs if not set correctly.
+
+
+## Populating your storage and Redis with CT certificates
 
 ```
 ct-fetch -config ~/.ct-fetch.conf
@@ -62,3 +71,4 @@ gcloud beta emulators firestore start --host-port="${my_ip}:8403"
 
 FIRESTORE_EMULATOR_HOST=${my_ip}:8403 RedisHost=${my_ip}:6379 go test -v ./...
 ```
+
