@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -23,7 +24,26 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 		return nil, statusr.Err()
 	}
 
-	return &RedisCache{rdb}, nil
+	rc := &RedisCache{rdb}
+	err := rc.MemoryPolicyCorrect()
+	if err != nil {
+		glog.Warning(err)
+	}
+
+	return rc, nil
+}
+
+func (rc *RedisCache) MemoryPolicyCorrect() error {
+	// maxmemory_policy should be `noeviction`
+	confr := rc.client.Info("memory")
+	if confr.Err() != nil {
+		return confr.Err()
+	}
+	if strings.Contains(confr.Val(), "maxmemory_policy:noeviction") {
+		return nil
+	}
+	return fmt.Errorf("Redis maxmemory_policy should be `noeviction`. Memory config is set to %s",
+		confr.Val())
 }
 
 func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {

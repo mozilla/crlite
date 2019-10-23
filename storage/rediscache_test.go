@@ -27,6 +27,13 @@ func getRedisCache(tb testing.TB) *RedisCache {
 	return rc
 }
 
+func Test_RedisPoicy(t *testing.T) {
+	rc := getRedisCache(t)
+	if err := rc.MemoryPolicyCorrect(); err != nil {
+		t.Error(err)
+	}
+}
+
 func Test_RedisInvalidHost(t *testing.T) {
 	_, err := NewRedisCache("unknown_host:999999")
 	if err == nil {
