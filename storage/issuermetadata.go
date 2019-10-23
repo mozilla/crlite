@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
@@ -14,23 +14,35 @@ const kIssuers = "issuer"
 const kCrls = "crl"
 
 type IssuerMetadata struct {
-	expDate    string
-	issuer     Issuer
-	cache      RemoteCache
-	seenBefore bool
+	issuer         Issuer
+	cache          RemoteCache
+	mutex          *sync.RWMutex
+	knownCrlDPs    map[string]struct{}
+	knownIssuerDNs map[string]struct{}
+	knownExpDates  map[string]struct{}
 }
 
-func NewIssuerMetadata(aExpDate string, aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
+func NewIssuerMetadata(aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
 	return &IssuerMetadata{
-		expDate:    aExpDate,
-		issuer:     aIssuer,
-		cache:      aCache,
-		seenBefore: false,
+		issuer:         aIssuer,
+		cache:          aCache,
+		mutex:          &sync.RWMutex{},
+		knownCrlDPs:    make(map[string]struct{}),
+		knownIssuerDNs: make(map[string]struct{}),
+		knownExpDates:  make(map[string]struct{}),
 	}
 }
 
 func (im *IssuerMetadata) id() string {
-	return fmt.Sprintf("%s::%s", im.expDate, im.issuer.ID())
+	return im.issuer.ID()
+}
+
+func (im *IssuerMetadata) crlId() string {
+	return fmt.Sprintf("%s::%s", kCrls, im.id())
+}
+
+func (im *IssuerMetadata) issuersId() string {
+	return fmt.Sprintf("%s::%s", kIssuers, im.id())
 }
 
 func (im *IssuerMetadata) addCRL(aCRL string) error {
@@ -47,7 +59,7 @@ func (im *IssuerMetadata) addCRL(aCRL string) error {
 		return nil
 	}
 
-	result, err := im.cache.SortedInsert(fmt.Sprintf("%s::%s", kCrls, im.id()), url.String())
+	result, err := im.cache.SortedInsert(im.crlId(), url.String())
 	if err != nil {
 		return err
 	}
@@ -61,7 +73,7 @@ func (im *IssuerMetadata) addCRL(aCRL string) error {
 }
 
 func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
-	result, err := im.cache.SortedInsert(fmt.Sprintf("%s::%s", kIssuers, im.id()), aIssuerDN)
+	result, err := im.cache.SortedInsert(im.issuersId(), aIssuerDN)
 	if err != nil {
 		return err
 	}
@@ -75,46 +87,60 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
 }
 
 // Must tolerate duplicate information
+// TODO: See which is faster, locking on these local caches, or just using extCache
+// solely
 func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
-	if im.seenBefore {
-		// Avoid hitting external cache on subsequent accumulates
-		return true, nil
-	}
+	expDate := aCert.NotAfter.Format(kExpirationFormat)
+	dn := aCert.Issuer.String()
+	im.mutex.RLock()
+	_, seenExpDateBefore := im.knownExpDates[expDate]
+	_, seenIssuerDn := im.knownIssuerDNs[dn]
+	im.mutex.RUnlock()
 
-	issuerSeenBefore, err := im.cache.Exists(fmt.Sprintf("%s::%s", kIssuers, im.id()))
-	if err != nil {
-		return issuerSeenBefore, err
-	}
+	if !seenExpDateBefore {
+		im.mutex.Lock()
+		im.knownExpDates[expDate] = struct{}{}
+		im.mutex.Unlock()
 
-	for _, dp := range aCert.CRLDistributionPoints {
-		err := im.addCRL(dp)
+		cacheSeenBefore, err := im.cache.Exists(im.issuersId())
 		if err != nil {
-			return issuerSeenBefore, err
+			return seenExpDateBefore, err
+		}
+		seenExpDateBefore = cacheSeenBefore
+	}
+
+	im.mutex.RLock()
+	for _, dp := range aCert.CRLDistributionPoints {
+		_, ok := im.knownCrlDPs[dp]
+
+		if !ok {
+			im.mutex.RUnlock()
+			im.mutex.Lock()
+			im.knownCrlDPs[dp] = struct{}{}
+			im.mutex.Unlock()
+			im.mutex.RLock()
+
+			err := im.addCRL(dp)
+			if err != nil {
+				im.mutex.RUnlock()
+				return seenExpDateBefore, err
+			}
 		}
 	}
+	im.mutex.RUnlock()
 
-	issuerErr := im.addIssuerDN(aCert.Issuer.String())
-	im.seenBefore = true // Definitely seen now.
-	return issuerSeenBefore, issuerErr
-}
-
-func (im *IssuerMetadata) SetExpiryFlag() {
-	expireTime, timeErr := time.ParseInLocation(kExpirationFormat, im.expDate, time.UTC)
-	if timeErr != nil {
-		glog.Errorf("Couldn't parse expiration time %s: %v", im.expDate, timeErr)
-		return
+	if !seenIssuerDn {
+		im.mutex.Lock()
+		im.knownIssuerDNs[dn] = struct{}{}
+		im.mutex.Unlock()
+		return seenExpDateBefore, im.addIssuerDN(dn)
 	}
 
-	if err := im.cache.ExpireAt(fmt.Sprintf("%s::%s", kIssuers, im.id()), expireTime); err != nil {
-		glog.Errorf("Couldn't set expiration time %v for issuer %s: %v", expireTime, im.id(), err)
-	}
-	if err := im.cache.ExpireAt(fmt.Sprintf("%s::%s", kCrls, im.id()), expireTime); err != nil {
-		glog.Errorf("Couldn't set expiration time %v for crl %s: %v", expireTime, im.id(), err)
-	}
+	return seenExpDateBefore, nil
 }
 
 func (im *IssuerMetadata) Issuers() []string {
-	strList, err := im.cache.SortedList(fmt.Sprintf("%s::%s", kIssuers, im.id()))
+	strList, err := im.cache.SortedList(im.issuersId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of issuers: %v", err)
 	}
@@ -122,7 +148,7 @@ func (im *IssuerMetadata) Issuers() []string {
 }
 
 func (im *IssuerMetadata) CRLs() []string {
-	strList, err := im.cache.SortedList(fmt.Sprintf("%s::%s", kCrls, im.id()))
+	strList, err := im.cache.SortedList(im.crlId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of CRLs: %v", err)
 	}

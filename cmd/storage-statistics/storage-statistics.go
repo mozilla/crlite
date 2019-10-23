@@ -49,17 +49,8 @@ func main() {
 		for _, issuer := range issuers {
 			knownIssuers[issuer.ID()] = true
 
-			knownCerts, err := storageDB.GetKnownCertificates(expDate, issuer)
-			if err != nil {
-				glog.Errorf("Couldn't get known certs for %s-%s: %v", expDate, issuer.ID(), err)
-				continue
-			}
-
-			issuerMetadata, err := storageDB.GetIssuerMetadata(expDate, issuer)
-			if err != nil {
-				glog.Errorf("Couldn't get issuer metadata for %s-%s: %v", expDate, issuer.ID(), err)
-				continue
-			}
+			knownCerts := storageDB.GetKnownCertificates(expDate, issuer)
+			issuerMetadata := storageDB.GetIssuerMetadata(issuer)
 
 			knownList := knownCerts.Known()
 			crlList := issuerMetadata.CRLs()

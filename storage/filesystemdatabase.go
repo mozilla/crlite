@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -16,22 +17,22 @@ import (
 
 type CacheEntry struct {
 	known *KnownCertificates
-	meta  *IssuerMetadata
 }
 
 func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, aCache RemoteCache) (*CacheEntry, error) {
 	issuer := NewIssuerFromString(aIssuerStr)
 	obj := CacheEntry{
 		known: NewKnownCertificates(aExpDate, issuer, aCache),
-		meta:  NewIssuerMetadata(aExpDate, issuer, aCache),
 	}
 	return &obj, nil
 }
 
 type FilesystemDatabase struct {
-	backend  StorageBackend
-	extCache RemoteCache
-	cache    gcache.Cache
+	backend   StorageBackend
+	extCache  RemoteCache
+	cache     gcache.Cache
+	metaMutex *sync.RWMutex
+	meta      map[string]*IssuerMetadata
 }
 
 type cacheId struct {
@@ -53,12 +54,33 @@ func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache Re
 		}).Build()
 
 	db := &FilesystemDatabase{
-		backend:  aBackend,
-		cache:    cache,
-		extCache: aExtCache,
+		backend:   aBackend,
+		cache:     cache,
+		extCache:  aExtCache,
+		metaMutex: &sync.RWMutex{},
+		meta:      make(map[string]*IssuerMetadata),
 	}
 
 	return db, nil
+}
+
+func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
+	db.metaMutex.RLock()
+
+	im, ok := db.meta[aIssuer.ID()]
+	if ok {
+		db.metaMutex.RUnlock()
+		return im
+	}
+
+	db.metaMutex.RUnlock()
+	db.metaMutex.Lock()
+
+	im = NewIssuerMetadata(aIssuer, db.extCache)
+	db.meta[aIssuer.ID()] = im
+
+	db.metaMutex.Unlock()
+	return im
 }
 
 func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
@@ -110,7 +132,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
 
 			redisTime := time.Now()
-			issuerSeenBefore, err := ce.meta.Accumulate(cert)
+			issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(cert)
 			if err != nil {
 				return err
 			}
@@ -121,7 +143,6 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 				if errAlloc != nil {
 					return errAlloc
 				}
-				ce.meta.SetExpiryFlag()
 				ce.known.SetExpiryFlag()
 			}
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
@@ -197,7 +218,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	}
 
 	if certWasUnknown {
-		issuerSeenBefore, err := ce.meta.Accumulate(aCert)
+		issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(aCert)
 		if err != nil {
 			return err
 		}
@@ -207,7 +228,6 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 			if errAlloc != nil {
 				return errAlloc
 			}
-			ce.meta.SetExpiryFlag()
 			ce.known.SetExpiryFlag()
 		}
 
@@ -226,14 +246,8 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	return nil
 }
 
-func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issuer) (*KnownCertificates, error) {
-	kc := NewKnownCertificates(aExpDate, aIssuer, db.extCache)
-	return kc, nil
-}
-
-func (db *FilesystemDatabase) GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error) {
-	im := NewIssuerMetadata(aExpDate, aIssuer, db.extCache)
-	return im, nil
+func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates {
+	return NewKnownCertificates(aExpDate, aIssuer, db.extCache)
 }
 
 func (db *FilesystemDatabase) Cleanup() error {

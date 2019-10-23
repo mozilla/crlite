@@ -76,8 +76,8 @@ type CertDatabase interface {
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
 	ReconstructIssuerMetadata(expDate string, issuer Issuer) error
-	GetKnownCertificates(aExpDate string, aIssuer Issuer) (*KnownCertificates, error)
-	GetIssuerMetadata(aExpDate string, aIssuer Issuer) (*IssuerMetadata, error)
+	GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates
+	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
 }
 
 type RemoteCache interface {
