@@ -157,8 +157,33 @@ func (db *FirestoreBackend) AllocateExpDateAndIssuer(expDate string, issuer Issu
 	return nil
 }
 
+func dataAtWithRetry(docsnap *firestore.DocumentSnapshot, fieldName string, funcName string) (interface{}, error) {
+	startTime := time.Now()
+	defer metrics.MeasureSince([]string{"dataAtWithRetry", funcName}, startTime)
+
+	for i := 0; i < 10; i++ {
+		data, err := docsnap.DataAt(fieldName)
+		if err != nil {
+			if strings.Contains(err.Error(), "deadline exceeded") {
+				glog.V(1).Infof("%s Deadline exceeded, retrying (total time=%s)",
+					funcName, time.Since(startTime))
+				metrics.IncrCounter([]string{funcName, "DeadlineExceeded"}, 1)
+				metrics.AddSample([]string{funcName, "DeadlineExceededAtCycleTime"},
+					float32(time.Since(startTime).Seconds()))
+				continue // retry
+			}
+			return []byte{}, fmt.Errorf("%s Couldn't get data field for %s (elapsed=%s): %v",
+				funcName, fieldName, time.Since(startTime), err)
+		}
+		return data, nil
+	}
+	return []byte{}, fmt.Errorf("%s failed all retries for data field %s (elapsed=%s)",
+		funcName, fieldName, time.Since(startTime))
+}
+
 func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
-	defer metrics.MeasureSince([]string{"LoadCertificatePEM"}, time.Now())
+	startTime := time.Now()
+	defer metrics.MeasureSince([]string{"LoadCertificatePEM"}, startTime)
 	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", serial.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
@@ -170,11 +195,8 @@ func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, is
 		return []byte{}, fmt.Errorf("Couldn't get document snapshot for %s: %v", id, err)
 	}
 
-	data, err := docsnap.DataAt(kFieldData)
-	if err != nil {
-		return []byte{}, fmt.Errorf("Couldn't get data field for %s: %v", id, err)
-	}
-	return data.([]byte), nil
+	data, err := dataAtWithRetry(docsnap, kFieldData, "LoadCertificatePEM")
+	return data.([]byte), err
 }
 
 func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error) {
@@ -198,15 +220,15 @@ func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error)
 		return nil, err
 	}
 
-	url, err := docsnap.DataAt(kFieldURL)
+	url, err := dataAtWithRetry(docsnap, kFieldURL, "LoadLogState")
 	if err != nil {
 		return nil, err
 	}
-	maxEntry, err := docsnap.DataAt(kFieldData)
+	maxEntry, err := dataAtWithRetry(docsnap, kFieldData, "LoadLogState")
 	if err != nil {
 		return nil, err
 	}
-	timeSec, err := docsnap.DataAt(kFieldUnixTime)
+	timeSec, err := dataAtWithRetry(docsnap, kFieldUnixTime, "LoadLogState")
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +308,7 @@ func (db *FirestoreBackend) StreamIssuersForExpirationDate(expDate string) (<-ch
 				return
 			}
 
-			name, err := doc.DataAt(kFieldIssuer)
+			name, err := dataAtWithRetry(doc, kFieldIssuer, "StreamIssuersForExpirationDate")
 			if err != nil {
 				glog.Warningf("Invalid issuer object: %+v :: %v", doc, err)
 				continue
