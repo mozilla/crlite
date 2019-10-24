@@ -357,9 +357,16 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(
 			offset += count
 
 			if err != nil {
-				if strings.Contains(err.Error(), "DeadlineExceeded") {
+				if strings.Contains(err.Error(), "deadline exceeded") {
 					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer Deadline exceeded, retrying (cycle time=%s) (total time=%s) (offset=%d) (count=%d) (queue len=%d)",
 						time.Since(cycleTime), time.Since(totalTime), offset, count, len(c))
+					metrics.IncrCounter([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceeded"}, 1)
+					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededAtPosition"},
+						float32(count))
+					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededAtCycleTime"},
+						float32(time.Since(cycleTime).Seconds()))
+					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededQueueLength"},
+						float32(len(c)))
 					continue
 				}
 
@@ -369,6 +376,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(
 			}
 
 			if count == 0 {
+				metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "TotalSerials"},
+					float32(offset))
 				return
 			}
 		}
