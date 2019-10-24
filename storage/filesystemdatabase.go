@@ -114,11 +114,13 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 		}
 
 		if certWasUnknown {
+			subCtx, subCancel := context.WithTimeout(ctx, 15*time.Minute)
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
 			unknownTime := time.Now()
 
-			pemBytes, err := db.backend.LoadCertificatePEM(ctx, serialNum, expDate, issuer)
+			pemBytes, err := db.backend.LoadCertificatePEM(subCtx, serialNum, expDate, issuer)
 			if err != nil {
+				subCancel()
 				return fmt.Errorf("ReconstructIssuerMetadata Load PEM %v", err)
 			}
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, unknownTime)
@@ -126,10 +128,12 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			decodeTime := time.Now()
 			block, rest := pem.Decode(pemBytes)
 			if len(rest) > 0 {
+				subCancel()
 				return fmt.Errorf("PEM data for %s %s %s had extra bytes: %+v", serialNum, expDate, issuer.ID(), rest)
 			}
 			cert, err := x509.ParseCertificate(block.Bytes)
 			if err != nil {
+				subCancel()
 				metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
 				return fmt.Errorf("ReconstructIssuerMetadata Parse Certificate %v", err)
 			}
@@ -138,17 +142,21 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			redisTime := time.Now()
 			issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(cert)
 			if err != nil {
+				subCancel()
 				return fmt.Errorf("ReconstructIssuerMetadata Accumulate %v", err)
 			}
 
 			if !issuerSeenBefore {
 				// if the issuer/expdate was unknown in the cache
-				errAlloc := db.backend.AllocateExpDateAndIssuer(ctx, expDate, issuer)
+				errAlloc := db.backend.AllocateExpDateAndIssuer(subCtx, expDate, issuer)
 				if errAlloc != nil {
+					subCancel()
 					return fmt.Errorf("ReconstructIssuerMetadata issuer not seen before %v", errAlloc)
 				}
 				ce.known.SetExpiryFlag()
 			}
+
+			subCancel()
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
 		} else {
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasKnown"}, 1)
