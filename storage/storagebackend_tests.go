@@ -162,12 +162,6 @@ func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
 		}
 	}
 
-	// // Normally the FilesystemDatabase object is responsible for this allocation
-	// err = db.AllocateExpDateAndIssuer("2019-11-28", issuerObj)
-	// if err != nil {
-	// 	t.Fatal(err)
-	// }
-
 	resultList, err := db.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
 	if err != nil {
 		t.Error(err)

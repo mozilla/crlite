@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"os"
@@ -156,4 +157,48 @@ func Test_FirestoreListSerialsForExpirationDateAndIssuer(t *testing.T) {
 	h := makeFirestoreHarness(t)
 	defer h.cleanup()
 	BackendTestListingCertificates(t, h.be)
+}
+
+func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
+	h := makeFirestoreHarness(t)
+	defer h.cleanup()
+
+	expDate := "2019-11-30"
+	issuer := NewIssuerFromString("streamIssuer")
+
+	expectedNumber := 0x4000
+
+	collector := make(map[string]bool)
+
+	for i := uint32(0x00); i < uint32(expectedNumber); i++ {
+		b := make([]byte, 20)
+		binary.LittleEndian.PutUint32(b[0:], i)
+		serial := NewSerialFromBytes(b)
+		collector[serial.ID()] = false
+
+		err := h.be.StoreCertificatePEM(serial, expDate, issuer, []byte{0xDA, 0xDA})
+		if err != nil {
+			t.Fatalf("%s", err.Error())
+		}
+	}
+
+	resultChan, err := h.be.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	var count int
+	for s := range resultChan {
+		count += 1
+		beenSeen, keySet := collector[s.ID()]
+		if !keySet {
+			t.Errorf("Unexpected Serial: %s", s)
+		}
+		if beenSeen {
+			t.Errorf("Duplicate Serial: %s", s)
+		}
+		collector[s.ID()] = true
+	}
+	if count != expectedNumber {
+		t.Errorf("Should have gotten exactly %d entries, but got %d entries", expectedNumber, count)
+	}
 }

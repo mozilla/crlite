@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -307,7 +308,38 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 	return issuers, nil
 }
 
-func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+func processSerialDocumentQuery(expDate string, issuer Issuer, q firestore.Query, ctx context.Context,
+	c chan<- Serial) (error, int) {
+	var count int
+	iter := q.Documents(ctx)
+	for {
+		cycleTime := time.Now()
+
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			return nil, count
+		}
+		if err != nil {
+			return err, count
+		}
+		if doc == nil {
+			return fmt.Errorf("nil document returned"), count
+		}
+
+		serialObj, err := NewSerialFromIDString(doc.Ref.ID)
+		if err != nil {
+			glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %v", expDate, issuer.ID(), doc.Ref.ID)
+			continue
+		}
+
+		c <- serialObj
+		metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Next"}, cycleTime)
+		count += 1
+	}
+}
+
+func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string,
+	issuer Issuer) (<-chan Serial, error) {
 	c := make(chan Serial, 1*1024*1024)
 
 	go func() {
@@ -315,30 +347,28 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 		defer close(c)
 		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
-		iter := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).
-			Documents(db.ctx)
+		query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(4096)
+
+		var offset int
 		for {
-			cycleTime := time.Now()
+			err, count := processSerialDocumentQuery(expDate, issuer, query.Offset(offset), db.ctx, c)
+			offset += count
 
-			doc, err := iter.Next()
-			if err == iterator.Done {
-				return
-			}
-
-			if err != nil || doc == nil {
-				glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) (queue len=%d) err %v",
-					time.Since(totalTime), len(c), err)
-				return
-			}
-
-			serialObj, err := NewSerialFromIDString(doc.Ref.ID)
 			if err != nil {
-				glog.Warningf("Invalid ID string for expDate=%s issuer=%s: %v", expDate, issuer.ID(), doc.Ref.ID)
-				continue
+				if strings.HasPrefix(err.Error(), "context deadline exceeded") {
+					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer Deadline exceeded at time: %s (offset=%d) (queue len=%d)",
+						time.Since(totalTime), offset, len(c))
+					continue
+				}
+
+				glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) (offset=%d) (queue len=%d) err %v",
+					time.Since(totalTime), offset, len(c), err)
+				return
 			}
 
-			c <- serialObj
-			metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Next"}, cycleTime)
+			if count == 0 {
+				return
+			}
 		}
 	}()
 
