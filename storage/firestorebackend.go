@@ -148,9 +148,13 @@ func (db *FirestoreBackend) AllocateExpDateAndIssuer(expDate string, issuer Issu
 	defer metrics.MeasureSince([]string{"AllocateExpDateAndIssuer"}, time.Now())
 	err := db.allocateExpDate(expDate)
 	if err != nil {
-		return err
+		return fmt.Errorf("Could not allocateExpDate %s/%s: %v", expDate, issuer.ID(), err)
 	}
-	return db.allocateIssuerExpDate(expDate, issuer)
+	err = db.allocateIssuerExpDate(expDate, issuer)
+	if err != nil {
+		return fmt.Errorf("Could not allocateIssuerExpDate %s/%s: %v", expDate, issuer.ID(), err)
+	}
+	return nil
 }
 
 func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
@@ -163,11 +167,14 @@ func (db *FirestoreBackend) LoadCertificatePEM(serial Serial, expDate string, is
 
 	docsnap, err := doc.Get(db.ctx)
 	if err != nil {
-		return []byte{}, err
+		return []byte{}, fmt.Errorf("Couldn't get document snapshot for %s: %v", id, err)
 	}
 
 	data, err := docsnap.DataAt(kFieldData)
-	return data.([]byte), err
+	if err != nil {
+		return []byte{}, fmt.Errorf("Couldn't get data field for %s: %v", id, err)
+	}
+	return data.([]byte), nil
 }
 
 func (db *FirestoreBackend) LoadLogState(logURL string) (*CertificateLog, error) {

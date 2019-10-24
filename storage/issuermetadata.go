@@ -104,7 +104,7 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
 
 		cacheSeenBefore, err := im.cache.Exists(im.issuersId())
 		if err != nil {
-			return seenExpDateBefore, err
+			return seenExpDateBefore, fmt.Errorf("Could not accumulate expDate %s: %v", im.id(), err)
 		}
 		seenExpDateBefore = cacheSeenBefore
 	}
@@ -123,7 +123,7 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
 			err := im.addCRL(dp)
 			if err != nil {
 				im.mutex.RUnlock()
-				return seenExpDateBefore, err
+				return seenExpDateBefore, fmt.Errorf("Could not accumulate DP %s: %v", im.id(), err)
 			}
 		}
 	}

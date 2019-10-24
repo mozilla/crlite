@@ -107,7 +107,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 	for serialNum := range serialChan {
 		certWasUnknown, err := ce.known.WasUnknown(serialNum)
 		if err != nil {
-			return err
+			return fmt.Errorf("ReconstructIssuerMetadata Was Unknown %v", err)
 		}
 
 		if certWasUnknown {
@@ -116,7 +116,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 
 			pemBytes, err := db.backend.LoadCertificatePEM(serialNum, expDate, issuer)
 			if err != nil {
-				return err
+				return fmt.Errorf("ReconstructIssuerMetadata Load PEM %v", err)
 			}
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, unknownTime)
 
@@ -127,21 +127,22 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			}
 			cert, err := x509.ParseCertificate(block.Bytes)
 			if err != nil {
-				return err
+				metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
+				return fmt.Errorf("ReconstructIssuerMetadata Parse Certificate %v", err)
 			}
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
 
 			redisTime := time.Now()
 			issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(cert)
 			if err != nil {
-				return err
+				return fmt.Errorf("ReconstructIssuerMetadata Accumulate %v", err)
 			}
 
 			if !issuerSeenBefore {
 				// if the issuer/expdate was unknown in the cache
 				errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
 				if errAlloc != nil {
-					return errAlloc
+					return fmt.Errorf("ReconstructIssuerMetadata issuer not seen before %v", errAlloc)
 				}
 				ce.known.SetExpiryFlag()
 			}
