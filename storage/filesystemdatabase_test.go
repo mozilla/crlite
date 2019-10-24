@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"encoding/pem"
 	"net/url"
 	"reflect"
@@ -114,13 +115,13 @@ func Test_ListExpiration(t *testing.T) {
 
 	testIssuer := NewIssuerFromString("test issuer")
 
-	if err := mockBackend.AllocateExpDateAndIssuer("2017-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2017-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.AllocateExpDateAndIssuer("2018-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2018-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.AllocateExpDateAndIssuer("2019-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2019-11-28", testIssuer); err != nil {
 		t.Error(err)
 	}
 

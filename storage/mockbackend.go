@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -26,7 +27,7 @@ func (db *MockBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *MockBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
+func (db *MockBackend) AllocateExpDateAndIssuer(_ context.Context, expDate string, issuer Issuer) error {
 	issuers, ok := db.expDateToIssuer[expDate]
 	if !ok {
 		issuers = []Issuer{}
@@ -43,7 +44,7 @@ func (db *MockBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) e
 	return nil
 }
 
-func (db *MockBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
+func (db *MockBackend) StoreCertificatePEM(_ context.Context, serial Serial, expDate string, issuer Issuer, b []byte) error {
 	db.store["pem"+expDate+issuer.ID()+serial.ID()] = b
 	val, ok := db.expDateIssuerIDToSerials[expDate+issuer.ID()]
 	if !ok {
@@ -53,7 +54,7 @@ func (db *MockBackend) StoreCertificatePEM(serial Serial, expDate string, issuer
 	return nil
 }
 
-func (db *MockBackend) StoreLogState(log *CertificateLog) error {
+func (db *MockBackend) StoreLogState(_ context.Context, log *CertificateLog) error {
 	data, err := json.Marshal(log)
 	if err != nil {
 		return err
@@ -62,7 +63,7 @@ func (db *MockBackend) StoreLogState(log *CertificateLog) error {
 	return nil
 }
 
-func (db *MockBackend) StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error {
+func (db *MockBackend) StoreKnownCertificateList(_ context.Context, useType SerialUseType, issuer Issuer, serials []Serial) error {
 	encoded, err := json.Marshal(serials)
 	if err != nil {
 		return err
@@ -72,7 +73,7 @@ func (db *MockBackend) StoreKnownCertificateList(useType SerialUseType, issuer I
 	return nil
 }
 
-func (db *MockBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
+func (db *MockBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate string, issuer Issuer) ([]byte, error) {
 	data, ok := db.store["pem"+expDate+issuer.ID()+serial.ID()]
 	if ok {
 		return data, nil
@@ -80,7 +81,7 @@ func (db *MockBackend) LoadCertificatePEM(serial Serial, expDate string, issuer 
 	return []byte{}, fmt.Errorf("Couldn't find")
 }
 
-func (db *MockBackend) LoadLogState(logURL string) (*CertificateLog, error) {
+func (db *MockBackend) LoadLogState(_ context.Context, logURL string) (*CertificateLog, error) {
 	data, ok := db.store["logstate"+logURL]
 	if ok {
 		var log *CertificateLog
@@ -92,7 +93,7 @@ func (db *MockBackend) LoadLogState(logURL string) (*CertificateLog, error) {
 	}, nil
 }
 
-func (db *MockBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+func (db *MockBackend) ListExpirationDates(_ context.Context, aNotBefore time.Time) ([]string, error) {
 	dates := []string{}
 	truncatedNotBefore := time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
 
@@ -108,17 +109,17 @@ func (db *MockBackend) ListExpirationDates(aNotBefore time.Time) ([]string, erro
 	return dates, nil
 }
 
-func (db *MockBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
+func (db *MockBackend) ListIssuersForExpirationDate(_ context.Context, expDate string) ([]Issuer, error) {
 	return db.expDateToIssuer[expDate], nil
 }
 
-func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(_ context.Context, expDate string, issuer Issuer) ([]Serial, error) {
 	return db.expDateIssuerIDToSerials[expDate+issuer.ID()], nil
 }
 
-func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) (<-chan Serial, error) {
 	// Does not have to be performant! Not benchmarking the mock
-	allSerials, err := db.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	allSerials, err := db.ListSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/ascii85"
 	"encoding/asn1"
@@ -54,20 +55,20 @@ type DocumentType int
 type StorageBackend interface {
 	MarkDirty(id string) error
 
-	StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error
-	StoreLogState(log *CertificateLog) error
-	StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error
+	StoreCertificatePEM(ctx context.Context, serial Serial, expDate string, issuer Issuer, b []byte) error
+	StoreLogState(ctx context.Context, log *CertificateLog) error
+	StoreKnownCertificateList(ctx context.Context, useType SerialUseType, issuer Issuer, serials []Serial) error
 
-	LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error)
-	LoadLogState(logURL string) (*CertificateLog, error)
+	LoadCertificatePEM(ctx context.Context, serial Serial, expDate string, issuer Issuer) ([]byte, error)
+	LoadLogState(ctx context.Context, logURL string) (*CertificateLog, error)
 
-	AllocateExpDateAndIssuer(expDate string, issuer Issuer) error
+	AllocateExpDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) error
 
-	ListExpirationDates(aNotBefore time.Time) ([]string, error)
-	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
+	ListExpirationDates(ctx context.Context, aNotBefore time.Time) ([]string, error)
+	ListIssuersForExpirationDate(ctx context.Context, expDate string) ([]Issuer, error)
 
-	ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error)
-	StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error)
+	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) ([]Serial, error)
+	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) (<-chan Serial, error)
 }
 
 type CertDatabase interface {

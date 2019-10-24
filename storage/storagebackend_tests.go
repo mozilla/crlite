@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
 	"sort"
@@ -10,14 +11,14 @@ import (
 )
 
 func storeAndLoad(t *testing.T, serial Serial, expDate string, issuer Issuer, db StorageBackend, data []byte) {
-	err := db.StoreCertificatePEM(serial, expDate, issuer, data)
+	err := db.StoreCertificatePEM(context.TODO(), serial, expDate, issuer, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
 	t.Logf("Now loading %s/%s/%s", expDate, issuer.ID(), serial.ID())
 
-	loaded, err := db.LoadCertificatePEM(serial, expDate, issuer)
+	loaded, err := db.LoadCertificatePEM(context.TODO(), serial, expDate, issuer)
 	if err != nil {
 		t.Fatalf("Should have loaded: %+v", err)
 	}
@@ -37,7 +38,7 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 	storeAndLoad(t, NewSerialFromHex("04"), expDate, issuer, db, make([]byte, 1*1024*1024))
 
 	// Load unknown
-	_, err := db.LoadCertificatePEM(NewSerialFromHex("FF"), expDate, issuer)
+	_, err := db.LoadCertificatePEM(context.TODO(), NewSerialFromHex("FF"), expDate, issuer)
 	if err == nil {
 		t.Fatalf("Should not have loaded a missing file")
 	}
@@ -47,12 +48,12 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	expectedFolders := []string{"2019-11-28"}
 	issuerObj := NewIssuerFromString("aki")
 
-	err := db.StoreCertificatePEM(NewSerialFromHex("01"), "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
+	err := db.StoreCertificatePEM(context.TODO(), NewSerialFromHex("01"), "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
 	// Normally the FilesystemDatabase object is responsible for this allocation
-	err = db.AllocateExpDateAndIssuer("2019-11-28", issuerObj)
+	err = db.AllocateExpDateAndIssuer(context.TODO(), "2019-11-28", issuerObj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	if err != nil {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
-	expDates, err := db.ListExpirationDates(refTime)
+	expDates, err := db.ListExpirationDates(context.TODO(), refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -70,7 +71,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 		t.Fatalf("Failed ListExpirationDates expected: %s result: %s", expectedFolders, expDates)
 	}
 
-	issuers, err := db.ListIssuersForExpirationDate("2019-11-28")
+	issuers, err := db.ListIssuersForExpirationDate(context.TODO(), "2019-11-28")
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -85,7 +86,7 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 func BackendTestLogState(t *testing.T, db StorageBackend) {
 	testLogURL := fmt.Sprintf("log.ct/%d", time.Now().Unix())
 
-	log, err := db.LoadLogState("not a real log")
+	log, err := db.LoadLogState(context.TODO(), "not a real log")
 	if err != nil {
 		t.Errorf("Unknown logs should be OK")
 	}
@@ -93,7 +94,7 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 		t.Fatalf("Log shouldn't be nil")
 	}
 
-	log, err = db.LoadLogState(testLogURL)
+	log, err = db.LoadLogState(context.TODO(), testLogURL)
 	if err != nil {
 		t.Errorf("Should not error %v", err)
 	}
@@ -105,13 +106,13 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 	}
 
 	log.MaxEntry = 9
-	err = db.StoreLogState(log)
+	err = db.StoreLogState(context.TODO(), log)
 	if err != nil {
 		t.Errorf("Shouldn't have errored saving %v", err)
 	}
 
 	{
-		updatedLog, err := db.LoadLogState(testLogURL)
+		updatedLog, err := db.LoadLogState(context.TODO(), testLogURL)
 		if err != nil {
 			t.Errorf("Unexpected error %s: %v", updatedLog.String(), err)
 		}
@@ -125,13 +126,13 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 
 	log.MaxEntry = 0xDEADBEEF
 	log.LastEntryTime = time.Unix(1567016306, 0)
-	err = db.StoreLogState(log)
+	err = db.StoreLogState(context.TODO(), log)
 	if err != nil {
 		t.Errorf("Shouldn't have errored saving %v", err)
 	}
 
 	{
-		updatedLog, err := db.LoadLogState(testLogURL)
+		updatedLog, err := db.LoadLogState(context.TODO(), testLogURL)
 		if err != nil {
 			t.Errorf("Unexpected error %s: %v", updatedLog.String(), err)
 		}
@@ -156,13 +157,13 @@ func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
 	expectedSerials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
 
 	for _, serial := range expectedSerials {
-		err := db.StoreCertificatePEM(serial, expDate, issuer, []byte{0xDA, 0xDA})
+		err := db.StoreCertificatePEM(context.TODO(), serial, expDate, issuer, []byte{0xDA, 0xDA})
 		if err != nil {
 			t.Fatalf("%s", err.Error())
 		}
 	}
 
-	resultList, err := db.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	resultList, err := db.ListSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer)
 	if err != nil {
 		t.Error(err)
 	}

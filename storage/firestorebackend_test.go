@@ -176,13 +176,13 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 		serial := NewSerialFromBytes(b)
 		collector[serial.ID()] = false
 
-		err := h.be.StoreCertificatePEM(serial, expDate, issuer, []byte{0xDA, 0xDA})
+		err := h.be.StoreCertificatePEM(context.TODO(), serial, expDate, issuer, []byte{0xDA, 0xDA})
 		if err != nil {
 			t.Fatalf("%s", err.Error())
 		}
 	}
 
-	resultChan, err := h.be.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	resultChan, err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer)
 	if err != nil {
 		t.Error(err)
 	}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -89,7 +90,8 @@ func (db *LocalDiskBackend) MarkDirty(id string) error {
 	return db.store(filepath.Join(id, kDirtyMarker), []byte{0})
 }
 
-func (db *LocalDiskBackend) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+func (db *LocalDiskBackend) ListExpirationDates(_ context.Context,
+	aNotBefore time.Time) ([]string, error) {
 	expDates := make([]string, 0)
 
 	aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
@@ -117,10 +119,12 @@ func (db *LocalDiskBackend) ListExpirationDates(aNotBefore time.Time) ([]string,
 	return expDates, err
 }
 
-func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
+func (db *LocalDiskBackend) ListIssuersForExpirationDate(_ context.Context,
+	expDate string) ([]Issuer, error) {
 	issuers := make([]Issuer, 0)
 
-	err := filepath.Walk(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(filepath.Join(db.rootPath, expDate), func(path string, info os.FileInfo,
+		err error) error {
 		if err != nil {
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
 			return err
@@ -135,11 +139,12 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 	return issuers, err
 }
 
-func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) ([]Serial, error) {
+func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Context,
+	expDate string, issuer Issuer) ([]Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := make([]Serial, 0)
 
-	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
 	if err != nil {
 		return serials, err
 	}
@@ -151,10 +156,12 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(expDate string
 	return serials, nil
 }
 
-func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(expDate string, issuer Issuer) (<-chan Serial, error) {
+func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Context,
+	expDate string, issuer Issuer) (<-chan Serial, error) {
 	sChan := make(chan Serial)
 
-	err := filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string,
+		info os.FileInfo, err error) error {
 		if err != nil {
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
 			return err
@@ -175,17 +182,19 @@ func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 	return sChan, err
 }
 
-func (db *LocalDiskBackend) AllocateExpDateAndIssuer(expDate string, issuer Issuer) error {
+func (db *LocalDiskBackend) AllocateExpDateAndIssuer(_ context.Context, expDate string,
+	issuer Issuer) error {
 	path := filepath.Join(db.rootPath, expDate, issuer.ID())
 	return makeDirectoryIfNotExist(path)
 }
 
-func (db *LocalDiskBackend) StoreCertificatePEM(serial Serial, expDate string, issuer Issuer, b []byte) error {
+func (db *LocalDiskBackend) StoreCertificatePEM(_ context.Context, serial Serial, expDate string,
+	issuer Issuer, b []byte) error {
 	glog.Warningf("Need to store into " + kSuffixCertificates)
 	return fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
+func (db *LocalDiskBackend) StoreLogState(_ context.Context, log *CertificateLog) error {
 	path := filepath.Join(db.rootPath, kStateDirName, log.ID())
 
 	encoded, err := json.Marshal(log)
@@ -196,7 +205,8 @@ func (db *LocalDiskBackend) StoreLogState(log *CertificateLog) error {
 	return db.store(path, encoded)
 }
 
-func (db *LocalDiskBackend) StoreKnownCertificateList(useType SerialUseType, issuer Issuer, serials []Serial) error {
+func (db *LocalDiskBackend) StoreKnownCertificateList(_ context.Context, useType SerialUseType,
+	issuer Issuer, serials []Serial) error {
 	path := filepath.Join(db.rootPath, useType.ID(), issuer.ID())
 	if err := makeDirectoryIfNotExist(path); err != nil {
 		return err
@@ -210,11 +220,12 @@ func (db *LocalDiskBackend) StoreKnownCertificateList(useType SerialUseType, iss
 	return db.store(path, encoded)
 }
 
-func (db *LocalDiskBackend) LoadCertificatePEM(serial Serial, expDate string, issuer Issuer) ([]byte, error) {
+func (db *LocalDiskBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate string,
+	issuer Issuer) ([]byte, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
 
-func (db *LocalDiskBackend) LoadLogState(logURL string) (*CertificateLog, error) {
+func (db *LocalDiskBackend) LoadLogState(_ context.Context, logURL string) (*CertificateLog, error) {
 	id := CertificateLogIDFromShortURL(logURL)
 	path := filepath.Join(db.rootPath, kStateDirName, id)
 

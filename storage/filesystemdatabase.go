@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/pem"
 	"fmt"
@@ -84,11 +85,11 @@ func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata 
 }
 
 func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
-	return db.backend.ListExpirationDates(aNotBefore)
+	return db.backend.ListExpirationDates(context.Background(), aNotBefore)
 }
 
 func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
-	return db.backend.ListIssuersForExpirationDate(expDate)
+	return db.backend.ListIssuersForExpirationDate(context.Background(), expDate)
 }
 
 func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer Issuer) error {
@@ -98,7 +99,9 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 	}
 
 	startTime := time.Now()
-	serialChan, err := db.backend.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+	serialChan, err := db.backend.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
 	if err != nil {
 		return err
 	}
@@ -114,7 +117,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
 			unknownTime := time.Now()
 
-			pemBytes, err := db.backend.LoadCertificatePEM(serialNum, expDate, issuer)
+			pemBytes, err := db.backend.LoadCertificatePEM(ctx, serialNum, expDate, issuer)
 			if err != nil {
 				return fmt.Errorf("ReconstructIssuerMetadata Load PEM %v", err)
 			}
@@ -140,7 +143,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 
 			if !issuerSeenBefore {
 				// if the issuer/expdate was unknown in the cache
-				errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
+				errAlloc := db.backend.AllocateExpDateAndIssuer(ctx, expDate, issuer)
 				if errAlloc != nil {
 					return fmt.Errorf("ReconstructIssuerMetadata issuer not seen before %v", errAlloc)
 				}
@@ -157,12 +160,16 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 }
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
-	return db.backend.StoreLogState(aLogObj)
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+	return db.backend.StoreLogState(ctx, aLogObj)
 }
 
 func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
 	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, aUrl.Path)
-	return db.backend.LoadLogState(shortUrl)
+	return db.backend.LoadLogState(ctx, shortUrl)
 }
 
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
@@ -196,6 +203,9 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
 	issuer := NewIssuer(aIssuer)
 
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+
 	headers := make(map[string]string)
 	headers["Log"] = aLogURL
 	headers["Recorded-at"] = time.Now().Format(time.RFC3339)
@@ -225,14 +235,14 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 		}
 		if !issuerSeenBefore {
 			// if the issuer/expdate was unknown in the cache
-			errAlloc := db.backend.AllocateExpDateAndIssuer(expDate, issuer)
+			errAlloc := db.backend.AllocateExpDateAndIssuer(ctx, expDate, issuer)
 			if errAlloc != nil {
 				return errAlloc
 			}
 			ce.known.SetExpiryFlag()
 		}
 
-		errStore := db.backend.StoreCertificatePEM(serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
+		errStore := db.backend.StoreCertificatePEM(ctx, serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
 		if errStore != nil {
 			return errStore
 		}
