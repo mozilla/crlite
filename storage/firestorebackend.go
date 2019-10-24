@@ -377,12 +377,12 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(
 		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 		defer close(c)
 		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
-		query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(4096)
 
 		var offset int
 		for {
 			cycleTime := time.Now()
-			err, count := processSerialDocumentQuery(expDate, issuer, query.Offset(offset), db.ctx, c)
+			query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(4096).Offset(offset)
+			err, count := processSerialDocumentQuery(expDate, issuer, query, db.ctx, c)
 			offset += count
 
 			if err != nil {
