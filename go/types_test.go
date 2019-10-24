@@ -70,7 +70,21 @@ func Test_SerialSet(t *testing.T) {
 	}
 
 	actualSerials := set.List()
-	if !reflect.DeepEqual(testSerials, actualSerials) {
-		t.Errorf("Expected %v but got %v", testSerials, actualSerials)
+
+	if len(actualSerials) != len(testSerials) {
+		t.Error("Length mismatch")
+	}
+
+	for _, i := range actualSerials {
+		var seen bool
+		for _, j := range testSerials {
+			if j.ID() == i.ID() {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			t.Errorf("Didn't find %v", i)
+		}
 	}
 }
