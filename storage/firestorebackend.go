@@ -310,6 +310,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(expDate string) ([]Issu
 
 func processSerialDocumentQuery(expDate string, issuer Issuer, q firestore.Query, ctx context.Context,
 	c chan<- Serial) (error, int) {
+	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Window"}, time.Now())
 	var count int
 	iter := q.Documents(ctx)
 	for {
@@ -338,8 +339,8 @@ func processSerialDocumentQuery(expDate string, issuer Issuer, q firestore.Query
 	}
 }
 
-func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate string,
-	issuer Issuer) (<-chan Serial, error) {
+func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(
+	expDate string, issuer Issuer) (<-chan Serial, error) {
 	c := make(chan Serial, 1*1024*1024)
 
 	go func() {
@@ -351,13 +352,14 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(expDate stri
 
 		var offset int
 		for {
+			cycleTime := time.Now()
 			err, count := processSerialDocumentQuery(expDate, issuer, query.Offset(offset), db.ctx, c)
 			offset += count
 
 			if err != nil {
-				if strings.HasPrefix(err.Error(), "context deadline exceeded") {
-					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer Deadline exceeded at time: %s (offset=%d) (queue len=%d)",
-						time.Since(totalTime), offset, len(c))
+				if strings.Contains(err.Error(), "DeadlineExceeded") {
+					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer Deadline exceeded, retrying (cycle time=%s) (total time=%s) (offset=%d) (count=%d) (queue len=%d)",
+						time.Since(cycleTime), time.Since(totalTime), offset, count, len(c))
 					continue
 				}
 
