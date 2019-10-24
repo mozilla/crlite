@@ -98,13 +98,13 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 	}
 
 	startTime := time.Now()
-	serials, err := db.backend.ListSerialsForExpirationDateAndIssuer(expDate, issuer)
+	serialChan, err := db.backend.StreamSerialsForExpirationDateAndIssuer(expDate, issuer)
 	if err != nil {
 		return err
 	}
 	metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
 
-	for _, serialNum := range serials {
+	for serialNum := range serialChan {
 		certWasUnknown, err := ce.known.WasUnknown(serialNum)
 		if err != nil {
 			return err
