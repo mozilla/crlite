@@ -128,6 +128,7 @@ func main() {
 	metrics.MeasureSince([]string{"ListExpirationDates"}, listExpDateTime)
 
 	fetchingJobs := display.AddBar(int64(len(expDates)),
+		mpb.BarRemoveOnComplete(),
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(" Filling Queue"),
