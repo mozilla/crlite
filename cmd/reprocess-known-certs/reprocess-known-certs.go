@@ -74,7 +74,7 @@ func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan 
 			startTime := time.Now()
 
 			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
-				glog.Errorf("%s: Error reconstructing issuer metadata, file not totally read. Err=%s", path, err)
+				glog.Fatalf("%s: Error reconstructing issuer metadata, file not totally read. Err=%s", path, err)
 			}
 
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)

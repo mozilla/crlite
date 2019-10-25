@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -160,31 +159,6 @@ func (db *FirestoreBackend) AllocateExpDateAndIssuer(ctx context.Context, expDat
 	return nil
 }
 
-func dataAtWithRetry(docsnap *firestore.DocumentSnapshot, fieldName string,
-	funcName string) (interface{}, error) {
-	startTime := time.Now()
-	defer metrics.MeasureSince([]string{"dataAtWithRetry", funcName}, startTime)
-
-	for i := 0; i < 10; i++ {
-		data, err := docsnap.DataAt(fieldName)
-		if err != nil {
-			if strings.Contains(err.Error(), "deadline exceeded") {
-				glog.V(1).Infof("%s Deadline exceeded, retrying (total time=%s)",
-					funcName, time.Since(startTime))
-				metrics.IncrCounter([]string{funcName, "DeadlineExceeded"}, 1)
-				metrics.AddSample([]string{funcName, "DeadlineExceededAtCycleTime"},
-					float32(time.Since(startTime).Seconds()))
-				continue // retry
-			}
-			return []byte{}, fmt.Errorf("%s Couldn't get data field for %s (elapsed=%s): %v",
-				funcName, fieldName, time.Since(startTime), err)
-		}
-		return data, nil
-	}
-	return []byte{}, fmt.Errorf("%s failed all retries for data field %s (elapsed=%s)",
-		funcName, fieldName, time.Since(startTime))
-}
-
 func (db *FirestoreBackend) LoadCertificatePEM(ctx context.Context, serial Serial,
 	expDate string, issuer Issuer) ([]byte, error) {
 	startTime := time.Now()
@@ -200,8 +174,11 @@ func (db *FirestoreBackend) LoadCertificatePEM(ctx context.Context, serial Seria
 		return []byte{}, fmt.Errorf("Couldn't get document snapshot for %s: %v", id, err)
 	}
 
-	data, err := dataAtWithRetry(docsnap, kFieldData, "LoadCertificatePEM")
-	return data.([]byte), err
+	data, err := docsnap.DataAt(kFieldData)
+	if err != nil {
+		return []byte{}, fmt.Errorf("Couldn't get data field for %s: %v", id, err)
+	}
+	return data.([]byte), nil
 }
 
 func (db *FirestoreBackend) LoadLogState(ctx context.Context,
@@ -226,15 +203,15 @@ func (db *FirestoreBackend) LoadLogState(ctx context.Context,
 		return nil, err
 	}
 
-	url, err := dataAtWithRetry(docsnap, kFieldURL, "LoadLogState")
+	url, err := docsnap.DataAt(kFieldURL)
 	if err != nil {
 		return nil, err
 	}
-	maxEntry, err := dataAtWithRetry(docsnap, kFieldData, "LoadLogState")
+	maxEntry, err := docsnap.DataAt(kFieldData)
 	if err != nil {
 		return nil, err
 	}
-	timeSec, err := dataAtWithRetry(docsnap, kFieldUnixTime, "LoadLogState")
+	timeSec, err := docsnap.DataAt(kFieldUnixTime)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +294,7 @@ func (db *FirestoreBackend) StreamIssuersForExpirationDate(ctx context.Context,
 				return
 			}
 
-			name, err := dataAtWithRetry(doc, kFieldIssuer, "StreamIssuersForExpirationDate")
+			name, err := doc.DataAt(kFieldIssuer)
 			if err != nil {
 				glog.Warningf("Invalid issuer object: %+v :: %v", doc, err)
 				continue
@@ -390,26 +367,12 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 
 		var offset int
 		for {
-			cycleTime := time.Now()
 			query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(4096).Offset(offset)
 			err, count := processSerialDocumentQuery(ctx, expDate, issuer, query, c)
 			offset += count
 
 			if err != nil {
-				if strings.Contains(err.Error(), "deadline exceeded") {
-					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer Deadline exceeded, retrying (cycle time=%s) (total time=%s) (offset=%d) (count=%d) (queue len=%d)",
-						time.Since(cycleTime), time.Since(totalTime), offset, count, len(c))
-					metrics.IncrCounter([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceeded"}, 1)
-					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededAtPosition"},
-						float32(count))
-					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededAtCycleTime"},
-						float32(time.Since(cycleTime).Seconds()))
-					metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "DeadlineExceededQueueLength"},
-						float32(len(c)))
-					continue
-				}
-
-				glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) (offset=%d) (queue len=%d) err %v",
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next (total time: %s) (offset=%d) (queue len=%d) err %v",
 					time.Since(totalTime), offset, len(c), err)
 				return
 			}
