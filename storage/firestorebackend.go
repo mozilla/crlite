@@ -43,7 +43,8 @@ const (
 )
 
 type FirestoreBackend struct {
-	client *firestore.Client
+	client   *firestore.Client
+	PageSize int
 }
 
 func NewFirestoreBackend(ctx context.Context, projectId string) (*FirestoreBackend, error) {
@@ -52,7 +53,10 @@ func NewFirestoreBackend(ctx context.Context, projectId string) (*FirestoreBacke
 		return nil, err
 	}
 
-	return &FirestoreBackend{client}, nil
+	return &FirestoreBackend{
+		client:   client,
+		PageSize: 16 * 1024,
+	}, nil
 }
 
 func (db *FirestoreBackend) Close() error {
@@ -232,6 +236,9 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 		defer metrics.MeasureSince([]string{"StreamExpirationDates"}, time.Now())
 		defer close(c)
 
+		aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(),
+			0, 0, 0, 0, time.UTC)
+
 		iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).
 			Select().Documents(ctx)
 
@@ -248,7 +255,11 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 				return
 			}
 
-			c <- doc.Ref.ID
+			t, err := time.Parse(kExpirationFormat, doc.Ref.ID)
+			if err == nil && !t.Before(aNotBefore) {
+				c <- doc.Ref.ID
+			}
+
 			metrics.MeasureSince([]string{"StreamExpirationDates-Next"}, cycleTime)
 		}
 	}()
@@ -326,22 +337,24 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(ctx context.Context,
 }
 
 func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issuer, q firestore.Query,
-	c chan<- Serial) (error, int) {
+	c chan<- Serial) (error, int, *firestore.DocumentSnapshot) {
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Window"}, time.Now())
 	var count int
+	var lastRef *firestore.DocumentSnapshot
+
 	iter := q.Documents(ctx)
 	for {
 		cycleTime := time.Now()
 
 		doc, err := iter.Next()
 		if err == iterator.Done {
-			return nil, count
+			return nil, count, lastRef
 		}
 		if err != nil {
-			return err, count
+			return err, count, lastRef
 		}
 		if doc == nil {
-			return fmt.Errorf("nil document returned"), count
+			return fmt.Errorf("nil document returned"), count, nil
 		}
 
 		serialObj, err := NewSerialFromIDString(doc.Ref.ID)
@@ -351,6 +364,7 @@ func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issu
 		}
 
 		c <- serialObj
+		lastRef = doc
 		metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Next"}, cycleTime)
 		count += 1
 	}
@@ -371,11 +385,16 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
 
 		var offset int
+		var lastRef *firestore.DocumentSnapshot
 		for {
 			subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
 
-			query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(4096).Offset(offset)
-			err, count := processSerialDocumentQuery(subCtx, expDate, issuer, query, serialChan)
+			query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(db.PageSize)
+			if lastRef != nil {
+				query = query.StartAfter(lastRef)
+			}
+			err, count, finalRef := processSerialDocumentQuery(subCtx, expDate, issuer, query, serialChan)
+			lastRef = finalRef
 			offset += count
 
 			subCancel()
@@ -392,9 +411,11 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 					time.Sleep(d)
 					continue
 				} else if status.Code(err) == codes.DeadlineExceeded {
-					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded locally, "+
-						"aborting (%s) %v", status.Code(err), err)
-					return
+					d := b.Duration()
+					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded, "+
+						"retrying in %s: (%s) %v", d, status.Code(err), err)
+					time.Sleep(d)
+					continue
 				} else if status.Code(err) == codes.OutOfRange {
 					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
 						"(count=%d) (offset=%d) %v", count, offset, err)
@@ -405,6 +426,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 					return
 				}
 			}
+
+			b.Reset()
 
 			if count == 0 {
 				metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "TotalSerials"},

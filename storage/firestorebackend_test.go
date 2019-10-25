@@ -166,7 +166,8 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 	expDate := "2019-11-30"
 	issuer := NewIssuerFromString("streamIssuer")
 
-	expectedNumber := 0x1500
+	h.be.PageSize = 0x10
+	expectedNumber := 0xFF
 
 	collector := make(map[string]bool)
 
