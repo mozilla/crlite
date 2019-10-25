@@ -115,15 +115,16 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 
 		if certWasUnknown {
 			subCtx, subCancel := context.WithTimeout(ctx, 15*time.Minute)
-			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
-			unknownTime := time.Now()
 
+			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
+
+			pemTime := time.Now()
 			pemBytes, err := db.backend.LoadCertificatePEM(subCtx, serialNum, expDate, issuer)
 			if err != nil {
 				subCancel()
-				return fmt.Errorf("ReconstructIssuerMetadata Load PEM %v", err)
+				return fmt.Errorf("ReconstructIssuerMetadata error LoadCertificatePEM %v", err)
 			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, unknownTime)
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
 
 			decodeTime := time.Now()
 			block, rest := pem.Decode(pemBytes)
@@ -135,7 +136,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			if err != nil {
 				subCancel()
 				metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
-				return fmt.Errorf("ReconstructIssuerMetadata Parse Certificate %v", err)
+				return fmt.Errorf("ReconstructIssuerMetadata error ParseCertificate %v", err)
 			}
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
 
@@ -143,7 +144,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(cert)
 			if err != nil {
 				subCancel()
-				return fmt.Errorf("ReconstructIssuerMetadata Accumulate %v", err)
+				return fmt.Errorf("ReconstructIssuerMetadata error Accumulate %v", err)
 			}
 
 			if !issuerSeenBefore {
@@ -151,13 +152,13 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 				errAlloc := db.backend.AllocateExpDateAndIssuer(subCtx, expDate, issuer)
 				if errAlloc != nil {
 					subCancel()
-					return fmt.Errorf("ReconstructIssuerMetadata issuer not seen before %v", errAlloc)
+					return fmt.Errorf("ReconstructIssuerMetadata error AllocateExpDateAndIssuer %v", errAlloc)
 				}
 				ce.known.SetExpiryFlag()
 			}
 
-			subCancel()
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
+			subCancel()
 		} else {
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasKnown"}, 1)
 		}
