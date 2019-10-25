@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/jpillora/backoff"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -360,6 +361,10 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 	serialChan := make(chan Serial, 1*1024*1024)
 
 	go func() {
+		b := &backoff.Backoff{
+			Jitter: true,
+		}
+
 		totalTime := time.Now()
 		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 		defer close(serialChan)
@@ -376,9 +381,29 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 			subCancel()
 
 			if err != nil {
-				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next (%s/%s) (total time: %s) (offset=%d) (queue len=%d) err %v",
-					expDate, issuer.ID(), time.Since(totalTime), offset, len(serialChan), err)
-				return
+				glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
+					"(total time: %s) (count=%d) (offset=%d) (queue len=%d) err %v",
+					expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
+
+				if status.Code(err) == codes.Unavailable {
+					d := b.Duration()
+					glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+						"retrying in %s: (%s) %v", d, status.Code(err), err)
+					time.Sleep(d)
+					continue
+				} else if status.Code(err) == codes.DeadlineExceeded {
+					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded locally, "+
+						"aborting (%s) %v", status.Code(err), err)
+					return
+				} else if status.Code(err) == codes.OutOfRange {
+					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
+						"(count=%d) (offset=%d) %v", count, offset, err)
+					return
+				} else {
+					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next unexpected code %s aborting: %v",
+						status.Code(err), err)
+					return
+				}
 			}
 
 			if count == 0 {
