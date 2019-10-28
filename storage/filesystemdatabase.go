@@ -11,52 +11,20 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/bluele/gcache"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 )
 
-type CacheEntry struct {
-	known *KnownCertificates
-}
-
-func NewCacheEntry(aExpDate string, aIssuerStr string, aBackend StorageBackend, aCache RemoteCache) (*CacheEntry, error) {
-	issuer := NewIssuerFromString(aIssuerStr)
-	obj := CacheEntry{
-		known: NewKnownCertificates(aExpDate, issuer, aCache),
-	}
-	return &obj, nil
-}
-
 type FilesystemDatabase struct {
 	backend   StorageBackend
 	extCache  RemoteCache
-	cache     gcache.Cache
 	metaMutex *sync.RWMutex
 	meta      map[string]*IssuerMetadata
 }
 
-type cacheId struct {
-	expDate   string
-	issuerStr string
-}
-
 func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
-	cache := gcache.New(aCacheSize).ARC().
-		LoaderFunc(func(key interface{}) (interface{}, error) {
-			cacheId := key.(cacheId)
-
-			metrics.IncrCounter([]string{"cache", "load"}, 1)
-
-			return NewCacheEntry(cacheId.expDate, cacheId.issuerStr, aBackend, aExtCache)
-		}).
-		EvictedFunc(func(key, value interface{}) {
-			metrics.IncrCounter([]string{"cache", "evicted"}, 1)
-		}).Build()
-
 	db := &FilesystemDatabase{
 		backend:   aBackend,
-		cache:     cache,
 		extCache:  aExtCache,
 		metaMutex: &sync.RWMutex{},
 		meta:      make(map[string]*IssuerMetadata),
@@ -93,10 +61,7 @@ func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Is
 }
 
 func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer Issuer) error {
-	ce, err := db.fetch(expDate, issuer)
-	if err != nil {
-		glog.Fatalf("Couldn't retrieve from cache: %v", err)
-	}
+	knownCerts := db.GetKnownCertificates(expDate, issuer)
 
 	startTime := time.Now()
 	ctx, ctxCancel := context.WithCancel(context.Background())
@@ -108,7 +73,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 	metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
 
 	for serialNum := range serialChan {
-		certWasUnknown, err := ce.known.WasUnknown(serialNum)
+		certWasUnknown, err := knownCerts.WasUnknown(serialNum)
 		if err != nil {
 			return fmt.Errorf("ReconstructIssuerMetadata Was Unknown %v", err)
 		}
@@ -154,7 +119,7 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 					subCancel()
 					return fmt.Errorf("ReconstructIssuerMetadata error AllocateExpDateAndIssuer %v", errAlloc)
 				}
-				ce.known.SetExpiryFlag()
+				knownCerts.SetExpiryFlag()
 			}
 
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
@@ -197,20 +162,10 @@ func getSpki(aCert *x509.Certificate) SPKI {
 	return SPKI{aCert.SubjectKeyId}
 }
 
-// Caller must obey the CacheEntry semantics
-func (db *FilesystemDatabase) fetch(expDate string, issuer Issuer) (*CacheEntry, error) {
-	obj, err := db.cache.Get(cacheId{expDate, issuer.ID()})
-	if err != nil {
-		return nil, err
-	}
-
-	ce := obj.(*CacheEntry)
-	return ce, nil
-}
-
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aLogURL string, aEntryId int64) error {
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
 	issuer := NewIssuer(aIssuer)
+	knownCerts := db.GetKnownCertificates(expDate, issuer)
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
@@ -225,14 +180,9 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 		Bytes:   aCert.Raw,
 	}
 
-	ce, err := db.fetch(expDate, issuer)
-	if err != nil {
-		glog.Fatalf("Couldn't retrieve from cache: %v", err)
-	}
-
 	serialNum := NewSerial(aCert)
 
-	certWasUnknown, err := ce.known.WasUnknown(serialNum)
+	certWasUnknown, err := knownCerts.WasUnknown(serialNum)
 	if err != nil {
 		return err
 	}
@@ -248,7 +198,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 			if errAlloc != nil {
 				return errAlloc
 			}
-			ce.known.SetExpiryFlag()
+			knownCerts.SetExpiryFlag()
 		}
 
 		errStore := db.backend.StoreCertificatePEM(ctx, serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
@@ -271,6 +221,6 @@ func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issu
 }
 
 func (db *FilesystemDatabase) Cleanup() error {
-	db.cache.Purge()
+	// TODO: Remove
 	return nil
 }
