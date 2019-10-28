@@ -16,8 +16,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v4"
+	"github.com/vbauerster/mpb/v4/decor"
 )
 
 var (
@@ -114,9 +114,8 @@ func main() {
 
 	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
 
-	display := mpb.New(
+	display := mpb.NewWithContext(ctx,
 		mpb.WithWaitGroup(&twg),
-		mpb.WithContext(ctx),
 		mpb.WithRefreshRate(refreshDur),
 	)
 
