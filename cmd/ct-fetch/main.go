@@ -303,6 +303,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 
 	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
 	if err != nil {
+		lw.Bar.Abort(true)
 		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s",
 			lw.LogURL, err, finalIndex, finalTime)
 	}
