@@ -368,8 +368,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
 				d := b.Duration()
-				glog.Fatalf("downloadCTRangeToChannel recieved code 529, "+
-					"retrying in %s: %v", d, err)
+				glog.Infof("downloadCTRangeToChannel recieved code 529 at index=%d, "+
+					"retrying in %s: %v", index, d, err)
 				time.Sleep(d)
 				continue
 			}
@@ -486,7 +486,7 @@ func main() {
 
 					sampledSeconds := rand.NormFloat64() * float64(*ctconfig.PollingDelayStdDev)
 					sleepTime := time.Duration(sampledSeconds)*time.Second + pollingDelayMean
-					glog.Infof("[%s] Stopped. Polling again in %v. %v", urlString,
+					glog.Infof("[%s] Stopped. Polling again in %v. stddev=%v", urlString,
 						sleepTime, *ctconfig.PollingDelayStdDev)
 
 					select {
