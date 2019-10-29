@@ -116,7 +116,7 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan CtLogEntry, 8096),
+		entryChan:           make(chan CtLogEntry, 1024*16),
 		display:             display,
 		cancelTrigger:       cancel,
 	}
@@ -268,7 +268,8 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 64, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
+			decor.AverageSpeed(0, "%.1f/s", decor.WC{W: 10}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
@@ -383,7 +384,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 		for _, entry := range resp.Entries {
 			if lw.Bar != nil {
-				lw.Bar.IncrBy(1, time.Since(cycleTime))
+				lw.Bar.IncrBy(1)
 			}
 			cycleTime = time.Now()
 
@@ -417,6 +418,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 				}
 			}
 
+			metrics.MeasureSince([]string{"LogWorker", "ProcessedEntry"}, cycleTime)
 			index++
 		}
 	}
