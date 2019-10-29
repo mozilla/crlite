@@ -372,6 +372,11 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
 				d := b.Duration()
 				glog.Infof("[%s] recieved code 529 at index=%d, retrying in %s: %v", lw.LogURL, index, d, err)
+
+				metrics.IncrCounter([]string{"LogWorker", lw.LogURL, "429 Too Many Requests"}, 1)
+				metrics.AddSample([]string{"LogWorker", lw.LogURL, "429 Too Many Requests", "Backoff"},
+					float32(d))
+
 				time.Sleep(d)
 				continue
 			}
