@@ -1,6 +1,31 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite', '.', '-f', './containers/Dockerfile' ]
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}', '.', '-f', './containers/Dockerfile']
+  id: 'crlite'
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-rebuild', '.',
+          '-f', './containers/crlite-rebuild/Dockerfile',
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+  wait_for: ['crlite']
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-fetch', '.',
+          '-f', './containers/crlite-fetch/Dockerfile',
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+  wait_for: ['crlite']
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-generate', '.',
+          '-f', './containers/crlite-generate/Dockerfile',
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+  wait_for: ['crlite']
+
+substitutions:
+    _CRLITE_VERSION: "0.1"
 
 images:
-- 'gcr.io/$PROJECT_ID/crlite'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-rebuild'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-fetch'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-generate'

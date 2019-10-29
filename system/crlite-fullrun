@@ -13,14 +13,15 @@ workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 #${workflow}/6-cleanup-expired-ct-folders --path ${crlite_ctdata:-/ct}
 #${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
 
-ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
 
-if [ "x${reprocess_certs}x" != "xx" ]; then
+if [ "x${reprocess_certs}x" == "xtruex" ]; then
   ${workflow}/0-reprocess_certs
+elif [ "x${fetch_certs}x" == "xtruex" ]; then
+  ${workflow}/1-ct-fetch
+else
+  ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
+  ${workflow}/2-produce_revocation_data ${ID}
+  ${workflow}/3-produce_known_data ${ID}
+  ${workflow}/4-generate_mlbf ${ID}
+  ${workflow}/5-upload_intermediates ${ID}
 fi
-
-${workflow}/1-ct-fetch
-${workflow}/2-produce_revocation_data ${ID}
-${workflow}/3-produce_known_data ${ID}
-${workflow}/4-generate_mlbf ${ID}
-${workflow}/5-upload_intermediates ${ID}

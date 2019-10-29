@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generation: 1
+  labels:
+    app: crlite-rebuild
+  name: crlite-rebuild
+  namespace: default
+spec:
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: crlite-rebuild
+    spec:
+      containers:
+      - env:
+        - name: logList
+          valueFrom:
+            configMapKeyRef:
+              key: logList
+              name: crlite-config
+        - name: firestoreProjectId
+          valueFrom:
+            configMapKeyRef:
+              key: firestoreProjectId
+              name: crlite-config
+        - name: credentials_data
+          valueFrom:
+            configMapKeyRef:
+              key: credentials_data
+              name: crlite-config
+        - name: numThreads
+          valueFrom:
+            configMapKeyRef:
+              key: numThreads
+              name: crlite-config
+        - name: cacheSize
+          valueFrom:
+            configMapKeyRef:
+              key: cacheSize
+              name: crlite-config
+        - name: redisHost
+          valueFrom:
+            configMapKeyRef:
+              key: redisHost
+              name: crlite-config
+        - name: outputRefreshPeriod
+          valueFrom:
+            configMapKeyRef:
+              key: outputRefreshPeriod
+              name: crlite-config
+        - name: statsRefreshPeriod
+          valueFrom:
+            configMapKeyRef:
+              key: statsRefreshPeriod
+              name: crlite-config
+        image: gcr.io/crlite-beta/crlite:0.1-rebuild
+        name: crlite-rebuild
+        imagePullPolicy: Always
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Never
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 120

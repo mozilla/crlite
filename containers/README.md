@@ -35,3 +35,16 @@ Basic build:
 gcloud config set project crlite-beta
 gcloud builds submit --config containers/cloudbuild.yaml ..
 ```
+
+# Deploying
+
+## Always-on Deployment
+`kubectl create -f crlite-fetch`
+
+## Periodic jobs
+
+### Filter generation
+`kubectl create -f crlite-generate`
+
+### Re-populating a cache. Definitely don't run this repeatedly
+`kubectl create -f crlite-rebuild`
