@@ -27,6 +27,7 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
 )
@@ -349,6 +350,10 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 	var lastEntryTimestamp *time.Time
 	var cycleTime time.Time
 
+	b := &backoff.Backoff{
+		Jitter: true,
+	}
+
 	index := lw.StartPos
 	for index < lw.EndPos {
 		max := index + 32768
@@ -360,11 +365,21 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
 		if err != nil {
+			if strings.Contains(err.Error(), "HTTP Status") &&
+				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
+				d := b.Duration()
+				glog.Fatalf("downloadCTRangeToChannel recieved code 529, "+
+					"retrying in %s: %v", d, err)
+				time.Sleep(d)
+				continue
+			}
+
 			glog.Warningf("Failed to get entries: %v", err)
 			metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "GetRawEntries-error"}, 1)
 			return index, lastEntryTimestamp, err
 		}
 		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries", lw.LogURL}, cycleTime)
+		b.Reset()
 
 		for _, entry := range resp.Entries {
 			if lw.Bar != nil {
