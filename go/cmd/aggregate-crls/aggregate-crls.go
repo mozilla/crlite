@@ -26,8 +26,8 @@ import (
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v4"
+	"github.com/vbauerster/mpb/v4/decor"
 )
 
 const (
@@ -198,6 +198,8 @@ func processCRL(aPath string, aRevoked *types.SerialSet, aIssuerCert *x509.Certi
 func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
 	defer wg.Done()
 
+	ctx := context.Background()
+
 	for tuple := range workChan {
 		cycleTime := time.Now()
 
@@ -223,7 +225,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 		}
 
 		if issuerEnrolled {
-			if err := ae.saveStorage.StoreKnownCertificateList(storage.Revoked, tuple.Issuer, serials.List()); err != nil {
+			if err := ae.saveStorage.StoreKnownCertificateList(ctx, storage.Revoked, tuple.Issuer, serials.List()); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 		} else {

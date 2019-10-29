@@ -15,8 +15,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v4"
+	"github.com/vbauerster/mpb/v4/decor"
 )
 
 const (
@@ -45,6 +45,8 @@ type knownWorker struct {
 func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-chan struct{}) {
 	defer wg.Done()
 
+	ctx := context.Background()
+
 	for tuple := range workChan {
 		serials := types.NewSerialSet()
 
@@ -65,7 +67,7 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			}
 		}
 
-		if err := kw.saveStorage.StoreKnownCertificateList(storage.Known, tuple.issuer, serials.List()); err != nil {
+		if err := kw.saveStorage.StoreKnownCertificateList(ctx, storage.Known, tuple.issuer, serials.List()); err != nil {
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 	}

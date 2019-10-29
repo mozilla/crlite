@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v4"
+	"github.com/vbauerster/mpb/v4/decor"
 )
 
 type DownloadAction int

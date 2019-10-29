@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vbauerster/mpb"
+	"github.com/vbauerster/mpb/v4"
 )
 
 func Test_DownloadNotFound(t *testing.T) {
