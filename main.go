@@ -353,6 +353,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 	b := &backoff.Backoff{
 		Jitter: true,
+		Min:    500 * time.Millisecond,
+		Max:    5 * time.Minute,
 	}
 
 	index := lw.StartPos
@@ -369,8 +371,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
 				d := b.Duration()
-				glog.Infof("downloadCTRangeToChannel recieved code 529 at index=%d, "+
-					"retrying in %s: %v", index, d, err)
+				glog.Infof("[%s] recieved code 529 at index=%d, retrying in %s: %v", lw.LogURL, index, d, err)
 				time.Sleep(d)
 				continue
 			}
