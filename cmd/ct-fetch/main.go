@@ -382,10 +382,10 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			}
 
 			glog.Warningf("Failed to get entries: %v", err)
-			metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "GetRawEntries-error"}, 1)
+			metrics.IncrCounter([]string{"LogWorker", "GetRawEntries-error"}, 1)
 			return index, lastEntryTimestamp, err
 		}
-		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries", lw.LogURL}, cycleTime)
+		metrics.MeasureSince([]string{"LogWorker", lw.LogURL, "GetRawEntries"}, cycleTime)
 		b.Reset()
 
 		for _, entry := range resp.Entries {
