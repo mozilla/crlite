@@ -16,7 +16,8 @@ type RedisCache struct {
 
 func NewRedisCache(addr string) (*RedisCache, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:       addr,
+		MaxRetries: 10,
 	})
 
 	statusr := rdb.Ping()
