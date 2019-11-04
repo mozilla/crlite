@@ -20,7 +20,7 @@ func getRedisCache(tb testing.TB) *RedisCache {
 	}
 	tb.Logf("Connecting to Redis instance at %s", setting)
 
-	rc, err := NewRedisCache(setting)
+	rc, err := NewRedisCache(setting, time.Second)
 	if err != nil {
 		tb.Errorf("Couldn't construct RedisCache: %v", err)
 	}
@@ -35,7 +35,7 @@ func Test_RedisPoicy(t *testing.T) {
 }
 
 func Test_RedisInvalidHost(t *testing.T) {
-	_, err := NewRedisCache("unknown_host:999999")
+	_, err := NewRedisCache("unknown_host:999999", time.Second)
 	if err == nil {
 		t.Error("Should have failed to construct invalid redis cache host")
 	}

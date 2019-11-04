@@ -28,7 +28,12 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 		glog.Fatal("Local Disk and Google configurations both found. Exiting.")
 	}
 
-	remoteCache, err := storage.NewRedisCache(*ctconfig.RedisHost)
+	redisTimeoutDuration, err := time.ParseDuration(*ctconfig.RedisTimeout)
+	if err != nil {
+		glog.Fatalf("Could not parse RedisTimeout: %v", err)
+	}
+
+	remoteCache, err := storage.NewRedisCache(*ctconfig.RedisHost, redisTimeoutDuration)
 	if err != nil {
 		glog.Fatalf("Unable to configure Redis cache for host %v", *ctconfig.RedisHost)
 	}

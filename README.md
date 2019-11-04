@@ -41,7 +41,8 @@ googleProjectId = ctdata
 # But not both.
 
 # Redis cache server
-RedisHost = 10.10.10.5:6379
+redisHost = 10.10.10.5:6379
+redisTimeout = 2s
 
 EOF
 ```

@@ -14,11 +14,13 @@ type RedisCache struct {
 	client *redis.Client
 }
 
-func NewRedisCache(addr string) (*RedisCache, error) {
+func NewRedisCache(addr string, cacheTimeout time.Duration) (*RedisCache, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            addr,
 		MaxRetries:      10,
-		MaxRetryBackoff: 2 * time.Second,
+		MaxRetryBackoff: 5 * time.Second,
+		ReadTimeout:     cacheTimeout,
+		WriteTimeout:    cacheTimeout,
 	})
 
 	statusr := rdb.Ping()

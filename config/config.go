@@ -20,6 +20,7 @@ type CTConfig struct {
 	CertPath            *string
 	GoogleProjectId     *string
 	RedisHost           *string
+	RedisTimeout        *string
 	Offset              *uint64
 	Limit               *uint64
 	NumThreads          *int
@@ -130,6 +131,7 @@ func NewCTConfig() *CTConfig {
 		CertPath:            new(string),
 		GoogleProjectId:     new(string),
 		RedisHost:           new(string),
+		RedisTimeout:        new(string),
 		SavePeriod:          new(string),
 		OutputRefreshPeriod: new(string),
 		StatsRefreshPeriod:  new(string),
@@ -186,6 +188,7 @@ func (c *CTConfig) Init() {
 	confString(c.CertPath, section, "certPath", "")
 	confString(c.GoogleProjectId, section, "googleProjectId", "")
 	confString(c.RedisHost, section, "redisHost", "")
+	confString(c.RedisTimeout, section, "redisTimeout", "5s")
 	confString(c.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 
@@ -224,4 +227,5 @@ func (c *CTConfig) Usage() {
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 	fmt.Println("outputRefreshPeriod = Period between output publications")
 	fmt.Println("statsRefreshPeriod = Period between stats being dumped to stderr")
+	fmt.Println("redisTimeout = Timeout for operations from Redis, e.g. 10s")
 }
