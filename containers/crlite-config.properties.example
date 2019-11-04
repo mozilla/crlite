@@ -1,0 +1,22 @@
+# Be sure not to use quotes for strings in this file
+
+# Probably the overall Google Cloud project ID
+googleProjectId=crlite
+
+# Generate with the script setup/list_all_active_ct_logs
+logList=https://ct.googleapis.com/logs/argon2019/, https://ct.googleapis.com/logs/argon2020/, https://ct.googleapis.com/logs/argon2021/, https://ct.googleapis.com/logs/argon2022/, https://ct.googleapis.com/logs/argon2023/
+
+# This is a service account JSON encoded as base64. For example:
+# cat ~/gcp-credentials.json | base64 | pbcopy
+credentials_data=someBase64Data
+
+# Host for Redis in <ip>:<port> format
+redisHost=127.0.0.1:6379
+
+numThreads=16
+runForever=true
+outputRefreshPeriod=90s
+statsRefreshPeriod=5m
+savePeriod=5m
+pollingDelayMean=60m
+pollingDelayStdDev=10

@@ -14,49 +14,11 @@ spec:
         app: crlite-rebuild
     spec:
       containers:
-      - env:
-        - name: logList
-          valueFrom:
-            configMapKeyRef:
-              key: logList
-              name: crlite-config
-        - name: firestoreProjectId
-          valueFrom:
-            configMapKeyRef:
-              key: firestoreProjectId
-              name: crlite-config
-        - name: credentials_data
-          valueFrom:
-            configMapKeyRef:
-              key: credentials_data
-              name: crlite-config
-        - name: numThreads
-          valueFrom:
-            configMapKeyRef:
-              key: numThreads
-              name: crlite-config
-        - name: cacheSize
-          valueFrom:
-            configMapKeyRef:
-              key: cacheSize
-              name: crlite-config
-        - name: redisHost
-          valueFrom:
-            configMapKeyRef:
-              key: redisHost
-              name: crlite-config
-        - name: outputRefreshPeriod
-          valueFrom:
-            configMapKeyRef:
-              key: outputRefreshPeriod
-              name: crlite-config
-        - name: statsRefreshPeriod
-          valueFrom:
-            configMapKeyRef:
-              key: statsRefreshPeriod
-              name: crlite-config
+      - name: crlite-rebuild
         image: gcr.io/crlite-beta/crlite:0.1-rebuild
-        name: crlite-rebuild
+        envFrom:
+        - configMapRef:
+            name: crlite-config
         imagePullPolicy: Always
         resources: {}
         terminationMessagePath: /dev/termination-log

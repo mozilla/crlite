@@ -38,6 +38,14 @@ gcloud builds submit --config containers/cloudbuild.yaml ..
 
 # Deploying
 
+## Set up configuration
+customize `crlite-config.properties.example` to `crlite-config.properties`
+
+```
+kubectl create configmap crlite-config \
+       --from-env-file=crlite-config.properties
+```
+
 ## Always-on Deployment
 `kubectl create -f crlite-fetch`
 

@@ -16,40 +16,12 @@ spec:
           creationTimestamp: null
         spec:
           containers:
-          - env:
-            - name: firestoreProjectId
-              valueFrom:
-                configMapKeyRef:
-                  key: firestoreProjectId
-                  name: crlite-config
-            - name: credentials_data
-              valueFrom:
-                configMapKeyRef:
-                  key: credentials_data
-                  name: crlite-config
-            - name: numThreads
-              valueFrom:
-                configMapKeyRef:
-                  key: numThreads
-                  name: crlite-config
-            - name: redisHost
-              valueFrom:
-                configMapKeyRef:
-                  key: redisHost
-                  name: crlite-config
-            - name: outputRefreshPeriod
-              valueFrom:
-                configMapKeyRef:
-                  key: outputRefreshPeriod
-                  name: crlite-config
-            - name: statsRefreshPeriod
-              valueFrom:
-                configMapKeyRef:
-                  key: statsRefreshPeriod
-                  name: crlite-config
+          - name: crlite-generate
+            envFrom:
+            - configMapRef:
+                name: crlite-config
             image: gcr.io/crlite-beta/crlite:0.1-generate
             imagePullPolicy: Always
-            name: crlite-generate
             resources: {}
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: File

@@ -25,69 +25,11 @@ spec:
         app: crlite-fetch
     spec:
       containers:
-      - env:
-        - name: logList
-          valueFrom:
-            configMapKeyRef:
-              key: logList
-              name: crlite-config
-        - name: firestoreProjectId
-          valueFrom:
-            configMapKeyRef:
-              key: firestoreProjectId
-              name: crlite-config
-        - name: credentials_data
-          valueFrom:
-            configMapKeyRef:
-              key: credentials_data
-              name: crlite-config
-        - name: numThreads
-          valueFrom:
-            configMapKeyRef:
-              key: numThreads
-              name: crlite-config
-        - name: cacheSize
-          valueFrom:
-            configMapKeyRef:
-              key: cacheSize
-              name: crlite-config
-        - name: runForever
-          valueFrom:
-            configMapKeyRef:
-              key: runForever
-              name: crlite-config
-        - name: redisHost
-          valueFrom:
-            configMapKeyRef:
-              key: redisHost
-              name: crlite-config
-        - name: outputRefreshPeriod
-          valueFrom:
-            configMapKeyRef:
-              key: outputRefreshPeriod
-              name: crlite-config
-        - name: statsRefreshPeriod
-          valueFrom:
-            configMapKeyRef:
-              key: statsRefreshPeriod
-              name: crlite-config
-        - name: savePeriod
-          valueFrom:
-            configMapKeyRef:
-              key: savePeriod
-              name: crlite-config
-        - name: pollingDelayMean
-          valueFrom:
-            configMapKeyRef:
-              key: pollingDelayMean
-              name: crlite-config
-        - name: pollingDelayStdDev
-          valueFrom:
-            configMapKeyRef:
-              key: pollingDelayStdDev
-              name: crlite-config
+      - name: crlite-fetch
         image: gcr.io/crlite-beta/crlite:0.1-fetch
-        name: crlite-fetch
+        envFrom:
+        - configMapRef:
+            name: crlite-config
         imagePullPolicy: Always
         resources: {}
         terminationMessagePath: /dev/termination-log

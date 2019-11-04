@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
-	github.com/jcjones/ct-mapreduce v1.0.4-0.20191029211630-6b4096c63034
+	github.com/jcjones/ct-mapreduce v1.0.4-0.20191104193139-3cf164f2e4ad
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
