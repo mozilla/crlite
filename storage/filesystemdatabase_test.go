@@ -67,7 +67,7 @@ EA==
 func getTestHarness(t *testing.T) (*MockBackend, CertDatabase) {
 	mockBackend := NewMockBackend()
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(1, mockBackend, mockCache)
+	storageDB, err := NewFilesystemDatabase(mockBackend, mockCache)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}

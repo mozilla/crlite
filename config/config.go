@@ -18,12 +18,11 @@ import (
 type CTConfig struct {
 	LogUrlList          *string
 	CertPath            *string
-	FirestoreProjectId  *string
+	GoogleProjectId     *string
 	RedisHost           *string
 	Offset              *uint64
 	Limit               *uint64
 	NumThreads          *int
-	CacheSize           *int
 	RunForever          *bool
 	IssuerCNFilter      *string
 	LogExpiredEntries   *bool
@@ -125,12 +124,11 @@ func NewCTConfig() *CTConfig {
 		Limit:               new(uint64),
 		LogUrlList:          new(string),
 		NumThreads:          new(int),
-		CacheSize:           new(int),
 		LogExpiredEntries:   new(bool),
 		RunForever:          new(bool),
 		IssuerCNFilter:      new(string),
 		CertPath:            new(string),
-		FirestoreProjectId:  new(string),
+		GoogleProjectId:     new(string),
 		RedisHost:           new(string),
 		SavePeriod:          new(string),
 		OutputRefreshPeriod: new(string),
@@ -179,7 +177,6 @@ func (c *CTConfig) Init() {
 	confUint64(c.Limit, section, "limit", 0)
 	confString(c.LogUrlList, section, "logList", "")
 	confInt(c.NumThreads, section, "numThreads", 1)
-	confInt(c.CacheSize, section, "cacheSize", 2048)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
 	confInt(c.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
@@ -187,7 +184,7 @@ func (c *CTConfig) Init() {
 	confString(c.SavePeriod, section, "savePeriod", "15m")
 	confString(c.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(c.CertPath, section, "certPath", "")
-	confString(c.FirestoreProjectId, section, "firestoreProjectId", "")
+	confString(c.GoogleProjectId, section, "googleProjectId", "")
 	confString(c.RedisHost, section, "redisHost", "")
 	confString(c.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
@@ -212,7 +209,7 @@ func (c *CTConfig) Usage() {
 	fmt.Println("")
 	fmt.Println("Choose one backing store:")
 	fmt.Println("certPath = Path under which to store full DER-encoded certificates")
-	fmt.Println("firestoreProjectId = Google Cloud Platform Project ID")
+	fmt.Println("googleProjectId = Google Cloud Platform Project ID")
 	fmt.Println("")
 	fmt.Println("redisHost = address:port of the Redis instance")
 	fmt.Println("")
@@ -223,7 +220,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("pollingDelayStdDev = Use this standard deviation between polls")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for database insertions")
-	fmt.Println("cacheSize = Cache this many issuer/date files' state at a time")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 	fmt.Println("outputRefreshPeriod = Period between output publications")

@@ -22,7 +22,7 @@ type FilesystemDatabase struct {
 	meta      map[string]*IssuerMetadata
 }
 
-func NewFilesystemDatabase(aCacheSize int, aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
+func NewFilesystemDatabase(aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
 	db := &FilesystemDatabase{
 		backend:   aBackend,
 		extCache:  aExtCache,

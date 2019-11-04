@@ -37,7 +37,7 @@ runForever = false
 # A path with plenty of disk space
 certPath = /ct
 # Or use Google Cloud's Firestore
-firestoreProjectId = ctdata
+googleProjectId = ctdata
 # But not both.
 
 # Redis cache server
