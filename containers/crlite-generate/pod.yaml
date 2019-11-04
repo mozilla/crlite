@@ -25,6 +25,13 @@ spec:
             resources: {}
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: "/processing/crls"
+              name: crlite-crls
+          volumes:
+          - name: crlite-crls
+            persistentVolumeClaim:
+              claimName: crlite-crls
           dnsPolicy: ClusterFirst
           restartPolicy: OnFailure
           schedulerName: default-scheduler

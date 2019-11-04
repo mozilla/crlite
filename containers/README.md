@@ -46,6 +46,11 @@ kubectl create configmap crlite-config \
        --from-env-file=crlite-config.properties
 ```
 
+## Create CRL storage
+```
+kubectl create -f crl-storage-claim.yaml
+```
+
 ## Always-on Deployment
 `kubectl create -f crlite-fetch`
 
@@ -54,5 +59,5 @@ kubectl create configmap crlite-config \
 ### Filter generation
 `kubectl create -f crlite-generate`
 
-### Re-populating a cache. Definitely don't run this repeatedly
+### Re-populating a cache. Definitely don't run this repeatedly, it's expensive
 `kubectl create -f crlite-rebuild`
