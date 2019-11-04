@@ -85,7 +85,14 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 			if !prs {
 				crls = make(map[string]bool)
 			}
-			for _, url := range meta.CRLs() {
+
+			crlSet := meta.CRLs()
+
+			if len(crlSet) == 0 {
+				glog.Warningf("No known CRLs for issuer=%s which shouldn't happen.", tuple.Issuer.ID())
+			}
+
+			for _, url := range crlSet {
 				crls[url] = true
 			}
 			issuerCrls[tuple.Issuer.ID()] = crls

@@ -59,7 +59,14 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			default:
 				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.remoteCache)
 
-				for _, serial := range known.Known() {
+				knownSet := known.Known()
+
+				if len(knownSet) == 0 {
+					glog.Warningf("No known certificates for issuer=%s expDate=%s, which shouldn't happen.",
+						tuple.issuer.ID(), expDate)
+				}
+
+				for _, serial := range knownSet {
 					_ = serials.Add(serial)
 				}
 
@@ -67,7 +74,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			}
 		}
 
-		if err := kw.saveStorage.StoreKnownCertificateList(ctx, storage.Known, tuple.issuer, serials.List()); err != nil {
+		if err := kw.saveStorage.StoreKnownCertificateList(ctx, storage.Known, tuple.issuer,
+			serials.List()); err != nil {
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 	}
