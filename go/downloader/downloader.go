@@ -36,62 +36,62 @@ func GetSizeAndDateOfFile(path string) (int64, time.Time, error) {
 	return stat.Size(), stat.ModTime(), nil
 }
 
-func determineAction(client *http.Client, crlUrl url.URL, path string) (DownloadAction, int64) {
+func determineAction(client *http.Client, crlUrl url.URL, path string) (DownloadAction, int64, int64) {
 	szOnDisk, localDate, err := GetSizeAndDateOfFile(path)
 	if err != nil {
 		glog.V(1).Infof("[%s] CREATE: File not on disk: %s ", crlUrl.String(), err)
-		return Create, 0
+		return Create, 0, 0
 	}
 	req, err := http.NewRequest("HEAD", crlUrl.String(), nil)
 	if err != nil {
-		return Create, 0
+		return Create, szOnDisk, 0
 	}
 	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return Create, 0
+		return Create, szOnDisk, 0
 	}
 
 	eTag := resp.Header.Get("Etag")
 	lastMod, err := http.ParseTime(resp.Header.Get("Last-Modified"))
 	if err != nil {
 		glog.V(1).Infof("[%s] CREATE: Invalid last-modified: %s [%s]", crlUrl.String(), err, resp.Header.Get("Last-Modified"))
-		return Create, 0
+		return Create, szOnDisk, 0
 	}
 	szOnServer, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
 		glog.V(1).Infof("[%s] CREATE: No content length: %s [%s]", crlUrl.String(), err, resp.Header.Get("Content-Length"))
-		return Create, 0
+		return Create, szOnDisk, 0
 	}
 
-	if !localDate.Before(lastMod) && szOnServer == szOnDisk {
-		glog.V(1).Infof("[%s] UP TO DATE", crlUrl.String())
-		return UpToDate, 0
-	}
-
-	if resp.Header.Get("Content-Length") != "bytes" {
-		glog.V(1).Infof("[%s] Content-Length not supported", crlUrl.String())
-	}
-	if szOnServer == szOnDisk {
-		glog.V(1).Infof("[%s] Disk size equals server", crlUrl.String())
-	}
 	if localDate.Before(lastMod) {
-		glog.V(1).Infof("[%s] Local Date is before last modified header date", crlUrl.String())
+		glog.V(1).Infof("[%s] CREATE: Local Date is before last modified header date, assuming out-of-date", crlUrl.String())
+		return Create, szOnDisk, szOnServer
 	}
 
-	if resp.Header.Get("Content-Length") == "bytes" && !localDate.Before(lastMod) && szOnServer > szOnDisk {
-		glog.V(1).Infof("[%s] RESUME: { Already on disk: %d %s, Last-Modified: %s, Etag: %s, Length: %d }", crlUrl.String(), szOnDisk, localDate.String(), lastMod.String(), eTag, szOnServer)
-		return Resume, szOnDisk
+	if szOnServer == szOnDisk {
+		glog.V(1).Infof("[%s] UP TO DATE", crlUrl.String())
+		return UpToDate, szOnDisk, szOnServer
 	}
 
-	return Create, 0
+	if szOnServer > szOnDisk {
+		if resp.Header.Get("Accept-Ranges") == "bytes" {
+			glog.V(1).Infof("[%s] RESUME: { Already on disk: %d %s, Last-Modified: %s, Etag: %s, Length: %d }", crlUrl.String(), szOnDisk, localDate.String(), lastMod.String(), eTag, szOnServer)
+			return Resume, szOnDisk, szOnServer
+		}
+
+		glog.V(1).Infof("[%s] Accept-Ranges not supported, unable to resume", crlUrl.String())
+	}
+
+	glog.V(1).Infof("[%s] CREATE: Fallthrough", crlUrl.String())
+	return Create, szOnDisk, szOnServer
 }
 
 func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	client := &http.Client{}
 
-	action, offset := determineAction(client, crlUrl, path)
+	action, offset, size := determineAction(client, crlUrl, path)
 
 	if action == UpToDate {
 		return nil
@@ -104,7 +104,7 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 
 	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite")
 	if action == Resume {
-		req.Header.Add("Content-Range", fmt.Sprintf("bytes: %d-", offset))
+		req.Header.Add("Content-Range", fmt.Sprintf("bytes: %d-%d/%d", offset, size, offset-size))
 	}
 
 	resp, err := client.Do(req)
@@ -113,18 +113,18 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Non-OK status: %s", resp.Status)
-	}
-
 	var outFileParams int
-	switch action {
-	case Resume:
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		// Depending on what the server responds with, we may have to go back to Create
 		outFileParams = os.O_APPEND | os.O_WRONLY
-	case Create:
+		action = Resume
+		glog.V(1).Infof("[%s] Successfully resumed download at offset %d", crlUrl.String(), offset)
+	case http.StatusOK:
 		outFileParams = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
+		action = Create
 	default:
-		panic("Unexpected action.")
+		return fmt.Errorf("Non-OK status: %s", resp.Status)
 	}
 
 	outFile, err := os.OpenFile(path, outFileParams, 0644)
@@ -133,20 +133,18 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	}
 	defer outFile.Close()
 
+	// Fpr partial content, resp.ContentLength will
+	// be the partial length.
 	progBar := display.AddBar(resp.ContentLength,
 		mpb.PrependDecorators(
 			decor.Name(crlUrl.String()),
 		),
 		mpb.AppendDecorators(
-			decor.EwmaETA(decor.ET_STYLE_GO, 16),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersKibiByte(" %6.1f / %6.1f"),
 		),
 		mpb.BarRemoveOnComplete(),
 	)
-
-	if action == Resume {
-		progBar.IncrBy((int)(offset))
-	}
 
 	defer resp.Body.Close()
 	reader := progBar.ProxyReader(resp.Body)
@@ -160,9 +158,26 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	// Sometimes ContentLength is crazy far off.
 	progBar.SetTotal(totalBytes, true)
 
+	if action == Create && size != 0 && totalBytes != size {
+		glog.Warningf("[%s] Didn't seem to download the right number of bytes, expected=%d got %d",
+			crlUrl.String(), size, totalBytes)
+	}
+
+	if action == Resume && size != 0 && totalBytes+offset != size {
+		glog.Warningf("[%s] Didn't seem to download the right number of bytes, expected=%d got %d with %d already local",
+			crlUrl.String(), size, totalBytes, offset)
+	}
+
+	lastModStr := resp.Header.Get("Last-Modified")
+	// http.TimeFormat is 29 characters
+	if len(lastModStr) < 16 {
+		glog.Warningf("[%s] No compliant reported last-modified time: [%s]", crlUrl.String(), lastModStr)
+		return nil
+	}
+
 	lastMod, err := http.ParseTime(resp.Header.Get("Last-Modified"))
 	if err != nil {
-		glog.Warningf("[%s] Couldn't set modified time: %s [%s]", crlUrl.String(), err, resp.Header.Get("Last-Modified"))
+		glog.Warningf("[%s] Couldn't parse modified time: %s [%s]", crlUrl.String(), err, lastModStr)
 		return nil
 	}
 
