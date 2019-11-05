@@ -70,6 +70,19 @@ func (db *LocalDiskBackend) store(path string, data []byte) error {
 	return fd.Close()
 }
 
+func (db *LocalDiskBackend) storeViaJsonEncoder(path string) (*json.Encoder, *os.File, error) {
+	if err := makeDirectoryIfNotExist(path); err != nil {
+		return nil, nil, err
+	}
+
+	fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return json.NewEncoder(fd), fd, nil
+}
+
 func (db *LocalDiskBackend) load(path string) ([]byte, error) {
 	fd, err := os.Open(path)
 	if err != nil {
@@ -205,19 +218,19 @@ func (db *LocalDiskBackend) StoreLogState(_ context.Context, log *CertificateLog
 	return db.store(path, encoded)
 }
 
-func (db *LocalDiskBackend) StoreKnownCertificateList(_ context.Context, useType SerialUseType,
-	issuer Issuer, serials []Serial) error {
-	path := filepath.Join(db.rootPath, useType.ID(), issuer.ID())
+func (db *LocalDiskBackend) StoreKnownCertificateList(_ context.Context, issuer Issuer,
+	serials []Serial) error {
+	path := filepath.Join(db.rootPath, issuer.ID())
 	if err := makeDirectoryIfNotExist(path); err != nil {
 		return err
 	}
 
-	encoded, err := json.Marshal(serials)
+	encoder, fd, err := db.storeViaJsonEncoder(path)
 	if err != nil {
 		return err
 	}
-
-	return db.store(path, encoded)
+	defer fd.Close()
+	return encoder.Encode(serials)
 }
 
 func (db *LocalDiskBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate string,

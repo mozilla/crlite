@@ -63,13 +63,13 @@ func (db *MockBackend) StoreLogState(_ context.Context, log *CertificateLog) err
 	return nil
 }
 
-func (db *MockBackend) StoreKnownCertificateList(_ context.Context, useType SerialUseType, issuer Issuer, serials []Serial) error {
+func (db *MockBackend) StoreKnownCertificateList(_ context.Context, issuer Issuer, serials []Serial) error {
 	encoded, err := json.Marshal(serials)
 	if err != nil {
 		return err
 	}
 
-	db.store[useType.ID()+issuer.ID()] = encoded
+	db.store[issuer.ID()] = encoded
 	return nil
 }
 

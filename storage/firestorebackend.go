@@ -117,8 +117,8 @@ func (db *FirestoreBackend) StoreLogState(ctx context.Context, log *CertificateL
 	return err
 }
 
-func (db *FirestoreBackend) StoreKnownCertificateList(ctx context.Context, useType SerialUseType,
-	issuer Issuer, serials []Serial) error {
+func (db *FirestoreBackend) StoreKnownCertificateList(ctx context.Context, issuer Issuer,
+	serials []Serial) error {
 	panic("Not implemented")
 }
 
