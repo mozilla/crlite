@@ -5,13 +5,18 @@ if [ $# -ne 1 ] ; then
   exit 1
 fi
 
-if [ ! -d ${1} ] ; then
-  echo "Not a directory: ${1}"
+WORKDIR="${1}"
+
+if [ ! -d ${WORKDIR} ] ; then
+  echo "Not a directory: ${WORKDIR}"
   exit 1
 fi
 
 if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
-  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
+  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport \
+        --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
 fi
 
-${crlite_bin:-~/go/bin}/aggregate-known -outpath ${1}/known -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv -log_dir ${crlite_log:-/tmp} -alsologtostderr
+${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${WORKDIR}/known \
+              -enrolledpath ${WORKDIR}/enrolled.json \
+              -log_dir ${crlite_log:-/tmp} -alsologtostderr

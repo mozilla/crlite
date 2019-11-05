@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -32,6 +33,7 @@ type IssuerData struct {
 type EnrolledIssuer struct {
 	PubKeyHash string `json:"pubKeyHash"`
 	Whitelist  bool   `json:"whitelist"`
+	SubjectDN  string `json:"subjectDN"`
 	Subject    string `json:"subject"`
 	Pem        string `json:"pem"`
 	Enrolled   bool   `json:"enrolled"`
@@ -43,7 +45,10 @@ type MozIssuers struct {
 }
 
 func NewMozillaIssuers() *MozIssuers {
-	return &MozIssuers{mutex: &sync.Mutex{}}
+	return &MozIssuers{
+		issuerMap: make(map[string]IssuerData, 0),
+		mutex:     &sync.Mutex{},
+	}
 }
 
 func (mi *MozIssuers) Load() error {
@@ -86,7 +91,8 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 		issuers[i] = EnrolledIssuer{
 			PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
 			Whitelist:  false,
-			Subject:    base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
+			SubjectDN:  base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
+			Subject:    val.subjectDN,
 			Pem:        val.pemInfo,
 			Enrolled:   val.enrolled,
 		}
@@ -116,6 +122,33 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	return err
 }
 
+func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
+	bytes, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	list := make([]EnrolledIssuer, 0)
+	err = json.Unmarshal(bytes, &list)
+	if err != nil {
+		return err
+	}
+
+	for _, ei := range list {
+		cert, err := decodeCertificateFromPem(ei.Pem)
+		if err != nil {
+			return err
+		}
+		issuer := mi.InsertIssuerFromCertAndPem(cert, ei.Pem)
+		if ei.Enrolled {
+			mi.Enroll(issuer)
+		}
+		// TODO: Support whitelisting, overall
+	}
+
+	return nil
+}
+
 func (mi *MozIssuers) Enroll(aIssuer storage.Issuer) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
@@ -130,6 +163,14 @@ func (mi *MozIssuers) Enroll(aIssuer storage.Issuer) {
 func (mi *MozIssuers) IsIssuerInProgram(aIssuer storage.Issuer) bool {
 	_, ok := mi.issuerMap[aIssuer.ID()]
 	return ok
+}
+
+func (mi *MozIssuers) IsIssuerEnrolled(aIssuer storage.Issuer) bool {
+	if _, ok := mi.issuerMap[aIssuer.ID()]; ok {
+		data := mi.issuerMap[aIssuer.ID()]
+		return data.enrolled
+	}
+	return false
 }
 
 func (mi *MozIssuers) GetCertificateForIssuer(aIssuer storage.Issuer) (*x509.Certificate, error) {
@@ -154,27 +195,44 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer storage.Issuer) (string, error
 	return entry.subjectDN, nil
 }
 
-func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
-	p := strings.Trim(aRow[aColMap["PEM"]], "'")
-
-	block, rest := pem.Decode([]byte(p))
+func decodeCertificateFromPem(aPem string) (*x509.Certificate, error) {
+	block, rest := pem.Decode([]byte(aPem))
 
 	if block == nil {
-		return nil, fmt.Errorf("Not a valid PEM at line %d", aLineNum)
+		return nil, fmt.Errorf("Not a valid PEM")
 	}
 
 	if len(rest) != 0 {
-		return nil, fmt.Errorf("Extra PEM data at line %d", aLineNum)
+		return nil, fmt.Errorf("Extra PEM data")
 	}
 
 	return x509.ParseCertificate(block.Bytes)
 }
 
+func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
+	p := strings.Trim(aRow[aColMap["PEM"]], "'")
+
+	cert, err := decodeCertificateFromPem(p)
+	if err != nil {
+		return nil, fmt.Errorf("%s at line %d", err, aLineNum)
+	}
+	return cert, nil
+}
+
+func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string) storage.Issuer {
+	issuer := storage.NewIssuer(aCert)
+	mi.issuerMap[issuer.ID()] = IssuerData{
+		cert:      aCert,
+		subjectDN: aCert.Subject.String(),
+		pemInfo:   aPem,
+		enrolled:  false,
+	}
+	return issuer
+}
+
 func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
-
-	mi.issuerMap = make(map[string]IssuerData, 0)
 
 	reader := csv.NewReader(aStream)
 	columnMap := make(map[string]int)
@@ -196,13 +254,7 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 			return err
 		}
 
-		issuer := storage.NewIssuer(cert)
-		mi.issuerMap[issuer.ID()] = IssuerData{
-			cert:      cert,
-			subjectDN: cert.Subject.String(),
-			pemInfo:   strings.Trim(row[columnMap["PEM"]], "'"),
-			enrolled:  false,
-		}
+		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"))
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
 	}
 

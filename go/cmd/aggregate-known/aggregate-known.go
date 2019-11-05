@@ -13,7 +13,6 @@ import (
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
-	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
@@ -25,9 +24,9 @@ const (
 )
 
 var (
-	inccadb  = flag.String("ccadb", "<path>", "input CCADB CSV path")
-	outpath  = flag.String("outpath", "<dir>", "output directory for $issuer.known files")
-	ctconfig = config.NewCTConfig()
+	enrolledpath = flag.String("enrolledpath", "<path>", "input enrolled issuers JSON")
+	knownpath    = flag.String("knownpath", "<dir>", "output directory for <issuer> files")
+	ctconfig     = config.NewCTConfig()
 )
 
 type knownWorkUnit struct {
@@ -48,7 +47,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 	ctx := context.Background()
 
 	for tuple := range workChan {
-		serials := types.NewSerialSet()
+		serialCount := 0
+		serials := make([]storage.Serial, 0, 128*1024)
 
 		for _, expDate := range tuple.expDates {
 			cycleTime := time.Now()
@@ -60,38 +60,50 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.remoteCache)
 
 				knownSet := known.Known()
+				knownSetLen := len(knownSet)
 
-				if len(knownSet) == 0 {
-					glog.Warningf("No known certificates for issuer=%s expDate=%s, which shouldn't happen.",
-						tuple.issuer.ID(), expDate)
+				if knownSetLen == 0 {
+					glog.Warningf("No known certificates for issuer=%s expDate=%s, which shouldn't happen."+
+						" (current count=%d)", tuple.issuer.ID(), expDate, serialCount)
 				}
 
-				for _, serial := range knownSet {
-					_ = serials.Add(serial)
+				if cap(serials) < knownSetLen+serialCount {
+					newSerials := make([]storage.Serial, 0, serialCount+knownSetLen)
+					copy(newSerials, serials)
+					serials = newSerials
 				}
+
+				serials = append(serials, knownSet...)
+				serialCount += knownSetLen
 
 				kw.progBar.IncrBy(1, time.Since(cycleTime))
 			}
 		}
 
-		if err := kw.saveStorage.StoreKnownCertificateList(ctx, storage.Known, tuple.issuer,
-			serials.List()); err != nil {
+		if err := kw.saveStorage.StoreKnownCertificateList(ctx, tuple.issuer, serials); err != nil {
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 	}
+}
 
+func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfig) {
+	if strObj == "<path>" {
+		glog.Errorf("Flag %s is not set", confOptionName)
+		ctconfig.Usage()
+		os.Exit(2)
+	}
 }
 
 func main() {
 	ctconfig.Init()
 	ctx := context.Background()
 	storageDB, remoteCache, loadBackend := engine.GetConfiguredStorage(ctx, ctconfig)
+	defer glog.Flush()
 
-	if *outpath == "<dir>" {
-		glog.Fatalf("You must set an output directory")
-	}
+	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
+	checkPathArg(*knownpath, "knownpath", ctconfig)
 
-	if err := os.MkdirAll(*outpath, permModeDir); err != nil {
+	if err := os.MkdirAll(*knownpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the output directory: %s", err)
 	}
 
@@ -103,17 +115,11 @@ func main() {
 
 	engine.PrepareTelemetry("aggregate-known", ctconfig)
 
-	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
+	saveBackend := storage.NewLocalDiskBackend(permMode, *knownpath)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
-	if *inccadb != "<path>" {
-		if err := mozIssuers.LoadFromDisk(*inccadb); err != nil {
-			glog.Fatalf("Failed to load issuers from disk: %s", err)
-		}
-	} else {
-		if err := mozIssuers.Load(); err != nil {
-			glog.Fatalf("Failed to load issuers: %s", err)
-		}
+	if err := mozIssuers.LoadEnrolledIssuers(*enrolledpath); err != nil {
+		glog.Fatalf("Failed to load enrolled issuers from disk: %s", err)
 	}
 
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
@@ -148,7 +154,7 @@ func main() {
 		glog.V(1).Infof("Issuers for %s (%d)", expDate, len(issuers))
 
 		for _, issuer := range issuers {
-			if !mozIssuers.IsIssuerInProgram(issuer) {
+			if !mozIssuers.IsIssuerEnrolled(issuer) {
 				continue
 			}
 

@@ -1,11 +1,19 @@
 package rootprogram
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
+	newx509 "github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/storage"
 )
 
@@ -85,6 +93,49 @@ func loadSampleIssuers(content string) (*MozIssuers, error) {
 
 	mi := NewMozillaIssuers()
 	return mi, mi.LoadFromDisk(tmpfile.Name())
+}
+
+func makeCert(t *testing.T, issuerDN string, expDate string, serial storage.Serial) (*newx509.Certificate, string) {
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Error(err)
+		return nil, ""
+	}
+
+	notAfter, err := time.Parse("2006-01-02", expDate)
+	if err != nil {
+		t.Fatalf("Programmer error on timestamp %s: %v", expDate, err)
+	}
+	notBefore := notAfter.AddDate(-1, 0, 0)
+
+	template := x509.Certificate{
+		SerialNumber: serial.AsBigInt(),
+		Subject: pkix.Name{
+			CommonName: issuerDN,
+		},
+		NotBefore: notBefore,
+		NotAfter:  notAfter,
+		IsCA:      true,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template,
+		privKey.Public(), privKey)
+	if err != nil {
+		t.Error(err)
+		return nil, ""
+	}
+
+	pemBlock := &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	}
+
+	obj, err := newx509.ParseCertificate(certBytes)
+	if err != nil {
+		t.Error(err)
+		return nil, ""
+	}
+
+	return obj, string(pem.EncodeToMemory(pemBlock))
 }
 
 func Test_NewMozillaIssuersInvalid(t *testing.T) {
@@ -258,5 +309,68 @@ func Test_SaveIssuersList(t *testing.T) {
 
 	if len(list) != 1 {
 		t.Errorf("Unexepcted issuers list length: %+v", list)
+	}
+}
+
+func Test_SaveLoadIssuersList(t *testing.T) {
+	enrolledCert, enrolledCertPem := makeCert(t, "CN=Enrolled Issuer", "2001-01-01",
+		storage.NewSerialFromHex("00"))
+	enrolledIssuer := storage.NewIssuer(enrolledCert)
+
+	notEnrolledCert, notEnrolledCertPem := makeCert(t, "CN=Not Enrolled Issuer", "2001-12-01",
+		storage.NewSerialFromHex("FF"))
+	notEnrolledIssuer := storage.NewIssuer(notEnrolledCert)
+
+	mi := NewMozillaIssuers()
+	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem)
+	mi.InsertIssuerFromCertAndPem(notEnrolledCert, notEnrolledCertPem)
+	mi.Enroll(enrolledIssuer)
+
+	tmpfile, err := ioutil.TempFile("", "Test_SaveLoadIssuersList")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	err = mi.SaveIssuersList(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loadedIssuers := NewMozillaIssuers()
+	if err = loadedIssuers.LoadEnrolledIssuers(tmpfile.Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !loadedIssuers.IsIssuerInProgram(enrolledIssuer) {
+		t.Error("enrolledIssuer should be in program")
+	}
+	if !loadedIssuers.IsIssuerInProgram(notEnrolledIssuer) {
+		t.Error("notEnrolledIssuer should be in program")
+	}
+	if !loadedIssuers.IsIssuerEnrolled(enrolledIssuer) {
+		t.Error("enrolledIssuer should be enrolled")
+	}
+	if loadedIssuers.IsIssuerEnrolled(notEnrolledIssuer) {
+		t.Error("notEnrolledIssuer should not be enrolled")
+	}
+}
+
+func Test_IsIssuerEnrolled(t *testing.T) {
+	cert, certPem := makeCert(t, "CN=Issuer", "2001-01-01",
+		storage.NewSerialFromHex("00"))
+	issuer := storage.NewIssuer(cert)
+
+	mi := NewMozillaIssuers()
+	mi.InsertIssuerFromCertAndPem(cert, certPem)
+
+	if mi.IsIssuerEnrolled(issuer) {
+		t.Error("Should not yet be enrolled")
+	}
+
+	mi.Enroll(issuer)
+
+	if !mi.IsIssuerEnrolled(issuer) {
+		t.Error("Should now be enrolled")
 	}
 }

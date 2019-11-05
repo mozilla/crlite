@@ -36,10 +36,11 @@ const (
 )
 
 var (
-	inccadb  = flag.String("ccadb", "<path>", "input CCADB CSV path")
-	crlpath  = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
-	outpath  = flag.String("outpath", "<path>", "output folder of revoked serial files of the form <issuer>.revoked")
-	ctconfig = config.NewCTConfig()
+	inccadb      = flag.String("ccadb", "<path>", "input CCADB CSV path")
+	crlpath      = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
+	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
+	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
+	ctconfig     = config.NewCTConfig()
 
 	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\./]`)
 
@@ -162,23 +163,25 @@ func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan ty
 	}
 }
 
-func processCRL(aPath string, aRevoked *types.SerialSet, aIssuerCert *x509.Certificate) bool {
-	glog.Infof("[%s] Proesssing CRL", aPath)
+func processCRL(aPath string, aIssuerCert *x509.Certificate) []storage.Serial {
+	serials := make([]storage.Serial, 0, 1024*16)
+
+	glog.V(1).Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
 		glog.Errorf("[%s] Error reading CRL, will not process revocations: %s", aPath, err)
-		return false
+		return serials
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
 		glog.Errorf("[%s] Error parsing, will not process revocations: %s", aPath, err)
-		return false
+		return serials
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
 		glog.Errorf("[%s] Invalid signature on CRL, will not process revocations: %s", aPath, err)
-		return false
+		return serials
 	}
 
 	if crl.HasExpired(time.Now()) {
@@ -189,20 +192,17 @@ func processCRL(aPath string, aRevoked *types.SerialSet, aIssuerCert *x509.Certi
 	revokedList, err := types.DecodeRawTBSCertList(crl.TBSCertList.Raw)
 	if err != nil {
 		glog.Warningf("[%s] CRL list couldn't be decoded: %s", aPath, err)
-		return false
+		return serials
 	}
 
 	for _, ent := range revokedList.RevokedCertificates {
 		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
-		newRevocation := aRevoked.Add(serial)
-		if newRevocation {
-			glog.V(2).Infof("[%s] Newly seen revocation: [%v]", aPath, ent.SerialNumber)
-		}
+		serials = append(serials, serial)
 	}
-	return true
+	return serials
 }
 
-func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
+func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	ctx := context.Background()
@@ -211,7 +211,9 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 		cycleTime := time.Now()
 
 		issuerEnrolled := false
-		serials := types.NewSerialSet()
+
+		serialCount := 0
+		serials := make([]storage.Serial, 0, 128*1024)
 
 		for _, crlPath := range tuple.CrlPaths {
 			select {
@@ -223,16 +225,33 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, outPath string
 					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 				}
 
-				if processCRL(crlPath, serials, cert) {
-					// Issuer is considered enrolled if at least one CRL processed successfully
+				revokedSerials := processCRL(crlPath, cert)
+				revokedCount := len(revokedSerials)
+
+				if revokedCount == 0 {
+					continue
+				}
+
+				// Issuer is considered enrolled if at least one CRL processed successfully
+				if !issuerEnrolled {
 					issuerEnrolled = true
 					ae.issuers.Enroll(tuple.Issuer)
 				}
+
+				if cap(serials) < revokedCount+serialCount {
+					newSerials := make([]storage.Serial, 0, serialCount+revokedCount)
+					copy(newSerials, serials)
+					serials = newSerials
+				}
+
+				serials = append(serials, revokedSerials...)
+				serialCount += revokedCount
 			}
 		}
 
 		if issuerEnrolled {
-			if err := ae.saveStorage.StoreKnownCertificateList(ctx, storage.Revoked, tuple.Issuer, serials.List()); err != nil {
+			glog.Infof("[%s] Saving %d revoked serials", tuple.Issuer.ID(), serialCount)
+			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 		} else {
@@ -396,7 +415,7 @@ func (ae *AggregateEngine) downloadCRLs(issuerToUrls types.IssuerCrlMap, sigChan
 	return resultChan, count
 }
 
-func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.IssuerCrlPaths, outPath string, sigChan <-chan os.Signal) {
+func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.IssuerCrlPaths, sigChan <-chan os.Signal) {
 	var wg sync.WaitGroup
 
 	// Exit signal, used by signals from the OS
@@ -418,7 +437,7 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go ae.aggregateCRLWorker(&wg, outPath, crlPaths, quitChan, progressBar)
+		go ae.aggregateCRLWorker(&wg, crlPaths, quitChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -438,25 +457,26 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 	}
 }
 
+func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfig) {
+	if strObj == "<path>" {
+		glog.Errorf("Flag %s is not set", confOptionName)
+		ctconfig.Usage()
+		os.Exit(2)
+	}
+}
+
 func main() {
 	ctconfig.Init()
 	ctx := context.Background()
 	storageDB, remoteCache, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	defer glog.Flush()
 
-	if *outpath == "<path>" {
-		glog.Error("outpath is not set")
-		ctconfig.Usage()
-		os.Exit(2)
-	}
+	checkPathArg(*revokedpath, "revokedpath", ctconfig)
+	checkPathArg(*crlpath, "crlpath", ctconfig)
+	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
 
-	if *crlpath == "<path>" {
-		glog.Error("crlpath is not set")
-		ctconfig.Usage()
-		os.Exit(2)
-	}
-
-	if err := os.MkdirAll(*outpath, permModeDir); err != nil {
-		glog.Fatalf("Unable to make the output directory: %s", err)
+	if err := os.MkdirAll(*revokedpath, permModeDir); err != nil {
+		glog.Fatalf("Unable to make the revokedpath directory: %s", err)
 	}
 	if err := os.MkdirAll(*crlpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
@@ -470,7 +490,7 @@ func main() {
 
 	engine.PrepareTelemetry("aggregate-crls", ctconfig)
 
-	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
+	saveBackend := storage.NewLocalDiskBackend(permMode, *revokedpath)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
@@ -507,9 +527,9 @@ func main() {
 
 	crlPaths, count := ae.downloadCRLs(mergedCrls, sigChan)
 
-	ae.aggregateCRLs(count, crlPaths, *outpath, sigChan)
-	issuersPath := filepath.Join(*outpath, "knownIssuers.json")
-	if err = mozIssuers.SaveIssuersList(issuersPath); err != nil {
-		glog.Fatalf("Unable to save the crlite-informed intermediate issuers: %s", err)
+	ae.aggregateCRLs(count, crlPaths, sigChan)
+	if err = mozIssuers.SaveIssuersList(*enrolledpath); err != nil {
+		glog.Fatalf("Unable to save the crlite-informed intermediate issuers to %s: %s", *enrolledpath, err)
 	}
+	glog.Infof("Saved crlite-informed intermediate issuers to %s", *enrolledpath)
 }
