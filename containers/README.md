@@ -42,8 +42,9 @@ gcloud builds submit --config containers/cloudbuild.yaml ..
 customize `crlite-config.properties.example` to `crlite-config.properties`
 
 ```
-kubectl create configmap crlite-config \
-       --from-env-file=crlite-config.properties
+kubectl delete configmap crlite-config && \
+      kubectl create configmap crlite-config \
+      --from-env-file=crlite-config.properties
 ```
 
 ## Create CRL storage

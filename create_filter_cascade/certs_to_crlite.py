@@ -50,6 +50,8 @@ sw = stopwatch.StopWatch()
 
 
 def getCertList(certpath, issuer):
+    issuerKey = base64.urlsafe_b64decode(issuer)
+
     certlist = None
     if os.path.isfile(certpath):
         with open(certpath, "r") as f:
@@ -57,14 +59,17 @@ def getCertList(certpath, issuer):
                 serials = json.load(f)
                 certlist = set()
                 for sHex in serials:
-                    key = base64.urlsafe_b64decode(
-                            issuer) + bytearray.fromhex(sHex)
-                    certlist.add(key)
+                    try:
+                        key = issuerKey + bytearray.fromhex(sHex)
+                        certlist.add(key)
+                    except TypeError as te:
+                        log.error(f"Couldn't decode issuer={issuer} serial "
+                                  + f"hex={sHex} because {te}")
+                        log.error(f"Whole list: {serials}")
             except Exception as e:
+                log.debug(f"getCertList exception caught: {e}")
+                log.error(f"Failed to load certs for {issuer} from {certpath}")
                 breakpoint()
-                log.debug("{}".format(e))
-                log.error("Failed to load certs for {} from {}".format(
-                    issuer, certpath))
     return certlist
 
 

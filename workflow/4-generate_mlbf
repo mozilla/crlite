@@ -26,8 +26,9 @@ do
     nextone=true
   fi
 done
+
 if [ "$PREVID" != "" ]; then
-  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -previd $PREVID $ID
+  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -knownPath $WORKDIR/known -revokedPath $WORKDIR/revoked -previd $PREVID $ID
 else
-  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR $ID
+  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -knownPath $WORKDIR/known -revokedPath $WORKDIR/revoked $ID
 fi

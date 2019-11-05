@@ -12,6 +12,7 @@ credentials_data=someBase64Data
 
 # Host for Redis in <ip>:<port> format
 redisHost=127.0.0.1:6379
+redisTimeout=3s
 
 numThreads=16
 runForever=true

@@ -26,7 +26,7 @@ spec:
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: File
             volumeMounts:
-            - mountPath: "/processing/crls"
+            - mountPath: "/processing"
               name: crlite-crls
           volumes:
           - name: crlite-crls
