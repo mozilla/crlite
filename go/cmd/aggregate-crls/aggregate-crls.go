@@ -290,6 +290,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.
 			decor.EwmaETA(decor.ET_STYLE_GO, 16, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
+		mpb.BarRemoveOnComplete(),
 	)
 
 	resultChan := make(chan types.IssuerCrlMap, *ctconfig.NumThreads)
@@ -365,6 +366,7 @@ func (ae *AggregateEngine) downloadCRLs(issuerToUrls types.IssuerCrlMap, sigChan
 			decor.EwmaETA(decor.ET_STYLE_GO, 4, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
+		mpb.BarRemoveOnComplete(),
 	)
 
 	resultChan := make(chan types.IssuerCrlPaths, count)
@@ -410,6 +412,7 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 			decor.EwmaETA(decor.ET_STYLE_GO, 4, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
+		mpb.BarRemoveOnComplete(),
 	)
 
 	// Start the workers
@@ -459,11 +462,16 @@ func main() {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
 
+	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
+
 	engine.PrepareTelemetry("aggregate-crls", ctconfig)
 
 	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
 
-	var err error
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
 		err = mozIssuers.LoadFromDisk(*inccadb)
@@ -480,7 +488,9 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(sigChan)
 
-	display := mpb.New()
+	display := mpb.NewWithContext(ctx,
+		mpb.WithRefreshRate(refreshDur),
+	)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,

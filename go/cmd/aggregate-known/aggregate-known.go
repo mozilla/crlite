@@ -95,6 +95,12 @@ func main() {
 		glog.Fatalf("Unable to make the output directory: %s", err)
 	}
 
+	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
+
 	engine.PrepareTelemetry("aggregate-known", ctconfig)
 
 	saveBackend := storage.NewLocalDiskBackend(permMode, *outpath)
@@ -171,7 +177,9 @@ func main() {
 	close(workChan)
 
 	// Start the display
-	display := mpb.New()
+	display := mpb.NewWithContext(ctx,
+		mpb.WithRefreshRate(refreshDur),
+	)
 
 	progressBar := display.AddBar(count,
 		mpb.AppendDecorators(
@@ -180,6 +188,7 @@ func main() {
 			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
+		mpb.BarRemoveOnComplete(),
 	)
 
 	glog.Infof("Starting worker processes to handle %d work units", count)
