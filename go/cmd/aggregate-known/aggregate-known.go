@@ -63,8 +63,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 				knownSetLen := len(knownSet)
 
 				if knownSetLen == 0 {
-					glog.Warningf("No known certificates for issuer=%s expDate=%s, which shouldn't happen."+
-						" (current count=%d)", tuple.issuer.ID(), expDate, serialCount)
+					glog.Warningf("No cached certificates for issuer=%s expDate=%s, but the loader thought there should be."+
+						" (current count this worker=%d)", tuple.issuer.ID(), expDate, serialCount)
 				}
 
 				if cap(serials) < knownSetLen+serialCount {

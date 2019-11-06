@@ -90,7 +90,16 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 			crlSet := meta.CRLs()
 
 			if len(crlSet) == 0 {
-				glog.Warningf("No known CRLs for issuer=%s which shouldn't happen.", tuple.Issuer.ID())
+				if ae.issuers.IsIssuerInProgram(tuple.Issuer) {
+					issuerSubj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
+					if err != nil {
+						glog.Warningf("No known CRLs and couldn't get subject for issuer=%s that is in the root program: %s",
+							tuple.Issuer.ID(), err)
+					} else {
+						glog.Warningf("No known CRLs for issuer=%s (%s) in the root program, which shouldn't happen.",
+							tuple.Issuer.ID(), issuerSubj)
+					}
+				}
 			}
 
 			for _, url := range crlSet {

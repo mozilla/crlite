@@ -26,6 +26,12 @@ else
   ${workflow}/8-upload_artifacts_to_storage ${ID}
 
   ${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
+
+  if [ "x${KINTO_AUTH_USER}x" == "xx" ]; then
+    echo "KINTO_AUTH_USER not set, exiting before the kinto-operations"
+    exit 0
+  fi
+
   ${workflow}/5-upload_intermediates ${ID}
   ${workflow}/5-upload_mlbf_to_kinto ${ID}
 fi
