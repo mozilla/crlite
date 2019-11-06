@@ -21,3 +21,6 @@ statsRefreshPeriod=5m
 savePeriod=5m
 pollingDelayMean=60m
 pollingDelayStdDev=10
+
+# Set true if you want to report to Stackdriver
+#stackdriverMetrics=true
