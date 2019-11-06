@@ -32,6 +32,9 @@ def main():
             localFilePath = localFolder.joinpath(item)
             remoteFilePath = remoteFolder.joinpath(item)
 
+            if localFilePath.is_symlink():
+                continue
+
             print(f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
                   + f"from {localFilePath}")
             blob = bucket.blob(str(remoteFilePath))

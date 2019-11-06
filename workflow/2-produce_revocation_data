@@ -12,6 +12,10 @@ if [ ! -d ${WORKDIR} ] ; then
   exit 1
 fi
 
+if [ ! -d ${WORKDIR}/log ] ; then
+  mkdir ${WORKDIR}/log
+fi
+
 if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
   curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport \
         --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
@@ -21,4 +25,4 @@ ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_processing:-/ct}/crls \
               -revokedpath ${WORKDIR}/revoked \
               -enrolledpath ${WORKDIR}/enrolled.json \
               -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv \
-              -log_dir ${crlite_log:-/tmp} -alsologtostderr
+              -log_dir ${WORKDIR}/log -alsologtostderr
