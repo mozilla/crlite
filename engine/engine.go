@@ -9,8 +9,10 @@ import (
 	"os"
 	"time"
 
+	monitoring "cloud.google.com/go/monitoring/apiv3"
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/google/go-metrics-stackdriver"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jcjones/ct-mapreduce/telemetry"
@@ -63,12 +65,33 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 }
 
 func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
+	val, ok := os.LookupEnv("stackdriverMetrics")
+	if ok && val == "true" {
+		client, err := monitoring.NewMetricClient(context.Background())
+		if err != nil {
+			glog.Fatal(err)
+		}
+
+		metricsSink := stackdriver.NewSink(client, &stackdriver.Config{
+			ProjectID: *ctconfig.GoogleProjectId,
+		})
+		_, err = metrics.NewGlobal(metrics.DefaultConfig(utilName), metricsSink)
+		if err != nil {
+			glog.Fatal(err)
+		}
+
+		glog.Infof("%s is starting. Statistics are being reported to the Stackdriver project %s",
+			utilName, *ctconfig.GoogleProjectId)
+
+		return
+	}
+
 	infoDumpPeriod, err := time.ParseDuration(*ctconfig.StatsRefreshPeriod)
 	if err != nil {
 		glog.Fatalf("Could not parse StatsRefreshPeriod: %v", err)
 	}
 
-	glog.Infof("%s is starting. Statistics will emit every: %s",
+	glog.Infof("%s is starting. Local statistics will emit every: %s",
 		utilName, infoDumpPeriod)
 
 	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
