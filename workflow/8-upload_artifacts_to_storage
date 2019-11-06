@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 
 from google.cloud import storage
+from pathlib import Path
 
 import argparse
 import os
 import sys
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--path", help="Path to folder to upload")
+parser.add_argument("identifier", help="Path to folder to upload", nargs=1)
 
 
 def main():
     args = parser.parse_args()
 
-    if not args.path:
+    if not args.identifier or len(args.identifier) != 1:
         parser.print_usage()
         sys.exit(0)
 
@@ -21,15 +22,20 @@ def main():
     bucket_name = 'crlite_filters'
     bucket = storage_client.get_bucket(bucket_name)
 
-    if args.path.endswith("/"):
-        args.path = args.path[:len(args.path)-1]
-    idName = os.path.basename(args.path)
+    idPath = Path(args.identifier[0]).resolve()
 
-    for path, dirs, files in os.walk(args.path):
+    for path, dirs, files in os.walk(idPath):
+        localFolder = Path(path)
+        remoteFolder = localFolder.relative_to(idPath.parent)
+
         for item in files:
-            print(f"Uploading {path}/{item} as {idName}/{item}")
-            blob = bucket.blob(os.path.join(idName, item))
-            blob.upload_from_filename(os.path.join(path, item))
+            localFilePath = localFolder.joinpath(item)
+            remoteFilePath = remoteFolder.joinpath(item)
+
+            print(f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
+                  + f"from {localFilePath}")
+            blob = bucket.blob(str(remoteFilePath))
+            blob.upload_from_filename(str(localFilePath))
 
 
 main()

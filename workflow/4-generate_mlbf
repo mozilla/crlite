@@ -1,34 +1,51 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-if [ $# -ne 1 ] ; then
-  echo "Usage: $0 /ct/processing/{IDENTIFIER}"
-  exit 1
-fi
+from pathlib import Path
+import argparse
+import os
+import re
+import subprocess
+import sys
 
-if [ ! -d ${1} ] ; then
-  echo "Not a directory: ${1}"
-  exit 1
-fi
+parser = argparse.ArgumentParser()
+parser.add_argument("identifier", help="Current working identifier", nargs=1)
 
-WORKDIR="$(dirname ${1})"
-ID="$(basename ${1})"
-PREVID=""
 
-IDS="$(ls -1r $WORKDIR)"
-nextone=false
-for id in $IDS
-do
-  if $nextone = true ; then
-    PREVID=$id
-    break
-  fi
-  if [ "$id" == "$ID" ]; then
-    nextone=true
-  fi
-done
+def main():
+    args = parser.parse_args()
 
-if [ "$PREVID" != "" ]; then
-  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -knownPath $WORKDIR/known -revokedPath $WORKDIR/revoked -previd $PREVID $ID
-else
-  python3 ${crlite_bin:-~/crlite}/create_filter_cascade/certs_to_crlite.py -certPath $WORKDIR -knownPath $WORKDIR/known -revokedPath $WORKDIR/revoked $ID
-fi
+    if not args.identifier or len(args.identifier) != 1:
+        parser.print_usage()
+        sys.exit(0)
+
+    idformat = re.compile(r"[\d]{4}[\d]{2}[\d]{2}-[\d]")
+
+    workdir = os.path.dirname(args.identifier[0])
+
+    dirlist = os.listdir(workdir)
+    # format is yyyymmdd-nn so lexical sort is perfect, as long as we ensure well-formed choices
+    filter(lambda x: idformat.match(x), dirlist)
+    dirlist.sort()
+
+    identifierName = os.path.basename(args.identifier[0])
+    if identifierName not in dirlist:
+        print(f"{identifierName} is not in {workdir}: {dirlist}")
+
+    parentDir = (os.path.dirname(os.path.abspath(__file__)) / Path("..")).resolve()
+
+    exe = os.path.expanduser(f"{parentDir}/create_filter_cascade/certs_to_crlite.py")
+    cmdline = [exe, "-knownPath", os.path.join(args.identifier[0], "known"),
+               "-revokedPath", os.path.join(args.identifier[0], "revoked")]
+
+    idx = dirlist.index(identifierName)
+    if idx > 0:
+        previd = dirlist[idx-1]
+        cmdline = cmdline + ["-previd", previd]
+
+    cmdline = cmdline + args.identifier
+
+    subprocess.run(cmdline, check=True)
+
+
+if __name__ == "__main__":
+    main()
