@@ -2,8 +2,6 @@
 
 ## Installation
 
-1. Get the [Geo-Mind Lite City GeoIP database (binary)](https://dev.maxmind.com/geoip/geoip2/geolite2/)
-1. Grab the most recent Public Suffix List: `wget https://publicsuffix.org/list/effective_tld_names.dat`
 1. Install the python dependencies: `pip install -r python/requirements.txt`
 1. Build the CT-to-Disk scraper: `go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch`
 
@@ -52,6 +50,18 @@ EOF
 You'll also need to configure your Redis instance with `maxmemory_policy:noeviction`, which is checked
 programmatically and a warning will go to the logs if not set correctly.
 
+
+### IAM for Google Cloud
+
+Permissions that seem necessary are:
+```
+Cloud Datastore Owner
+Cloud Datastore User
+Monitoring Metric Writer
+Cloud Memorystore Redis Editor
+Storage Admin
+Storage Object Admin
+```
 
 ## Populating your storage and Redis with CT certificates
 
