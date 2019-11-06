@@ -16,6 +16,12 @@ spec:
           creationTimestamp: null
         spec:
           containers:
+          - name: init
+            image: busybox:latest
+            command: ["/bin/chmod", "777", "/processing"]
+            volumeMounts:
+            - mountPath: "/processing"
+              name: crlite-crls
           - name: crlite-generate
             envFrom:
             - configMapRef:
