@@ -183,21 +183,24 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 		}
 	}
 
-	resultChan, err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer)
+	resultChan := make(chan UniqueCertIdentifier, 1024)
+	err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer, resultChan)
 	if err != nil {
 		t.Error(err)
 	}
+	close(resultChan)
+
 	var count int
 	for s := range resultChan {
 		count += 1
-		beenSeen, keySet := collector[s.ID()]
+		beenSeen, keySet := collector[s.SerialNum.ID()]
 		if !keySet {
-			t.Errorf("Unexpected Serial: %s", s)
+			t.Errorf("Unexpected Serial: %s", s.SerialNum)
 		}
 		if beenSeen {
-			t.Errorf("Duplicate Serial: %s", s)
+			t.Errorf("Duplicate Serial: %s", s.SerialNum)
 		}
-		collector[s.ID()] = true
+		collector[s.SerialNum.ID()] = true
 	}
 	if count != expectedNumber {
 		t.Errorf("Should have gotten exactly %d entries, but got %d entries", expectedNumber, count)

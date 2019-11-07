@@ -337,7 +337,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(ctx context.Context,
 }
 
 func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issuer, q firestore.Query,
-	c chan<- Serial) (error, int, *firestore.DocumentSnapshot) {
+	c chan<- UniqueCertIdentifier) (error, int, *firestore.DocumentSnapshot) {
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Window"}, time.Now())
 	var count int
 	var lastRef *firestore.DocumentSnapshot
@@ -363,7 +363,12 @@ func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issu
 			continue
 		}
 
-		c <- serialObj
+		c <- UniqueCertIdentifier{
+			ExpDate:   expDate,
+			Issuer:    issuer,
+			SerialNum: serialObj,
+		}
+
 		lastRef = doc
 		metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Next"}, cycleTime)
 		count += 1
@@ -371,86 +376,81 @@ func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context,
-	expDate string, issuer Issuer) (<-chan Serial, error) {
-	serialChan := make(chan Serial, 1*1024*1024)
+	expDate string, issuer Issuer, serialChan chan<- UniqueCertIdentifier) error {
+	b := &backoff.Backoff{
+		Jitter: true,
+	}
 
-	go func() {
-		b := &backoff.Backoff{
-			Jitter: true,
+	totalTime := time.Now()
+	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
+
+	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
+
+	var offset int
+	var lastRef *firestore.DocumentSnapshot
+	for {
+		subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
+
+		query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(db.PageSize)
+		if lastRef != nil {
+			query = query.StartAfter(lastRef)
+		}
+		err, count, finalRef := processSerialDocumentQuery(subCtx, expDate, issuer, query, serialChan)
+		lastRef = finalRef
+		offset += count
+
+		subCancel()
+
+		if err != nil {
+			glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
+				"(total time: %s) (count=%d) (offset=%d) (queue len=%d) err %v",
+				expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
+
+			if status.Code(err) == codes.Unavailable {
+				d := b.Duration()
+				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+					"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
+					status.Code(err), err)
+				time.Sleep(d)
+				continue
+			} else if status.Code(err) == codes.DeadlineExceeded {
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded "+
+					"(%s) %v", status.Code(err), err)
+				return nil // Fatal
+			} else if status.Code(err) == codes.OutOfRange {
+				return fmt.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
+					"(count=%d) (offset=%d) %v", count, offset, err)
+			} else {
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next unexpected code %s aborting: %v",
+					status.Code(err), err)
+				return nil
+			}
 		}
 
-		totalTime := time.Now()
-		defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
-		defer close(serialChan)
-		id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
+		b.Reset()
 
-		var offset int
-		var lastRef *firestore.DocumentSnapshot
-		for {
-			subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
-
-			query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(db.PageSize)
-			if lastRef != nil {
-				query = query.StartAfter(lastRef)
-			}
-			err, count, finalRef := processSerialDocumentQuery(subCtx, expDate, issuer, query, serialChan)
-			lastRef = finalRef
-			offset += count
-
-			subCancel()
-
-			if err != nil {
-				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
-					"(total time: %s) (count=%d) (offset=%d) (queue len=%d) err %v",
-					expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
-
-				if status.Code(err) == codes.Unavailable {
-					d := b.Duration()
-					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
-						"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
-						status.Code(err), err)
-					time.Sleep(d)
-					continue
-				} else if status.Code(err) == codes.DeadlineExceeded {
-					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded "+
-						"(%s) %v", status.Code(err), err)
-					return // Fatal
-				} else if status.Code(err) == codes.OutOfRange {
-					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
-						"(count=%d) (offset=%d) %v", count, offset, err)
-					return
-				} else {
-					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next unexpected code %s aborting: %v",
-						status.Code(err), err)
-					return
-				}
-			}
-
-			b.Reset()
-
-			if count == 0 {
-				metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "TotalSerials"},
-					float32(offset))
-				return
-			}
+		if count == 0 {
+			metrics.AddSample([]string{"StreamSerialsForExpirationDateAndIssuer", "TotalSerials"},
+				float32(offset))
+			return nil
 		}
-	}()
-
-	return serialChan, nil
+	}
 }
 
 func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Context,
 	expDate string, issuer Issuer) ([]Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := []Serial{}
+	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)
 
-	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
+	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, serialChan)
 	if err != nil {
 		return serials, err
 	}
+	close(serialChan)
 
-	for serial := range serialChan {
-		serials = append(serials, serial)
+	for tuple := range serialChan {
+		serials = append(serials, tuple.SerialNum)
 	}
 
 	return serials, nil

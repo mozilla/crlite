@@ -44,11 +44,14 @@ type DocumentType int
 type StorageBackend interface {
 	MarkDirty(id string) error
 
-	StoreCertificatePEM(ctx context.Context, serial Serial, expDate string, issuer Issuer, b []byte) error
+	StoreCertificatePEM(ctx context.Context, serial Serial, expDate string,
+		issuer Issuer, b []byte) error
 	StoreLogState(ctx context.Context, log *CertificateLog) error
-	StoreKnownCertificateList(ctx context.Context, issuer Issuer, serials []Serial) error
+	StoreKnownCertificateList(ctx context.Context, issuer Issuer,
+		serials []Serial) error
 
-	LoadCertificatePEM(ctx context.Context, serial Serial, expDate string, issuer Issuer) ([]byte, error)
+	LoadCertificatePEM(ctx context.Context, serial Serial, expDate string,
+		issuer Issuer) ([]byte, error)
 	LoadLogState(ctx context.Context, logURL string) (*CertificateLog, error)
 
 	AllocateExpDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) error
@@ -56,15 +59,18 @@ type StorageBackend interface {
 	ListExpirationDates(ctx context.Context, aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(ctx context.Context, expDate string) ([]Issuer, error)
 
-	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) ([]Serial, error)
-	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) (<-chan Serial, error)
+	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
+		issuer Issuer) ([]Serial, error)
+	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
+		issuer Issuer, stream chan<- UniqueCertIdentifier) error
 }
 
 type CertDatabase interface {
 	Cleanup() error
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url *url.URL) (*CertificateLog, error)
-	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string, aEntryId int64) error
+	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string,
+		aEntryId int64) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
 	GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates
@@ -241,4 +247,10 @@ func (s *Serial) AsBigInt() *big.Int {
 	serialBigInt := big.NewInt(0)
 	serialBigInt.SetBytes(s.serial)
 	return serialBigInt
+}
+
+type UniqueCertIdentifier struct {
+	ExpDate   string
+	Issuer    Issuer
+	SerialNum Serial
 }

@@ -156,24 +156,25 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Co
 	expDate string, issuer Issuer) ([]Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := make([]Serial, 0)
+	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)
 
-	serialChan, err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
+	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, serialChan)
 	if err != nil {
 		return serials, err
 	}
+	close(serialChan)
 
-	for serial := range serialChan {
-		serials = append(serials, serial)
+	for tuple := range serialChan {
+		serials = append(serials, tuple.SerialNum)
 	}
 
 	return serials, nil
 }
 
 func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Context,
-	expDate string, issuer Issuer) (<-chan Serial, error) {
-	sChan := make(chan Serial)
+	expDate string, issuer Issuer, sChan chan<- UniqueCertIdentifier) error {
 
-	err := filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string,
+	return filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string,
 		info os.FileInfo, err error) error {
 		if err != nil {
 			glog.Warningf("prevent panic by handling failure accessing a path %q: %v", path, err)
@@ -186,13 +187,15 @@ func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Co
 			if err != nil {
 				return err
 			}
-			sChan <- serial
+			sChan <- UniqueCertIdentifier{
+				SerialNum: serial,
+				Issuer:    issuer,
+				ExpDate:   expDate,
+			}
 			return fmt.Errorf("Unimplemented")
 		}
 		return nil
 	})
-
-	return sChan, err
 }
 
 func (db *LocalDiskBackend) AllocateExpDateAndIssuer(_ context.Context, expDate string,
