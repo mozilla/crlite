@@ -113,13 +113,8 @@ func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer I
 			}
 
 			if !issuerSeenBefore {
-				// if the issuer/expdate was unknown in the cache
-				errAlloc := db.backend.AllocateExpDateAndIssuer(subCtx, expDate, issuer)
-				if errAlloc != nil {
-					subCancel()
-					return fmt.Errorf("ReconstructIssuerMetadata error AllocateExpDateAndIssuer %v", errAlloc)
-				}
-				knownCerts.SetExpiryFlag()
+				glog.Errorf("Internal consistency problem: Claiming to have never seen issuer=%s before",
+					issuer.ID())
 			}
 
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)

@@ -400,22 +400,21 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 			subCancel()
 
 			if err != nil {
-				glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
+				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
 					"(total time: %s) (count=%d) (offset=%d) (queue len=%d) err %v",
 					expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
 
 				if status.Code(err) == codes.Unavailable {
 					d := b.Duration()
-					glog.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
-						"retrying in %s: (%s) %v", d, status.Code(err), err)
+					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+						"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
+						status.Code(err), err)
 					time.Sleep(d)
 					continue
 				} else if status.Code(err) == codes.DeadlineExceeded {
-					d := b.Duration()
-					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded, "+
-						"retrying in %s: (%s) %v", d, status.Code(err), err)
-					time.Sleep(d)
-					continue
+					glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded "+
+						"(%s) %v", status.Code(err), err)
+					return // Fatal
 				} else if status.Code(err) == codes.OutOfRange {
 					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
 						"(count=%d) (offset=%d) %v", count, offset, err)
