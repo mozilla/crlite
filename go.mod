@@ -3,6 +3,7 @@ module github.com/jcjones/ct-mapreduce
 require (
 	cloud.google.com/go v0.43.0
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878
+	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/go-redis/redis v6.15.5+incompatible
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/google/certificate-transparency-go v1.0.21

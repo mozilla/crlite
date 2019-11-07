@@ -10,23 +10,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bluele/gcache"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 )
 
 type FilesystemDatabase struct {
-	backend   StorageBackend
-	extCache  RemoteCache
-	metaMutex *sync.RWMutex
-	meta      map[string]*IssuerMetadata
+	backend         StorageBackend
+	extCache        RemoteCache
+	knownCertsCache gcache.Cache
+	metaMutex       *sync.RWMutex
+	meta            map[string]*IssuerMetadata
 }
 
-func NewFilesystemDatabase(aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase, error) {
+func NewFilesystemDatabase(aBackend StorageBackend, aExtCache RemoteCache) (*FilesystemDatabase,
+	error) {
 	db := &FilesystemDatabase{
-		backend:   aBackend,
-		extCache:  aExtCache,
-		metaMutex: &sync.RWMutex{},
-		meta:      make(map[string]*IssuerMetadata),
+		backend:         aBackend,
+		extCache:        aExtCache,
+		knownCertsCache: gcache.New(8 * 1024).ARC().Build(),
+		metaMutex:       &sync.RWMutex{},
+		meta:            make(map[string]*IssuerMetadata),
 	}
 
 	return db, nil
@@ -81,14 +85,16 @@ func getSpki(aCert *x509.Certificate) SPKI {
 	if len(aCert.SubjectKeyId) < 8 {
 		digest := sha1.Sum(aCert.RawSubjectPublicKeyInfo)
 
-		glog.V(2).Infof("[issuer: %s] SPKI is short: %v, using %v instead.", aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
+		glog.V(2).Infof("[issuer: %s] SPKI is short: %v, using %v instead.",
+			aCert.Issuer.String(), aCert.SubjectKeyId, digest[0:])
 		return SPKI{digest[0:]}
 	}
 
 	return SPKI{aCert.SubjectKeyId}
 }
 
-func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aLogURL string, aEntryId int64) error {
+func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
+	aLogURL string, aEntryId int64) error {
 	expDate := aCert.NotAfter.Format(kExpirationFormat)
 	issuer := NewIssuer(aIssuer)
 	knownCerts := db.GetKnownCertificates(expDate, issuer)
@@ -124,10 +130,10 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 			if errAlloc != nil {
 				return errAlloc
 			}
-			knownCerts.SetExpiryFlag()
 		}
 
-		errStore := db.backend.StoreCertificatePEM(ctx, serialNum, expDate, issuer, pem.EncodeToMemory(&pemblock))
+		errStore := db.backend.StoreCertificatePEM(ctx, serialNum, expDate, issuer,
+			pem.EncodeToMemory(&pemblock))
 		if errStore != nil {
 			return errStore
 		}
@@ -142,8 +148,33 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	return nil
 }
 
-func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates {
-	return NewKnownCertificates(aExpDate, aIssuer, db.extCache)
+func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string,
+	aIssuer Issuer) *KnownCertificates {
+	var kc *KnownCertificates
+
+	id := aExpDate + aIssuer.ID()
+
+	cacheObj, err := db.knownCertsCache.GetIFPresent(id)
+	if err != nil {
+		if err == gcache.KeyNotFoundError {
+			kc = NewKnownCertificates(aExpDate, aIssuer, db.extCache)
+			err = db.knownCertsCache.Set(id, kc)
+			if err != nil {
+				glog.Fatalf("Couldn't set into the cache expDate=%s issuer=%s from cache: %s",
+					aExpDate, aIssuer.ID(), err)
+			}
+		} else {
+			glog.Fatalf("Couldn't load expDate=%s issuer=%s from cache: %s",
+				aExpDate, aIssuer.ID(), err)
+		}
+	} else {
+		kc = cacheObj.(*KnownCertificates)
+	}
+
+	if kc == nil {
+		panic("kc is null")
+	}
+	return kc
 }
 
 func (db *FilesystemDatabase) Cleanup() error {

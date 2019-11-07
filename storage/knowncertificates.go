@@ -10,16 +10,18 @@ import (
 const kSerials = "serials"
 
 type KnownCertificates struct {
-	expDate string
-	issuer  Issuer
-	cache   RemoteCache
+	expDate   string
+	issuer    Issuer
+	cache     RemoteCache
+	expirySet bool
 }
 
 func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *KnownCertificates {
 	return &KnownCertificates{
-		expDate: aExpDate,
-		issuer:  aIssuer,
-		cache:   aCache,
+		expDate:   aExpDate,
+		issuer:    aIssuer,
+		cache:     aCache,
+		expirySet: false,
 	}
 }
 
@@ -37,6 +39,11 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 	result, err := kc.cache.SortedInsert(kc.serialId(), aSerial.Ascii85())
 	if err != nil {
 		return false, err
+	}
+
+	if !kc.expirySet {
+		kc.setExpiryFlag()
+		kc.expirySet = true
 	}
 
 	if result {
@@ -62,7 +69,7 @@ func (kc *KnownCertificates) Known() []Serial {
 	return serials
 }
 
-func (kc *KnownCertificates) SetExpiryFlag() {
+func (kc *KnownCertificates) setExpiryFlag() {
 	expireTime, timeErr := time.ParseInLocation(kExpirationFormat, kc.expDate, time.UTC)
 	if timeErr != nil {
 		glog.Errorf("Couldn't parse expiration time %s: %v", kc.expDate, timeErr)
