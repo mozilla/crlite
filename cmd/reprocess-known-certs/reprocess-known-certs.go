@@ -51,6 +51,8 @@ func shouldProcess(expDate string, issuer string) bool {
 				os.Exit(1)
 			}
 
+			glog.Infof("Regex set: %s", matchStr)
+
 			matchingRegexes = append(matchingRegexes, rx)
 		}
 	}
@@ -332,12 +334,8 @@ func main() {
 			serialProgressBar, storageDB, backend)
 	}
 
-	// Set up a notifier for the processing workers' completion to signal our final stop
-	doneChan := make(chan bool)
-	go func(wait *sync.WaitGroup) {
-		wait.Wait()
-		doneChan <- true
-	}(&topWg)
+	doneChan := make(chan storage.UniqueCertIdentifier)
+	closeChanWhenWaitGroupCompletes(&topWg, doneChan)
 
 	select {
 	case <-sigChan:
