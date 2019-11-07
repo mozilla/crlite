@@ -18,6 +18,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
+
+	"cloud.google.com/go/profiler"
 )
 
 var (
@@ -89,6 +91,18 @@ func main() {
 	// Long context is required for these operations
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
+
+	val, ok := os.LookupEnv("profile")
+	if ok && val == "reprocess-known-certs" {
+		glog.Info("Profiling to Stackdriver")
+		if err := profiler.Start(profiler.Config{
+			Service:        "reprocess-known-certs",
+			ServiceVersion: "20191106",
+			MutexProfiling: true,
+		}); err != nil {
+			glog.Errorf("Could not start profiler: %s", err)
+		}
+	}
 
 	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 
