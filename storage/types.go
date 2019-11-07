@@ -67,7 +67,6 @@ type CertDatabase interface {
 	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string, aEntryId int64) error
 	ListExpirationDates(aNotBefore time.Time) ([]string, error)
 	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
-	ReconstructIssuerMetadata(expDate string, issuer Issuer) error
 	GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates
 	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
 }

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 )
@@ -58,74 +57,6 @@ func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]strin
 
 func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
 	return db.backend.ListIssuersForExpirationDate(context.Background(), expDate)
-}
-
-func (db *FilesystemDatabase) ReconstructIssuerMetadata(expDate string, issuer Issuer) error {
-	knownCerts := db.GetKnownCertificates(expDate, issuer)
-
-	startTime := time.Now()
-	ctx, ctxCancel := context.WithCancel(context.Background())
-	defer ctxCancel()
-	serialChan, err := db.backend.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)
-	if err != nil {
-		return err
-	}
-	metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
-
-	for serialNum := range serialChan {
-		certWasUnknown, err := knownCerts.WasUnknown(serialNum)
-		if err != nil {
-			return fmt.Errorf("ReconstructIssuerMetadata Was Unknown %v", err)
-		}
-
-		if certWasUnknown {
-			subCtx, subCancel := context.WithTimeout(ctx, 15*time.Minute)
-
-			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
-
-			pemTime := time.Now()
-			pemBytes, err := db.backend.LoadCertificatePEM(subCtx, serialNum, expDate, issuer)
-			if err != nil {
-				subCancel()
-				return fmt.Errorf("ReconstructIssuerMetadata error LoadCertificatePEM %v", err)
-			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
-
-			decodeTime := time.Now()
-			block, rest := pem.Decode(pemBytes)
-			if len(rest) > 0 {
-				subCancel()
-				return fmt.Errorf("PEM data for %s %s %s had extra bytes: %+v", serialNum, expDate, issuer.ID(), rest)
-			}
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				subCancel()
-				metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
-				return fmt.Errorf("ReconstructIssuerMetadata error ParseCertificate %v", err)
-			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
-
-			redisTime := time.Now()
-			issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(cert)
-			if err != nil {
-				subCancel()
-				return fmt.Errorf("ReconstructIssuerMetadata error Accumulate %v", err)
-			}
-
-			if !issuerSeenBefore {
-				glog.Errorf("Internal consistency problem: Claiming to have never seen issuer=%s before",
-					issuer.ID())
-			}
-
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
-			subCancel()
-		} else {
-			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasKnown"}, 1)
-		}
-	}
-
-	metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
-	return nil
 }
 
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {

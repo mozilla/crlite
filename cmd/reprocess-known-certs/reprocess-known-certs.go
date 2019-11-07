@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/pem"
 	"flag"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
@@ -28,9 +30,17 @@ var (
 	matchingRegexes = make([]*regexp.Regexp, 0)
 )
 
-type metadataTuple struct {
+const kProgressPeriod int64 = 64
+
+type issuerDateTuple struct {
 	expDate string
 	issuer  storage.Issuer
+}
+
+type certSerialTuple struct {
+	expDate   string
+	issuer    storage.Issuer
+	serialNum storage.Serial
 }
 
 func shouldProcess(expDate string, issuer string) bool {
@@ -62,26 +72,119 @@ func shouldProcess(expDate string, issuer string) bool {
 	return false
 }
 
-func metadataWorker(wg *sync.WaitGroup, metaChan <-chan metadataTuple, quitChan <-chan struct{}, progBar *mpb.Bar, storageDB storage.CertDatabase) {
+// This worker obtains all the serials for issuer/expDate combinations provided
+// by the input channel, filters them on whether the cache knows the serial yet,
+// and puts the unknown serials onto the output channel.
+func issuerAndDateWorker(wg *sync.WaitGroup, metaChan <-chan issuerDateTuple,
+	certSerialChan chan<- certSerialTuple, quitChan <-chan struct{},
+	issuerDateProgressBar *mpb.Bar, serialProgressBar *mpb.Bar,
+	storageDB storage.CertDatabase, backendDB storage.StorageBackend) {
 	defer wg.Done()
+	topCtx := context.Background()
 
 	for tuple := range metaChan {
 		select {
 		case <-quitChan:
 			return
 		default:
-			path := filepath.Join(*ctconfig.CertPath, tuple.expDate, tuple.issuer.ID())
-			glog.V(1).Infof("Processing %s", path)
+			glog.V(1).Infof("Processing %s / %s", tuple.expDate, tuple.issuer.ID())
 
 			startTime := time.Now()
 
-			if err := storageDB.ReconstructIssuerMetadata(tuple.expDate, tuple.issuer); err != nil {
-				glog.Fatalf("%s: Error reconstructing issuer metadata, file not totally read. Err=%s", path, err)
+			knownCerts := storageDB.GetKnownCertificates(tuple.expDate, tuple.issuer)
+
+			ctx, ctxCancel := context.WithCancel(topCtx)
+			serialChan, err := backendDB.StreamSerialsForExpirationDateAndIssuer(ctx, tuple.expDate, tuple.issuer)
+			if err != nil {
+				glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
+			}
+			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
+
+			var progCount int
+			for serialNum := range serialChan {
+				certWasUnknown, err := knownCerts.WasUnknown(serialNum)
+				if err != nil {
+					glog.Fatalf("ReconstructIssuerMetadata WasUnknown %v", err)
+				}
+
+				if !certWasUnknown {
+					metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasKnown"}, 1)
+					continue
+				}
+
+				metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certWasUnknown"}, 1)
+				certSerialChan <- certSerialTuple{
+					serialNum: serialNum,
+					expDate:   tuple.expDate,
+					issuer:    tuple.issuer,
+				}
+
+				progCount += 1
+				if int64(progCount) == kProgressPeriod {
+					currentVal := serialProgressBar.Current()
+					serialProgressBar.SetTotal(currentVal+1024*1024, false)
+					progCount = 0
+				}
 			}
 
+			ctxCancel()
 			metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
-			progBar.IncrBy(1, time.Since(startTime))
+			issuerDateProgressBar.IncrBy(1, time.Since(startTime))
 		}
+	}
+}
+
+// This worker does the heavy lifting of loading a PEM, parsing it, and pulling out
+// the issuerDN and CRLs for the metadata cache. It should only be provided serials
+// which aren't already known.
+func certProcessingWorker(wg *sync.WaitGroup, certSerialChan <-chan certSerialTuple,
+	quitChan <-chan struct{}, serialProgressBar *mpb.Bar, storageDB storage.CertDatabase,
+	backendDB storage.StorageBackend) {
+	defer wg.Done()
+	ctx := context.Background()
+
+	for tuple := range certSerialChan {
+		select {
+		case <-quitChan:
+			return
+		default:
+			glog.V(2).Infof("Processing serial=%s expDate=%s issuer=%s", tuple.serialNum,
+				tuple.expDate, tuple.issuer.ID())
+		}
+
+		subCtx, subCancel := context.WithTimeout(ctx, 1*time.Minute)
+
+		pemTime := time.Now()
+		pemBytes, err := backendDB.LoadCertificatePEM(subCtx, tuple.serialNum, tuple.expDate,
+			tuple.issuer)
+		subCancel()
+		if err != nil {
+			glog.Fatalf("ReconstructIssuerMetadata error LoadCertificatePEM %v", err)
+		}
+		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
+
+		decodeTime := time.Now()
+		block, rest := pem.Decode(pemBytes)
+		if len(rest) > 0 {
+			glog.Fatalf("PEM data for %s %s %s had extra bytes: %+v", tuple.serialNum, tuple.expDate,
+				tuple.issuer.ID(), rest)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
+			glog.Fatalf("ReconstructIssuerMetadata error ParseCertificate %v", err)
+		}
+		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
+
+		redisTime := time.Now()
+		_, err = storageDB.GetIssuerMetadata(tuple.issuer).Accumulate(cert)
+		if err != nil {
+			glog.Fatalf("ReconstructIssuerMetadata error Accumulate %v", err)
+		}
+
+		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
+
+		serialProgressBar.IncrBy(1)
 	}
 }
 
@@ -104,21 +207,17 @@ func main() {
 		}
 	}
 
-	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, _, backend := engine.GetConfiguredStorage(ctx, ctconfig)
 
 	engine.PrepareTelemetry("reprocess-known-certs", ctconfig)
 	defer glog.Flush()
 
-	var twg sync.WaitGroup
-	workUnitsChan := make(chan metadataTuple, 16*1024*1024)
+	issuerDateChan := make(chan issuerDateTuple, 16*1024*1024)
 
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(sigChan)
-
-	// Exit signal, used by signals from the OS
-	quitChan := make(chan struct{})
 
 	// Start the display
 	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
@@ -128,8 +227,10 @@ func main() {
 
 	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
 
+	var topWg sync.WaitGroup
+
 	display := mpb.NewWithContext(ctx,
-		mpb.WithWaitGroup(&twg),
+		mpb.WithWaitGroup(&topWg),
 		mpb.WithRefreshRate(refreshDur),
 	)
 
@@ -145,7 +246,7 @@ func main() {
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(" Filling Queue"),
-			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 	)
@@ -166,7 +267,7 @@ func main() {
 
 			if shouldProcess(expDate, issuer.ID()) {
 				select {
-				case workUnitsChan <- metadataTuple{expDate, issuer}:
+				case issuerDateChan <- issuerDateTuple{expDate, issuer}:
 					count = count + 1
 				default:
 					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer.ID())
@@ -176,36 +277,64 @@ func main() {
 	}
 
 	// Signal that was the last work
-	close(workUnitsChan)
+	close(issuerDateChan)
 
-	progressBar := display.AddBar(count,
+	expIssuerProgressBar := display.AddBar(count,
 		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(" ExpDate/Issuers"),
-			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.Percentage(decor.WC{W: 6, C: decor.DidentRight}),
+			decor.Name("ExpDate/Issuers"),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 	)
 
-	// Start the workers
+	serialProgressBar := display.AddBar(1*1024*1024,
+		mpb.AppendDecorators(
+			decor.Name("Unknown Certs Processed"),
+			decor.CountersNoUnit("%d%.T", decor.WC{W: 8}), // %.T ignores the total
+			decor.AverageSpeed(0, "%.1f/s", decor.WC{W: 8}),
+			decor.Elapsed(decor.ET_STYLE_GO, decor.WCSyncSpace),
+		),
+	)
+
+	// Exit signal, used by signals from the OS
+	quitChan := make(chan struct{})
+
+	certSerialChan := make(chan certSerialTuple, 1*1024*1024)
+
+	var issuerDateWorkerWg sync.WaitGroup
+	// Start the issuer/date workers, they populate certSerialChan
 	for t := 0; t < *ctconfig.NumThreads; t++ {
-		twg.Add(1)
-		go metadataWorker(&twg, workUnitsChan, quitChan, progressBar, storageDB)
+		issuerDateWorkerWg.Add(1)
+		go issuerAndDateWorker(&issuerDateWorkerWg, issuerDateChan, certSerialChan,
+			quitChan, expIssuerProgressBar, serialProgressBar, storageDB, backend)
 	}
 
-	// Set up a notifier for the workers closing
+	// When all the issuerDateWorkers are complete, close the outChan
+	go func(wait *sync.WaitGroup) {
+		wait.Wait()
+		close(certSerialChan)
+	}(&issuerDateWorkerWg)
+
+	for t := 0; t < *ctconfig.NumThreads; t++ {
+		topWg.Add(1)
+		go certProcessingWorker(&topWg, certSerialChan, quitChan, serialProgressBar, storageDB, backend)
+	}
+
+	// Set up a notifier for the processing workers' completion to signal our final stop
 	doneChan := make(chan bool)
 	go func(wait *sync.WaitGroup) {
 		wait.Wait()
 		doneChan <- true
-	}(&twg)
+	}(&topWg)
 
 	select {
 	case <-sigChan:
 		glog.Infof("Signal caught, stopping threads at next opportunity.")
 		cancel()
-		quitChan <- struct{}{}
+		close(quitChan)
 	case <-doneChan:
+		serialProgressBar.SetTotal(serialProgressBar.Current(), true)
 		cancel()
 		glog.Infof("Completed.")
 	}
