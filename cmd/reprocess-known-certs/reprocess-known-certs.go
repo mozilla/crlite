@@ -205,7 +205,7 @@ func main() {
 		glog.Info("Profiling to Stackdriver")
 		if err := profiler.Start(profiler.Config{
 			Service:        "reprocess-known-certs",
-			ServiceVersion: "20191106",
+			ServiceVersion: "20191107",
 			MutexProfiling: true,
 		}); err != nil {
 			glog.Errorf("Could not start profiler: %s", err)
