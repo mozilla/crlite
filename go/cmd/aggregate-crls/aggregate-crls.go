@@ -96,7 +96,7 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 						glog.Warningf("No known CRLs and couldn't get subject for issuer=%s that is in the root program: %s",
 							tuple.Issuer.ID(), err)
 					} else {
-						glog.Warningf("No known CRLs for issuer=%s (%s) in the root program, which shouldn't happen.",
+						glog.Infof("No known CRLs for issuer=%s (%s) in the root program. Not enrolling into CRLite.",
 							tuple.Issuer.ID(), issuerSubj)
 					}
 				}

@@ -31,6 +31,7 @@ var (
 
 type knownWorkUnit struct {
 	issuer   storage.Issuer
+	issuerDN string
 	expDates []string
 }
 
@@ -63,8 +64,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 				knownSetLen := len(knownSet)
 
 				if knownSetLen == 0 {
-					glog.Warningf("No cached certificates for issuer=%s expDate=%s, but the loader thought there should be."+
-						" (current count this worker=%d)", tuple.issuer.ID(), expDate, serialCount)
+					glog.Warningf("No cached certificates for issuer=%s (%s) expDate=%s, but the loader thought there should be."+
+						" (current count this worker=%d)", tuple.issuerDN, tuple.issuer.ID(), expDate, serialCount)
 				}
 
 				if cap(serials) < knownSetLen+serialCount {
@@ -163,7 +164,16 @@ func main() {
 
 			wu, ok := issuerToWorkUnit[issuer.ID()]
 			if !ok {
-				wu = knownWorkUnit{issuer: issuer}
+				issuerSubj, err := mozIssuers.GetSubjectForIssuer(issuer)
+				if err != nil {
+					glog.Warningf("Couldn't get subject for issuer=%s that is in the root program: %s",
+						issuer.ID(), err)
+					issuerSubj = "<unknown>"
+				}
+				wu = knownWorkUnit{
+					issuer:   issuer,
+					issuerDN: issuerSubj,
+				}
 			}
 			wu.expDates = append(wu.expDates, expDate)
 			issuerToWorkUnit[issuer.ID()] = wu
