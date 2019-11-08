@@ -418,14 +418,16 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		subCancel()
 
 		if err != nil {
-			overlayErr := fmt.Errorf("(%s/%s) (total time: %s) (count=%d) (offset=%d) (queue len=%d) err=%s",
-				expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
+			overlayErr := fmt.Errorf("(%s/%s) (total time: %s) (count=%d) (offset=%d) err=%s",
+				expDate, issuer.ID(), time.Since(totalTime), count, offset, err)
 
 			if status.Code(err) == codes.Unavailable {
 				d := b.Duration()
-				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
-					"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
-					status.Code(err), overlayErr)
+				if d > time.Minute {
+					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+						"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
+						status.Code(err), overlayErr)
+				}
 				time.Sleep(d)
 				continue
 			} else if status.Code(err) == codes.DeadlineExceeded {
