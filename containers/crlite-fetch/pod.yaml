@@ -31,7 +31,10 @@ spec:
         - configMapRef:
             name: crlite-config
         imagePullPolicy: Always
-        resources: {}
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       dnsPolicy: ClusterFirst
