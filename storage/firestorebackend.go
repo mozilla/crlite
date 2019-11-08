@@ -337,13 +337,19 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(ctx context.Context,
 }
 
 func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issuer, q firestore.Query,
-	c chan<- UniqueCertIdentifier) (error, int, *firestore.DocumentSnapshot) {
+	quitChan <-chan struct{}, c chan<- UniqueCertIdentifier) (error, int, *firestore.DocumentSnapshot) {
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Window"}, time.Now())
 	var count int
 	var lastRef *firestore.DocumentSnapshot
 
 	iter := q.Documents(ctx)
 	for {
+		select {
+		case <-quitChan:
+			return nil, count, lastRef
+		default:
+		}
+
 		cycleTime := time.Now()
 
 		doc, err := iter.Next()
@@ -404,7 +410,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		if lastRef != nil {
 			query = query.StartAfter(lastRef)
 		}
-		err, count, finalRef := processSerialDocumentQuery(subCtx, expDate, issuer, query, serialChan)
+		err, count, finalRef := processSerialDocumentQuery(subCtx, expDate, issuer, query, quitChan,
+			serialChan)
 		lastRef = finalRef
 		offset += count
 
