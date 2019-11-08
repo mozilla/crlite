@@ -31,9 +31,23 @@ var (
 	matchingRegexes = make([]*regexp.Regexp, 0)
 )
 
+const kIssuerExpdateQueueName string = "reprocess-issuerExpDateWorkQueue"
+
 type issuerDateTuple struct {
 	expDate string
 	issuer  storage.Issuer
+}
+
+func decodeIssuerDateTuple(s string) issuerDateTuple {
+	expDate, issuerStr := filepath.Split(s)
+	return issuerDateTuple{
+		expDate: expDate[:len(expDate)-1], // trailing slash
+		issuer:  storage.NewIssuerFromString(issuerStr),
+	}
+}
+
+func (t *issuerDateTuple) String() string {
+	return filepath.Join(t.expDate, t.issuer.ID())
 }
 
 func shouldProcess(expDate string, issuer string) bool {
@@ -70,23 +84,33 @@ func shouldProcess(expDate string, issuer string) bool {
 // This worker obtains all the serials for issuer/expDate combinations provided
 // by the input channel, filters them on whether the cache knows the serial yet,
 // and puts the unknown serials onto the output channel.
-func issuerAndDateWorker(wg *sync.WaitGroup, issuerDateChan <-chan issuerDateTuple,
-	serialChan chan<- storage.UniqueCertIdentifier, quitChan <-chan struct{},
-	issuerDateProgressBar *mpb.Bar, backendDB storage.StorageBackend) {
+func issuerAndDateWorker(wg *sync.WaitGroup, serialChan chan<- storage.UniqueCertIdentifier,
+	quitChan <-chan struct{}, issuerDateProgressBar *mpb.Bar, backendDB storage.StorageBackend,
+	extCache storage.RemoteCache) {
 	defer wg.Done()
 	topCtx := context.Background()
 
-	for tuple := range issuerDateChan {
+	for {
 		select {
 		case <-quitChan:
 			return
 		default:
+			tupleStr, err := extCache.Pop(kIssuerExpdateQueueName)
+			if err != nil {
+				if err.Error() == storage.EMPTY_QUEUE {
+					return
+				}
+				glog.Fatalf("Error popping off cache queue %s: %s", kIssuerExpdateQueueName, err)
+			}
+
+			tuple := decodeIssuerDateTuple(tupleStr)
+
 			glog.V(1).Infof("Processing %s / %s", tuple.expDate, tuple.issuer.ID())
 
 			startTime := time.Now()
 
 			ctx, ctxCancel := context.WithCancel(topCtx)
-			err := backendDB.StreamSerialsForExpirationDateAndIssuer(ctx, tuple.expDate, tuple.issuer,
+			err = backendDB.StreamSerialsForExpirationDateAndIssuer(ctx, tuple.expDate, tuple.issuer,
 				serialChan)
 			if err != nil {
 				glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
@@ -212,12 +236,10 @@ func main() {
 		}
 	}
 
-	storageDB, _, backend := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, extCache, backend := engine.GetConfiguredStorage(ctx, ctconfig)
 
 	engine.PrepareTelemetry("reprocess-known-certs", ctconfig)
 	defer glog.Flush()
-
-	issuerDateChan := make(chan issuerDateTuple, 16*1024*1024)
 
 	// Handle signals from the OS
 	sigChan := make(chan os.Signal, 1)
@@ -239,50 +261,57 @@ func main() {
 		mpb.WithRefreshRate(refreshDur),
 	)
 
-	listExpDateTime := time.Now()
-	expDates, err := storageDB.ListExpirationDates(time.Now())
-	if err != nil {
-		glog.Fatalf("Could not list expiration dates: %+v", err)
-	}
-	metrics.MeasureSince([]string{"ListExpirationDates"}, listExpDateTime)
-
-	fetchingJobs := display.AddBar(int64(len(expDates)),
-		mpb.BarRemoveOnComplete(),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(" Filling Queue"),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-	)
-
 	var count int64
-	for _, expDate := range expDates {
-		listIssuersTime := time.Now()
-		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
+	count, err = extCache.QueueLength(kIssuerExpdateQueueName)
+	if err != nil {
+		glog.Fatalf("Could not deterine queue length: %s", err)
+	}
+
+	if count > 0 {
+		glog.Infof("Reprocess already in progress. %d ExpDate/Issuer tuples remain.",
+			count)
+	} else {
+		listExpDateTime := time.Now()
+		expDates, err := storageDB.ListExpirationDates(time.Now())
 		if err != nil {
-			glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
+			glog.Fatalf("Could not list expiration dates: %+v", err)
 		}
-		metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, listIssuersTime)
+		metrics.MeasureSince([]string{"ListExpirationDates"}, listExpDateTime)
 
-		lastTime := time.Now()
-		for _, issuer := range issuers {
-			fetchingJobs.IncrBy(1, time.Since(lastTime))
-			lastTime = time.Now()
+		fetchingJobs := display.AddBar(int64(len(expDates)),
+			mpb.BarRemoveOnComplete(),
+			mpb.AppendDecorators(
+				decor.Percentage(),
+				decor.Name(" Filling Queue"),
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
+				decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+			),
+		)
 
-			if shouldProcess(expDate, issuer.ID()) {
-				select {
-				case issuerDateChan <- issuerDateTuple{expDate, issuer}:
-					count = count + 1
-				default:
-					glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer.ID())
+		for _, expDate := range expDates {
+			listIssuersTime := time.Now()
+			issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
+			if err != nil {
+				glog.Fatalf("Could not list issuers (%s) %+v", expDate, err)
+			}
+			metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, listIssuersTime)
+
+			lastTime := time.Now()
+			for _, issuer := range issuers {
+				fetchingJobs.IncrBy(1, time.Since(lastTime))
+				lastTime = time.Now()
+
+				if shouldProcess(expDate, issuer.ID()) {
+					tuple := issuerDateTuple{expDate, issuer}
+
+					count, err = extCache.Queue(kIssuerExpdateQueueName, tuple.String())
+					if err != nil {
+						glog.Fatalf("Could not enqueue: %s", err)
+					}
 				}
 			}
 		}
 	}
-
-	// Signal that was the last work
-	close(issuerDateChan)
 
 	expIssuerProgressBar := display.AddBar(count,
 		mpb.AppendDecorators(
@@ -312,8 +341,8 @@ func main() {
 	// Start the issuer/date workers, they populate certSerialChan
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		issuerDateWorkerWg.Add(1)
-		go issuerAndDateWorker(&issuerDateWorkerWg, issuerDateChan, certSerialChan,
-			quitChan, expIssuerProgressBar, backend)
+		go issuerAndDateWorker(&issuerDateWorkerWg, certSerialChan,
+			quitChan, expIssuerProgressBar, backend, extCache)
 	}
 	go closeChanWhenWaitGroupCompletes(&issuerDateWorkerWg, certSerialChan)
 
@@ -335,7 +364,7 @@ func main() {
 	}
 
 	doneChan := make(chan storage.UniqueCertIdentifier)
-	closeChanWhenWaitGroupCompletes(&topWg, doneChan)
+	go closeChanWhenWaitGroupCompletes(&topWg, doneChan)
 
 	select {
 	case <-sigChan:

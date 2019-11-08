@@ -83,6 +83,9 @@ type RemoteCache interface {
 	SortedContains(key string, aEntry string) (bool, error)
 	SortedList(key string) ([]string, error)
 	ExpireAt(key string, aExpTime time.Time) error
+	Queue(key string, identifier string) (int64, error)
+	Pop(key string) (string, error)
+	QueueLength(key string) (int64, error)
 }
 
 type Issuer struct {

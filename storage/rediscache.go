@@ -10,6 +10,8 @@ import (
 	"github.com/golang/glog"
 )
 
+const EMPTY_QUEUE string = "redis: nil"
+
 type RedisCache struct {
 	client *redis.Client
 }

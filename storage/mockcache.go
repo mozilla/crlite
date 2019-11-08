@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -89,4 +90,16 @@ func (ec *MockRemoteCache) Exists(key string) (bool, error) {
 func (ec *MockRemoteCache) ExpireAt(key string, expTime time.Time) error {
 	ec.Expirations[key] = expTime
 	return nil
+}
+
+func (rc *MockRemoteCache) Queue(key string, identifier string) (int64, error) {
+	return int64(0), fmt.Errorf("unimplemented")
+}
+
+func (rc *MockRemoteCache) Pop(key string) (string, error) {
+	return "", fmt.Errorf("unimplemented")
+}
+
+func (rc *MockRemoteCache) QueueLength(key string) (int64, error) {
+	return int64(0), fmt.Errorf("unimplemented")
 }

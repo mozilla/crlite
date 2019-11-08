@@ -234,6 +234,11 @@ func Test_RedisQueue(t *testing.T) {
 		t.Errorf("Queue should be empty")
 	}
 
+	_, err = rc.Pop(q)
+	if err.Error() != EMPTY_QUEUE {
+		t.Errorf("Expected %s but got %s", EMPTY_QUEUE, err)
+	}
+
 	queueInsert(t, q, "five", 1, rc)
 	result, err = rc.QueueLength(q)
 	if err != nil {
