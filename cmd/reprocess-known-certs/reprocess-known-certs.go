@@ -147,7 +147,9 @@ func deduplicationWorker(wg *sync.WaitGroup, certSerialChan <-chan storage.Uniqu
 
 		certWasUnknown, err := knownCerts.WasUnknown(tuple.SerialNum)
 		if err != nil {
-			glog.Fatalf("ReconstructIssuerMetadata WasUnknown %v", err)
+			glog.Errorf("WasUnknown failed issuer=%s expDate=%s, serial=%s %v",
+				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			continue
 		}
 
 		if !certWasUnknown {
@@ -169,34 +171,40 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 	defer wg.Done()
 
 	for tuple := range certSerialChan {
-		subCtx, subCancel := context.WithTimeout(ctx, 1*time.Minute)
+		subCtx, subCancel := context.WithTimeout(ctx, 10*time.Minute)
 
 		pemTime := time.Now()
 		pemBytes, err := backendDB.LoadCertificatePEM(subCtx, tuple.SerialNum, tuple.ExpDate,
 			tuple.Issuer)
 		subCancel()
 		if err != nil {
-			glog.Fatalf("ReconstructIssuerMetadata error LoadCertificatePEM %v", err)
+			glog.Errorf("LoadCertificatePEM failed, issuer=%s expDate=%s, serial=%s %v",
+				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			continue
 		}
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
 
 		decodeTime := time.Now()
 		block, rest := pem.Decode(pemBytes)
 		if len(rest) > 0 {
-			glog.Fatalf("PEM data for %s %s %s had extra bytes: %+v", tuple.SerialNum, tuple.ExpDate,
-				tuple.Issuer.ID(), rest)
+			glog.Errorf("PEM data had extra bytes: issuer=%s expDate=%s, serial=%s %v",
+				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, rest)
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
-			glog.Fatalf("ReconstructIssuerMetadata error ParseCertificate %v", err)
+			glog.Errorf("ParseCertificate failed, issuer=%s expDate=%s, serial=%s %v",
+				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			continue
 		}
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
 
 		redisTime := time.Now()
 		_, err = storageDB.GetIssuerMetadata(tuple.Issuer).Accumulate(cert)
 		if err != nil {
-			glog.Fatalf("ReconstructIssuerMetadata error Accumulate %v", err)
+			glog.Errorf("Accumulate failed issuer=%s expDate=%s, serial=%s %v",
+				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			continue
 		}
 
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
