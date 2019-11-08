@@ -183,8 +183,10 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 		}
 	}
 
+	quitChan := make(chan struct{})
 	resultChan := make(chan UniqueCertIdentifier, 1024)
-	err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer, resultChan)
+	err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer,
+		quitChan, resultChan)
 	if err != nil {
 		t.Error(err)
 	}

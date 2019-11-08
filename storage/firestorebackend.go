@@ -55,7 +55,7 @@ func NewFirestoreBackend(ctx context.Context, projectId string) (*FirestoreBacke
 
 	return &FirestoreBackend{
 		client:   client,
-		PageSize: 16 * 1024,
+		PageSize: 8 * 1024,
 	}, nil
 }
 
@@ -376,9 +376,12 @@ func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context,
-	expDate string, issuer Issuer, serialChan chan<- UniqueCertIdentifier) error {
+	expDate string, issuer Issuer, quitChan <-chan struct{},
+	serialChan chan<- UniqueCertIdentifier) error {
 	b := &backoff.Backoff{
 		Jitter: true,
+		Min:    125 * time.Millisecond,
+		Max:    5 * time.Minute,
 	}
 
 	totalTime := time.Now()
@@ -389,6 +392,12 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 	var offset int
 	var lastRef *firestore.DocumentSnapshot
 	for {
+		select {
+		case <-quitChan:
+			return nil
+		default:
+		}
+
 		subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
 
 		query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(db.PageSize)
@@ -402,27 +411,29 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		subCancel()
 
 		if err != nil {
-			glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next error (%s/%s) "+
-				"(total time: %s) (count=%d) (offset=%d) (queue len=%d) err %v",
+			overlayErr := fmt.Errorf("(%s/%s) (total time: %s) (count=%d) (offset=%d) (queue len=%d) err=%s",
 				expDate, issuer.ID(), time.Since(totalTime), count, offset, len(serialChan), err)
 
 			if status.Code(err) == codes.Unavailable {
 				d := b.Duration()
 				glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
 					"received %d/%d records. Retrying in %s: (%s) %v", count, db.PageSize, d,
-					status.Code(err), err)
+					status.Code(err), overlayErr)
 				time.Sleep(d)
 				continue
 			} else if status.Code(err) == codes.DeadlineExceeded {
-				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Deadline exceeded "+
-					"(%s) %v", status.Code(err), err)
+				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next Fatal deadline exceeded. %s ",
+					overlayErr)
 				return nil // Fatal
 			} else if status.Code(err) == codes.OutOfRange {
-				return fmt.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. Stopping. "+
-					"(count=%d) (offset=%d) %v", count, offset, err)
+				return fmt.Errorf("StreamSerialsForExpirationDateAndIssuer iter.Next out of range. %s",
+					overlayErr)
+			} else if status.Code(err) == codes.Canceled {
+				glog.Infof("StreamSerialsForExpirationDateAndIssuer canceled: %v", overlayErr)
+				return nil
 			} else {
 				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next unexpected code %s aborting: %v",
-					status.Code(err), err)
+					status.Code(err), overlayErr)
 				return nil
 			}
 		}
@@ -442,8 +453,9 @@ func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Co
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := []Serial{}
 	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)
+	quitChan := make(chan struct{})
 
-	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, serialChan)
+	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, quitChan, serialChan)
 	if err != nil {
 		return serials, err
 	}

@@ -84,43 +84,54 @@ func shouldProcess(expDate string, issuer string) bool {
 // This worker obtains all the serials for issuer/expDate combinations provided
 // by the input channel, filters them on whether the cache knows the serial yet,
 // and puts the unknown serials onto the output channel.
-func issuerAndDateWorker(wg *sync.WaitGroup, serialChan chan<- storage.UniqueCertIdentifier,
+func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan chan<- storage.UniqueCertIdentifier,
 	quitChan <-chan struct{}, issuerDateProgressBar *mpb.Bar, backendDB storage.StorageBackend,
 	extCache storage.RemoteCache) {
 	defer wg.Done()
-	topCtx := context.Background()
+
+	var tupleStr string
+	var err error
 
 	for {
 		select {
 		case <-quitChan:
+			glog.Errorf("Requeuing our place: [%s]", tupleStr)
+			if tupleStr != "" {
+				// Remember our place
+				_, err := extCache.Queue(kIssuerExpdateQueueName, tupleStr)
+				if err != nil {
+					glog.Errorf("Couldn't re-queue our current place, [%s]: %s", tupleStr, err)
+				}
+			}
 			return
 		default:
-			tupleStr, err := extCache.Pop(kIssuerExpdateQueueName)
-			if err != nil {
-				if err.Error() == storage.EMPTY_QUEUE {
-					return
-				}
-				glog.Fatalf("Error popping off cache queue %s: %s", kIssuerExpdateQueueName, err)
-			}
-
-			tuple := decodeIssuerDateTuple(tupleStr)
-
-			glog.V(1).Infof("Processing %s / %s", tuple.expDate, tuple.issuer.ID())
-
-			startTime := time.Now()
-
-			ctx, ctxCancel := context.WithCancel(topCtx)
-			err = backendDB.StreamSerialsForExpirationDateAndIssuer(ctx, tuple.expDate, tuple.issuer,
-				serialChan)
-			if err != nil {
-				glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
-			}
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
-
-			ctxCancel()
-			metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
-			issuerDateProgressBar.IncrBy(1, time.Since(startTime))
 		}
+
+		tupleStr, err = extCache.Pop(kIssuerExpdateQueueName)
+		if err != nil {
+			if err.Error() == storage.EMPTY_QUEUE {
+				return
+			}
+			glog.Fatalf("Error popping off cache queue %s: %s", kIssuerExpdateQueueName, err)
+		}
+
+		tuple := decodeIssuerDateTuple(tupleStr)
+
+		glog.V(1).Infof("Processing %s / %s", tuple.expDate, tuple.issuer.ID())
+
+		startTime := time.Now()
+
+		subCtx, ctxCancel := context.WithCancel(ctx)
+		err = backendDB.StreamSerialsForExpirationDateAndIssuer(subCtx, tuple.expDate, tuple.issuer,
+			quitChan, serialChan)
+		if err != nil {
+			glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
+		}
+		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
+
+		ctxCancel()
+		metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
+		issuerDateProgressBar.IncrBy(1, time.Since(startTime))
 	}
 }
 
@@ -128,19 +139,10 @@ func issuerAndDateWorker(wg *sync.WaitGroup, serialChan chan<- storage.UniqueCer
 // the issuerDN and CRLs for the metadata cache. It should only be provided serials
 // which aren't already known.
 func deduplicationWorker(wg *sync.WaitGroup, certSerialChan <-chan storage.UniqueCertIdentifier,
-	unknownSerialChan chan<- storage.UniqueCertIdentifier, quitChan <-chan struct{},
-	storageDB storage.CertDatabase) {
+	unknownSerialChan chan<- storage.UniqueCertIdentifier, storageDB storage.CertDatabase) {
 	defer wg.Done()
 
 	for tuple := range certSerialChan {
-		select {
-		case <-quitChan:
-			return
-		default:
-			glog.V(3).Infof("De-duplicator processing serial=%s expDate=%s issuer=%s", tuple.SerialNum,
-				tuple.ExpDate, tuple.Issuer.ID())
-		}
-
 		knownCerts := storageDB.GetKnownCertificates(tuple.ExpDate, tuple.Issuer)
 
 		certWasUnknown, err := knownCerts.WasUnknown(tuple.SerialNum)
@@ -161,21 +163,12 @@ func deduplicationWorker(wg *sync.WaitGroup, certSerialChan <-chan storage.Uniqu
 // This worker does the heavy lifting of loading a PEM, parsing it, and pulling out
 // the issuerDN and CRLs for the metadata cache. It should only be provided serials
 // which aren't already known.
-func certProcessingWorker(wg *sync.WaitGroup, certSerialChan <-chan storage.UniqueCertIdentifier,
-	quitChan <-chan struct{}, serialProgressBar *mpb.Bar, storageDB storage.CertDatabase,
-	backendDB storage.StorageBackend) {
+func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
+	certSerialChan <-chan storage.UniqueCertIdentifier, serialProgressBar *mpb.Bar,
+	storageDB storage.CertDatabase, backendDB storage.StorageBackend) {
 	defer wg.Done()
-	ctx := context.Background()
 
 	for tuple := range certSerialChan {
-		select {
-		case <-quitChan:
-			return
-		default:
-			glog.V(2).Infof("Processing serial=%s expDate=%s issuer=%s", tuple.SerialNum,
-				tuple.ExpDate, tuple.Issuer.ID())
-		}
-
 		subCtx, subCancel := context.WithTimeout(ctx, 1*time.Minute)
 
 		pemTime := time.Now()
@@ -257,7 +250,6 @@ func main() {
 	var topWg sync.WaitGroup
 
 	display := mpb.NewWithContext(ctx,
-		mpb.WithWaitGroup(&topWg),
 		mpb.WithRefreshRate(refreshDur),
 	)
 
@@ -334,14 +326,15 @@ func main() {
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
-	certSerialChan := make(chan storage.UniqueCertIdentifier, 1*1024*1024)
-	deduplicatedSerialChan := make(chan storage.UniqueCertIdentifier, 1*1024*1024)
+	certSerialChan := make(chan storage.UniqueCertIdentifier)
+	deduplicatedSerialChan := make(chan storage.UniqueCertIdentifier)
 
 	var issuerDateWorkerWg sync.WaitGroup
 	// Start the issuer/date workers, they populate certSerialChan
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		issuerDateWorkerWg.Add(1)
-		go issuerAndDateWorker(&issuerDateWorkerWg, certSerialChan,
+		// This, as the feeder, gets the quitchan
+		go issuerAndDateWorker(ctx, &issuerDateWorkerWg, certSerialChan,
 			quitChan, expIssuerProgressBar, backend, extCache)
 	}
 	go closeChanWhenWaitGroupCompletes(&issuerDateWorkerWg, certSerialChan)
@@ -352,14 +345,14 @@ func main() {
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		deDupeWg.Add(1)
 		go deduplicationWorker(&deDupeWg, certSerialChan, deduplicatedSerialChan,
-			quitChan, storageDB)
+			storageDB)
 	}
 	go closeChanWhenWaitGroupCompletes(&deDupeWg, deduplicatedSerialChan)
 
 	// Start the Cert processors, that load PEMs from Firestore and handle them
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		topWg.Add(1)
-		go certProcessingWorker(&topWg, deduplicatedSerialChan, quitChan,
+		go certProcessingWorker(ctx, &topWg, deduplicatedSerialChan,
 			serialProgressBar, storageDB, backend)
 	}
 
@@ -369,11 +362,13 @@ func main() {
 	select {
 	case <-sigChan:
 		glog.Infof("Signal caught, stopping threads at next opportunity.")
-		cancel()
 		close(quitChan)
 	case <-doneChan:
 		serialProgressBar.SetTotal(serialProgressBar.Current(), true)
-		cancel()
-		glog.Infof("Completed.")
 	}
+	topWg.Wait()
+	deDupeWg.Wait()
+	issuerDateWorkerWg.Wait()
+	cancel()
+	glog.Infof("Completed.")
 }

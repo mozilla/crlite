@@ -157,8 +157,9 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Co
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := make([]Serial, 0)
 	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)
+	quitChan := make(chan struct{})
 
-	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, serialChan)
+	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, quitChan, serialChan)
 	if err != nil {
 		return serials, err
 	}
@@ -172,7 +173,7 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Co
 }
 
 func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Context,
-	expDate string, issuer Issuer, sChan chan<- UniqueCertIdentifier) error {
+	expDate string, issuer Issuer, _ <-chan struct{}, sChan chan<- UniqueCertIdentifier) error {
 
 	return filepath.Walk(filepath.Join(db.rootPath, expDate, issuer.ID()), func(path string,
 		info os.FileInfo, err error) error {

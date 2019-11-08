@@ -62,7 +62,7 @@ type StorageBackend interface {
 	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
 		issuer Issuer) ([]Serial, error)
 	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
-		issuer Issuer, stream chan<- UniqueCertIdentifier) error
+		issuer Issuer, quitChan <-chan struct{}, stream chan<- UniqueCertIdentifier) error
 }
 
 type CertDatabase interface {
