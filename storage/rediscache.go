@@ -95,3 +95,18 @@ func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
 	br := rc.client.ExpireAt(key, aExpTime)
 	return br.Err()
 }
+
+func (rc *RedisCache) Queue(key string, identifier string) (int64, error) {
+	ir := rc.client.RPush(key, identifier)
+	return ir.Result()
+}
+
+func (rc *RedisCache) Pop(key string) (string, error) {
+	sr := rc.client.LPop(key)
+	return sr.Result()
+}
+
+func (rc *RedisCache) QueueLength(key string) (int64, error) {
+	ir := rc.client.LLen(key)
+	return ir.Result()
+}

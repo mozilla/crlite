@@ -188,3 +188,59 @@ func Test_RedisExpiration(t *testing.T) {
 		t.Errorf("Should not exist anymore: %v %v", exists, err)
 	}
 }
+
+func queueInsert(t *testing.T, q string, v string, count int64, rc *RedisCache) {
+	c, err := rc.Queue(q, v)
+	if err != nil {
+		t.Error(err)
+	}
+	if c != count {
+		t.Errorf("Expected a queue length of %d but got %d", count, c)
+	}
+}
+
+func queueExpect(t *testing.T, q string, v string, rc *RedisCache) {
+	result, err := rc.Pop(q)
+	if err != nil {
+		t.Error(err)
+	}
+	if result != v {
+		t.Errorf("Expected %s, got %s", v, result)
+	}
+}
+
+func Test_RedisQueue(t *testing.T) {
+	q := "queueTest"
+	rc := getRedisCache(t)
+	defer rc.client.Del(q)
+
+	queueInsert(t, q, "one", 1, rc)
+	queueInsert(t, q, "two", 2, rc)
+	queueInsert(t, q, "three", 3, rc)
+
+	queueExpect(t, q, "one", rc)
+
+	queueInsert(t, q, "four", 3, rc)
+
+	queueExpect(t, q, "two", rc)
+	queueExpect(t, q, "three", rc)
+	queueExpect(t, q, "four", rc)
+
+	result, err := rc.QueueLength(q)
+	if err != nil {
+		t.Error(err)
+	}
+	if result != 0 {
+		t.Errorf("Queue should be empty")
+	}
+
+	queueInsert(t, q, "five", 1, rc)
+	result, err = rc.QueueLength(q)
+	if err != nil {
+		t.Error(err)
+	}
+	if result != 1 {
+		t.Errorf("Queue should no longer be empty")
+	}
+
+}
