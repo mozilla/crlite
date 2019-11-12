@@ -36,7 +36,7 @@ func (kc *KnownCertificates) serialId() string {
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SortedInsert(kc.serialId(), aSerial.Ascii85())
+	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.Ascii85())
 	if err != nil {
 		return false, err
 	}
@@ -55,7 +55,7 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	strList, err := kc.cache.SortedList(kc.serialId())
+	strList, err := kc.cache.SetList(kc.serialId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of known certificates: %v", err)
 	}

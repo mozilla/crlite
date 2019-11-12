@@ -59,7 +59,7 @@ func (im *IssuerMetadata) addCRL(aCRL string) error {
 		return nil
 	}
 
-	result, err := im.cache.SortedInsert(im.crlId(), url.String())
+	result, err := im.cache.SetInsert(im.crlId(), url.String())
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (im *IssuerMetadata) addCRL(aCRL string) error {
 }
 
 func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
-	result, err := im.cache.SortedInsert(im.issuersId(), aIssuerDN)
+	result, err := im.cache.SetInsert(im.issuersId(), aIssuerDN)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
 }
 
 func (im *IssuerMetadata) Issuers() []string {
-	strList, err := im.cache.SortedList(im.issuersId())
+	strList, err := im.cache.SetList(im.issuersId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of issuers: %v", err)
 	}
@@ -148,7 +148,7 @@ func (im *IssuerMetadata) Issuers() []string {
 }
 
 func (im *IssuerMetadata) CRLs() []string {
-	strList, err := im.cache.SortedList(im.crlId())
+	strList, err := im.cache.SetList(im.crlId())
 	if err != nil {
 		glog.Fatalf("Error obtaining list of CRLs: %v", err)
 	}

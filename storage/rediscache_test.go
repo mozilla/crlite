@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -53,7 +52,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Error("Key shouldn't exist yet")
 	}
 
-	firstInsert, err := rc.SortedInsert("key", "FADEC00DEAD00DEAF00CAFE0")
+	firstInsert, err := rc.SetInsert("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -69,7 +68,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Error("Key should now exist")
 	}
 
-	doubleInsert, err := rc.SortedInsert("key", "FADEC00DEAD00DEAF00CAFE0")
+	doubleInsert, err := rc.SetInsert("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -77,7 +76,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("Shouldn't have re-inserted")
 	}
 
-	shouldntExist, err := rc.SortedContains("key", "BEAC040FBAC040")
+	shouldntExist, err := rc.SetContains("key", "BEAC040FBAC040")
 	if err != nil {
 		t.Error(err)
 	}
@@ -85,7 +84,7 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("This serial should not have been saved")
 	}
 
-	shouldExist, err := rc.SortedContains("key", "FADEC00DEAD00DEAF00CAFE0")
+	shouldExist, err := rc.SetContains("key", "FADEC00DEAD00DEAF00CAFE0")
 	if err != nil {
 		t.Error(err)
 	}
@@ -112,7 +111,7 @@ func Test_RedisSortedCache(t *testing.T) {
 	})
 
 	for _, s := range randomSerials {
-		success, err := rc.SortedInsert("sortedCache", s)
+		success, err := rc.SetInsert("sortedCache", s)
 		if err != nil {
 			t.Error(err)
 		}
@@ -127,7 +126,7 @@ func Test_RedisSortedCache(t *testing.T) {
 
 	for _, s := range randomSerials {
 		// check'em
-		exists, err := rc.SortedContains("sortedCache", s)
+		exists, err := rc.SetContains("sortedCache", s)
 		if err != nil {
 			t.Error(err)
 		}
@@ -136,15 +135,12 @@ func Test_RedisSortedCache(t *testing.T) {
 		}
 	}
 
-	list, err := rc.SortedList("sortedCache")
+	list, err := rc.SetList("sortedCache")
 	if err != nil {
 		t.Error(err)
 	}
 	if len(list) != len(sortedSerials) {
 		t.Errorf("Expected %d serials but got %d", len(sortedSerials), len(list))
-	}
-	if !reflect.DeepEqual(list, sortedSerials) {
-		t.Errorf("Expected equal lists. expected=%+v got=%+v", sortedSerials, list)
 	}
 }
 
@@ -157,7 +153,7 @@ func BenchmarkSortedCacheInsertion(b *testing.B) {
 		buf := make([]byte, binary.Size(i))
 		binary.BigEndian.PutUint64(buf, i)
 		serial := NewSerialFromHex(hex.EncodeToString(buf))
-		_, err := rc.SortedInsert("sortedCacheBenchmark", serial.String())
+		_, err := rc.SetInsert("sortedCacheBenchmark", serial.String())
 		if err != nil {
 			b.Error(err)
 		}
@@ -170,7 +166,7 @@ func Test_RedisExpiration(t *testing.T) {
 	rc := getRedisCache(t)
 	defer rc.client.Del("expTest")
 
-	success, err := rc.SortedInsert("expTest", "a")
+	success, err := rc.SetInsert("expTest", "a")
 	if !success || err != nil {
 		t.Errorf("Should have inserted: %v", err)
 	}

@@ -52,12 +52,9 @@ func (rc *RedisCache) MemoryPolicyCorrect() error {
 		confr.Val())
 }
 
-func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
-	defer metrics.MeasureSince([]string{"SortedInsert"}, time.Now())
-	ir := rc.client.ZAdd(key, redis.Z{
-		Score:  0,
-		Member: entry,
-	})
+func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
+	defer metrics.MeasureSince([]string{"SetInsert"}, time.Now())
+	ir := rc.client.SAdd(key, entry)
 	added, err := ir.Result()
 	if err != nil && strings.HasPrefix(err.Error(), "OOM") {
 		glog.Fatalf("Out of memory on Redis insert of entry %s into key %s, error %v", entry, key, err.Error())
@@ -65,23 +62,15 @@ func (rc *RedisCache) SortedInsert(key string, entry string) (bool, error) {
 	return added == 1, err
 }
 
-func (rc *RedisCache) SortedContains(key string, entry string) (bool, error) {
-	defer metrics.MeasureSince([]string{"SortedContains"}, time.Now())
-	fr := rc.client.ZScore(key, entry)
-	if fr.Err() != nil {
-		if fr.Err().Error() == "redis: nil" {
-			glog.V(3).Infof("Redis does not contain key=%s, entry=%s", key, entry)
-			return false, nil
-		}
-		glog.Warningf("Error at Redis caught, key=%s, entry=%s, err=%+v", key, entry, fr.Err())
-		return false, fr.Err()
-	}
-	return true, nil
+func (rc *RedisCache) SetContains(key string, entry string) (bool, error) {
+	defer metrics.MeasureSince([]string{"SetContains"}, time.Now())
+	br := rc.client.SIsMember(key, entry)
+	return br.Result()
 }
 
-func (rc *RedisCache) SortedList(key string) ([]string, error) {
-	defer metrics.MeasureSince([]string{"SortedList"}, time.Now())
-	slicer := rc.client.ZRange(key, 0, -1)
+func (rc *RedisCache) SetList(key string) ([]string, error) {
+	defer metrics.MeasureSince([]string{"List"}, time.Now())
+	slicer := rc.client.SMembers(key)
 	return slicer.Result()
 }
 

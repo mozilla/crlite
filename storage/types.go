@@ -79,9 +79,9 @@ type CertDatabase interface {
 
 type RemoteCache interface {
 	Exists(key string) (bool, error)
-	SortedInsert(key string, aEntry string) (bool, error)
-	SortedContains(key string, aEntry string) (bool, error)
-	SortedList(key string) ([]string, error)
+	SetInsert(key string, aEntry string) (bool, error)
+	SetContains(key string, aEntry string) (bool, error)
+	SetList(key string) ([]string, error)
 	ExpireAt(key string, aExpTime time.Time) error
 	Queue(key string, identifier string) (int64, error)
 	Pop(key string) (string, error)

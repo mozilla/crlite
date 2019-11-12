@@ -31,7 +31,7 @@ func (ec *MockRemoteCache) CleanupExpiry() {
 	}
 }
 
-func (ec *MockRemoteCache) SortedInsert(key string, entry string) (bool, error) {
+func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -56,7 +56,7 @@ func (ec *MockRemoteCache) SortedInsert(key string, entry string) (bool, error) 
 	return true, nil
 }
 
-func (ec *MockRemoteCache) SortedContains(key string, entry string) (bool, error) {
+func (ec *MockRemoteCache) SetContains(key string, entry string) (bool, error) {
 	ec.CleanupExpiry()
 	count := len(ec.Data[key])
 
@@ -76,7 +76,7 @@ func (ec *MockRemoteCache) SortedContains(key string, entry string) (bool, error
 	return false, nil
 }
 
-func (ec *MockRemoteCache) SortedList(key string) ([]string, error) {
+func (ec *MockRemoteCache) SetList(key string) ([]string, error) {
 	ec.CleanupExpiry()
 	return ec.Data[key], nil
 }
