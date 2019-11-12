@@ -126,6 +126,11 @@ into `*issuer SKI base64*.revoked` files.
 Collates all CT entries' unexpired certificates into `*issuer SKI base64*.known` files.
 
 
+## Planning
+
+If the certificate cohort is 500M, and Firestore costs $0.60 / 1M reads, then `reprocess-known-certs` is $300 to run.
+
+
 ## Credits
 
 * Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis)
