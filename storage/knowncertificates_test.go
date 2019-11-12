@@ -20,7 +20,7 @@ func Test_Unknown(t *testing.T) {
 	}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
-		testStrings[i] = serial.Ascii85()
+		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
 
@@ -43,7 +43,7 @@ func Test_Unknown(t *testing.T) {
 		t.Error(err)
 	}
 
-	if string(endText) != `["!\u003c","!W","!r","\"9","\"T"]` {
+	if string(endText) != `["\u0001","\u0002","\u0003","\u0004","\u0005"]` {
 		t.Errorf("Invalid end %s", endText)
 	}
 }
@@ -57,7 +57,7 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
-		testStrings[i] = serial.Ascii85()
+		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
 

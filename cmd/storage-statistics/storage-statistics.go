@@ -81,7 +81,7 @@ func main() {
 
 			if glog.V(3) {
 				for _, serial := range knownList {
-					glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(), serial.Ascii85())
+					glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(), serial.BinaryString())
 
 					pemBytes, err := backend.LoadCertificatePEM(context.TODO(), serial, expDate, issuer)
 					if err != nil {

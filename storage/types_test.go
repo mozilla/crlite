@@ -127,18 +127,19 @@ func TestSerialBigInt(t *testing.T) {
 	}
 }
 
-func TestSerialAscii85(t *testing.T) {
+func TestSerialBinaryStrings(t *testing.T) {
 	serials := []Serial{
 		NewSerialFromHex("ABCDEF"),
 		NewSerialFromHex("001100"),
 		NewSerialFromHex("ABCDEF0100101010010101010100101010"),
 		NewSerialFromHex("00ABCDEF01001010101010101010010101"),
+		NewSerialFromHex("FFFFFFFFFFFFFF00F00FFFFFFFFFFFFFFF"),
 	}
 
 	for _, s := range serials {
-		astr := s.Ascii85()
+		astr := s.BinaryString()
 
-		decoded, err := NewSerialFromAscii85(astr)
+		decoded, err := NewSerialFromBinaryString(astr)
 		if err != nil {
 			t.Error(err)
 		}

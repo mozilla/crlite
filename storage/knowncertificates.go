@@ -36,7 +36,7 @@ func (kc *KnownCertificates) serialId() string {
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
-	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.Ascii85())
+	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.BinaryString())
 	if err != nil {
 		return false, err
 	}
@@ -61,7 +61,7 @@ func (kc *KnownCertificates) Known() []Serial {
 	}
 	serials := make([]Serial, len(strList))
 	for i, str := range strList {
-		serials[i], err = NewSerialFromAscii85(str)
+		serials[i], err = NewSerialFromBinaryString(str)
 		if err != nil {
 			glog.Errorf("Failed to populate serial idx %d str=[%s] %v", i, str, err)
 		}
