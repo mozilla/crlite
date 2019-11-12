@@ -23,15 +23,17 @@ else
   ${workflow}/2-produce_revocation_data ${ID}
   ${workflow}/3-produce_known_data ${ID}
   ${workflow}/4-generate_mlbf ${ID}
-  ${workflow}/8-upload_artifacts_to_storage ${ID}
 
-  ${workflow}/7-cleanup-expired-processing-folders --path ${crlite_processing:-/ct/processing}
-
-  if [ "x${KINTO_AUTH_USER}x" == "xx" ]; then
-    echo "KINTO_AUTH_USER not set, exiting before the kinto-operations"
-    exit 0
+  if [ "x${GOOGLE_APPLICATION_CREDENTIALS}x" != "xx" ] ; then
+    ${workflow}/8-upload_artifacts_to_storage ${ID}
   fi
 
-  ${workflow}/5-upload_intermediates ${ID}
-  ${workflow}/5-upload_mlbf_to_kinto ${ID}
+  ${workflow}/7-cleanup-expired-processing-folders --keep 1 --path ${crlite_processing:-/ct/processing}
+
+  df ${crlite_processing:-/ct/processing}
+
+  if [ "x${KINTO_AUTH_USER}x" != "xx" ]; then
+    ${workflow}/5-upload_intermediates ${ID}
+    ${workflow}/5-upload_mlbf_to_kinto ${ID}
+  fi
 fi
