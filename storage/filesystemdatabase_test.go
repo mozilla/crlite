@@ -157,7 +157,20 @@ func Test_ListExpiration(t *testing.T) {
 	if reflect.DeepEqual(expectedDates, expDates) == false {
 		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
 	}
-
+	// Close-in date, it's the same day as the expiration tag
+	expectedDates = []string{"2019-11-28"}
+	refTime, err = time.Parse(time.RFC3339, "2019-11-28T01:04:05Z")
+	if err != nil {
+		t.Fatalf("Couldn't parse time %+v", err)
+	}
+	expDates, err = storageDB.ListExpirationDates(refTime)
+	sort.Strings(expDates)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if reflect.DeepEqual(expectedDates, expDates) == false {
+		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
+	}
 	// No dirs valid
 	expectedDates = []string{}
 	refTime, err = time.Parse(time.RFC3339, "2020-11-29T15:04:05Z")
