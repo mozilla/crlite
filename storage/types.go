@@ -85,6 +85,7 @@ type RemoteCache interface {
 	Queue(key string, identifier string) (int64, error)
 	Pop(key string) (string, error)
 	QueueLength(key string) (int64, error)
+	Keys(pattern string) ([]string, error)
 }
 
 type Issuer struct {

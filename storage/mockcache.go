@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"path/filepath" // used for glob-like matching in Keys
 	"sort"
 	"strings"
 	"time"
@@ -102,4 +103,19 @@ func (rc *MockRemoteCache) Pop(key string) (string, error) {
 
 func (rc *MockRemoteCache) QueueLength(key string) (int64, error) {
 	return int64(0), fmt.Errorf("unimplemented")
+}
+
+func (rc *MockRemoteCache) Keys(pattern string) ([]string, error) {
+	var matches []string
+	for key := range rc.Data {
+		matched, err := filepath.Match(pattern, key)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			matches = append(matches, key)
+		}
+	}
+
+	return matches, nil
 }

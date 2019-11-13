@@ -101,3 +101,8 @@ func (rc *RedisCache) QueueLength(key string) (int64, error) {
 	ir := rc.client.LLen(key)
 	return ir.Result()
 }
+
+func (rc *RedisCache) Keys(pattern string) ([]string, error) {
+	sr := rc.client.Keys(pattern)
+	return sr.Result()
+}
