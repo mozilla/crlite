@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -74,7 +75,7 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 
 	kc := NewKnownCertificates("2029-02-30", testIssuer, backend)
 
-	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
+	testList := SerialList{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 
 	for i, serial := range testList {
 		id := kc.serialId(fmt.Sprintf("-%02d", i))
@@ -84,7 +85,10 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 		backend.Data[id] = []string{serial.BinaryString()}
 	}
 
-	result := kc.Known()
+	sort.Sort(testList)
+
+	result := SerialList(kc.Known())
+	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
 	}

@@ -241,6 +241,22 @@ func (s *Serial) AsBigInt() *big.Int {
 	return serialBigInt
 }
 
+type SerialList []Serial
+
+func (sl SerialList) Len() int {
+	return len(sl)
+}
+
+func (sl SerialList) Less(i, j int) bool {
+	return sl[i].Cmp(sl[j]) < 0
+}
+
+func (sl SerialList) Swap(i, j int) {
+	tmp := sl[i]
+	sl[i] = sl[j]
+	sl[j] = tmp
+}
+
 type UniqueCertIdentifier struct {
 	ExpDate   string
 	Issuer    Issuer
