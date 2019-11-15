@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	kExpirationFormat = "2006-01-02"
+	kExpirationFormat         = "2006-01-02"
+	kExpirationFormatWithHour = "2006-01-02-15"
 )
 
 type CertificateLog struct {
@@ -261,4 +262,48 @@ type UniqueCertIdentifier struct {
 	ExpDate   string
 	Issuer    Issuer
 	SerialNum Serial
+}
+
+type ExpDate struct {
+	date     time.Time
+	lastGood time.Time
+	hasHour  bool
+}
+
+func NewExpDate(s string) (*ExpDate, error) {
+	if len(s) > 10 {
+		t, err := time.Parse(kExpirationFormatWithHour, s)
+		if err == nil {
+			lastGood := t.Add(1 * time.Hour)
+			lastGood = lastGood.Add(-1 * time.Millisecond)
+			return &ExpDate{t, lastGood, true}, nil
+		}
+	}
+
+	t, err := time.Parse(kExpirationFormat, s)
+	if err == nil {
+		lastGood := t.Add(24 * time.Hour)
+		lastGood = lastGood.Add(-1 * time.Millisecond)
+		return &ExpDate{t, lastGood, false}, nil
+	}
+	return nil, err
+}
+
+func (e *ExpDate) HasHour() bool {
+	return e.hasHour
+}
+
+func (e *ExpDate) IsExpiredAt(t time.Time) bool {
+	return e.lastGood.Before(t)
+}
+
+func (e *ExpDate) String() string {
+	return e.date.String()
+}
+
+func (e *ExpDate) ID() string {
+	if e.hasHour {
+		return e.date.Format(kExpirationFormatWithHour)
+	}
+	return e.date.Format(kExpirationFormat)
 }
