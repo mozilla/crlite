@@ -27,9 +27,9 @@ func (db *MockBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *MockBackend) AllocateExpDateAndIssuer(_ context.Context, expDate string,
+func (db *MockBackend) AllocateExpDateAndIssuer(_ context.Context, expDate ExpDate,
 	issuer Issuer) error {
-	issuers, ok := db.expDateToIssuer[expDate]
+	issuers, ok := db.expDateToIssuer[expDate.ID()]
 	if !ok {
 		issuers = []Issuer{}
 	}
@@ -42,19 +42,19 @@ func (db *MockBackend) AllocateExpDateAndIssuer(_ context.Context, expDate strin
 		issuers = append(issuers, Issuer{})
 		copy(issuers[i+1:], issuers[i:])
 		issuers[i] = issuer
-		db.expDateToIssuer[expDate] = issuers
+		db.expDateToIssuer[expDate.ID()] = issuers
 	}
 	return nil
 }
 
-func (db *MockBackend) StoreCertificatePEM(_ context.Context, serial Serial, expDate string,
+func (db *MockBackend) StoreCertificatePEM(_ context.Context, serial Serial, expDate ExpDate,
 	issuer Issuer, b []byte) error {
-	db.store["pem"+expDate+issuer.ID()+serial.ID()] = b
-	val, ok := db.expDateIssuerIDToSerials[expDate+issuer.ID()]
+	db.store["pem"+expDate.ID()+issuer.ID()+serial.ID()] = b
+	val, ok := db.expDateIssuerIDToSerials[expDate.ID()+issuer.ID()]
 	if !ok {
 		val = []Serial{}
 	}
-	db.expDateIssuerIDToSerials[expDate+issuer.ID()] = append(val, serial)
+	db.expDateIssuerIDToSerials[expDate.ID()+issuer.ID()] = append(val, serial)
 	return nil
 }
 
@@ -78,9 +78,9 @@ func (db *MockBackend) StoreKnownCertificateList(_ context.Context, issuer Issue
 	return nil
 }
 
-func (db *MockBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate string,
+func (db *MockBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate ExpDate,
 	issuer Issuer) ([]byte, error) {
-	data, ok := db.store["pem"+expDate+issuer.ID()+serial.ID()]
+	data, ok := db.store["pem"+expDate.ID()+issuer.ID()+serial.ID()]
 	if ok {
 		return data, nil
 	}
@@ -99,34 +99,38 @@ func (db *MockBackend) LoadLogState(_ context.Context, logURL string) (*Certific
 	}, nil
 }
 
-func (db *MockBackend) ListExpirationDates(_ context.Context, aNotBefore time.Time) ([]string, error) {
-	dates := []string{}
+func (db *MockBackend) ListExpirationDates(_ context.Context, aNotBefore time.Time) ([]ExpDate, error) {
+	dates := []ExpDate{}
 	truncatedNotBefore := time.Date(aNotBefore.Year(), aNotBefore.Month(),
 		aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
 
 	for key := range db.expDateToIssuer {
 		v, err := time.Parse(kExpirationFormat, key)
 		if err != nil {
-			return []string{}, err
+			return []ExpDate{}, err
 		}
 		if !v.Before(truncatedNotBefore) {
-			dates = append(dates, key)
+			ed, err := NewExpDate(key)
+			if err != nil {
+				return dates, err
+			}
+			dates = append(dates, ed)
 		}
 	}
 	return dates, nil
 }
 
-func (db *MockBackend) ListIssuersForExpirationDate(_ context.Context, expDate string) ([]Issuer,
+func (db *MockBackend) ListIssuersForExpirationDate(_ context.Context, expDate ExpDate) ([]Issuer,
 	error) {
-	return db.expDateToIssuer[expDate], nil
+	return db.expDateToIssuer[expDate.ID()], nil
 }
 
-func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(_ context.Context, expDate string,
+func (db *MockBackend) ListSerialsForExpirationDateAndIssuer(_ context.Context, expDate ExpDate,
 	issuer Issuer) ([]Serial, error) {
-	return db.expDateIssuerIDToSerials[expDate+issuer.ID()], nil
+	return db.expDateIssuerIDToSerials[expDate.ID()+issuer.ID()], nil
 }
 
-func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
+func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate ExpDate,
 	issuer Issuer, _ <-chan struct{}, sChan chan<- UniqueCertIdentifier) error {
 	// Does not have to be performant! Not benchmarking the mock
 	allSerials, err := db.ListSerialsForExpirationDateAndIssuer(ctx, expDate, issuer)

@@ -68,13 +68,10 @@ func (db *FirestoreBackend) MarkDirty(id string) error {
 	return nil
 }
 
-func (db *FirestoreBackend) StoreCertificatePEM(ctx context.Context, serial Serial, expDate string,
+func (db *FirestoreBackend) StoreCertificatePEM(ctx context.Context, serial Serial, expDate ExpDate,
 	issuer Issuer, b []byte) error {
 	defer metrics.MeasureSince([]string{"StoreCertificatePEM"}, time.Now())
-	if len(expDate) == 0 {
-		panic(fmt.Sprintf("StoreCertificatePEM invalid arguments: expDate [%+v] issuer [%+v]", expDate, issuer))
-	}
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", serial.ID())
+	id := filepath.Join("ct", expDate.ID(), "issuer", issuer.ID(), "certs", serial.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return fmt.Errorf("Couldn't open Document id=%s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -122,35 +119,35 @@ func (db *FirestoreBackend) StoreKnownCertificateList(ctx context.Context, issue
 	panic("Not implemented")
 }
 
-func (db *FirestoreBackend) allocateExpDate(ctx context.Context, expDate string) error {
-	doc := db.client.Doc(filepath.Join("ct", expDate))
+func (db *FirestoreBackend) allocateExpDate(ctx context.Context, expDate ExpDate) error {
+	doc := db.client.Doc(filepath.Join("ct", expDate.ID()))
 	if doc == nil {
 		return fmt.Errorf("Couldn't allocate document for exp date %s", expDate)
 	}
 
 	_, err := doc.Set(ctx, map[string]interface{}{
 		kFieldType:    kTypeExpDate,
-		kFieldExpDate: expDate,
+		kFieldExpDate: expDate.ID(),
 	})
 	return err
 }
 
-func (db *FirestoreBackend) allocateIssuerExpDate(ctx context.Context, expDate string,
+func (db *FirestoreBackend) allocateIssuerExpDate(ctx context.Context, expDate ExpDate,
 	issuer Issuer) error {
-	doc := db.client.Doc(filepath.Join("ct", expDate, "issuer", issuer.ID()))
+	doc := db.client.Doc(filepath.Join("ct", expDate.ID(), "issuer", issuer.ID()))
 	if doc == nil {
 		return fmt.Errorf("Couldn't allocate document for exp date %s issuer %v", expDate, issuer)
 	}
 
 	_, err := doc.Set(ctx, map[string]interface{}{
 		kFieldType:    kTypeMetadata,
-		kFieldExpDate: expDate,
+		kFieldExpDate: expDate.ID(),
 		kFieldIssuer:  issuer.ID(),
 	})
 	return err
 }
 
-func (db *FirestoreBackend) AllocateExpDateAndIssuer(ctx context.Context, expDate string,
+func (db *FirestoreBackend) AllocateExpDateAndIssuer(ctx context.Context, expDate ExpDate,
 	issuer Issuer) error {
 	defer metrics.MeasureSince([]string{"AllocateExpDateAndIssuer"}, time.Now())
 	err := db.allocateExpDate(ctx, expDate)
@@ -165,10 +162,10 @@ func (db *FirestoreBackend) AllocateExpDateAndIssuer(ctx context.Context, expDat
 }
 
 func (db *FirestoreBackend) LoadCertificatePEM(ctx context.Context, serial Serial,
-	expDate string, issuer Issuer) ([]byte, error) {
+	expDate ExpDate, issuer Issuer) ([]byte, error) {
 	startTime := time.Now()
 	defer metrics.MeasureSince([]string{"LoadCertificatePEM"}, startTime)
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs", serial.ID())
+	id := filepath.Join("ct", expDate.ID(), "issuer", issuer.ID(), "certs", serial.ID())
 	doc := db.client.Doc(id)
 	if doc == nil {
 		return []byte{}, fmt.Errorf("Couldn't open Document %s. Remember that Firestore heirarchies must alterante Document/Collections.", id)
@@ -268,29 +265,33 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 }
 
 func (db *FirestoreBackend) ListExpirationDates(ctx context.Context,
-	aNotBefore time.Time) ([]string, error) {
+	aNotBefore time.Time) ([]ExpDate, error) {
 	defer metrics.MeasureSince([]string{"ListExpirationDates"}, time.Now())
-	expDates := []string{}
+	expDates := []ExpDate{}
 	dateChan, err := db.StreamExpirationDates(ctx, aNotBefore)
 	if err != nil {
 		return expDates, err
 	}
 
-	for expDate := range dateChan {
+	for expDateStr := range dateChan {
+		expDate, err := NewExpDate(expDateStr)
+		if err != nil {
+			return expDates, err
+		}
 		expDates = append(expDates, expDate)
 	}
 	return expDates, nil
 }
 
 func (db *FirestoreBackend) StreamIssuersForExpirationDate(ctx context.Context,
-	expDate string) (<-chan Issuer, error) {
+	expDate ExpDate) (<-chan Issuer, error) {
 	c := make(chan Issuer, 2048)
 
 	go func() {
 		defer metrics.MeasureSince([]string{"StreamIssuersForExpirationDate"}, time.Now())
 		defer close(c)
 
-		id := filepath.Join("ct", expDate, "issuer")
+		id := filepath.Join("ct", expDate.ID(), "issuer")
 		iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
 			Documents(ctx)
 		for {
@@ -321,7 +322,7 @@ func (db *FirestoreBackend) StreamIssuersForExpirationDate(ctx context.Context,
 }
 
 func (db *FirestoreBackend) ListIssuersForExpirationDate(ctx context.Context,
-	expDate string) ([]Issuer, error) {
+	expDate ExpDate) ([]Issuer, error) {
 	defer metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, time.Now())
 	issuers := []Issuer{}
 
@@ -336,7 +337,7 @@ func (db *FirestoreBackend) ListIssuersForExpirationDate(ctx context.Context,
 	return issuers, nil
 }
 
-func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issuer, q firestore.Query,
+func processSerialDocumentQuery(ctx context.Context, expDate ExpDate, issuer Issuer, q firestore.Query,
 	quitChan <-chan struct{}, c chan<- UniqueCertIdentifier) (error, int, *firestore.DocumentSnapshot) {
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer-Window"}, time.Now())
 	var count int
@@ -382,7 +383,7 @@ func processSerialDocumentQuery(ctx context.Context, expDate string, issuer Issu
 }
 
 func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Context,
-	expDate string, issuer Issuer, quitChan <-chan struct{},
+	expDate ExpDate, issuer Issuer, quitChan <-chan struct{},
 	serialChan chan<- UniqueCertIdentifier) error {
 	b := &backoff.Backoff{
 		Jitter: true,
@@ -393,7 +394,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 	totalTime := time.Now()
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
 
-	id := filepath.Join("ct", expDate, "issuer", issuer.ID(), "certs")
+	id := filepath.Join("ct", expDate.ID(), "issuer", issuer.ID(), "certs")
 
 	var offset int
 	var lastRef *firestore.DocumentSnapshot
@@ -458,7 +459,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 }
 
 func (db *FirestoreBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Context,
-	expDate string, issuer Issuer) ([]Serial, error) {
+	expDate ExpDate, issuer Issuer) ([]Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
 	serials := []Serial{}
 	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)

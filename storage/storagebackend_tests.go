@@ -10,13 +10,21 @@ import (
 	"time"
 )
 
-func storeAndLoad(t *testing.T, serial Serial, expDate string, issuer Issuer, db StorageBackend, data []byte) {
+func mkExpDate(s string) ExpDate {
+	expDate, err := NewExpDate(s)
+	if err != nil {
+		panic(err)
+	}
+	return expDate
+}
+
+func storeAndLoad(t *testing.T, serial Serial, expDate ExpDate, issuer Issuer, db StorageBackend, data []byte) {
 	err := db.StoreCertificatePEM(context.TODO(), serial, expDate, issuer, data)
 	if err != nil {
 		t.Fatalf("Should have stored %d bytes: %+v", len(data), err)
 	}
 
-	t.Logf("Now loading %s/%s/%s", expDate, issuer.ID(), serial.ID())
+	t.Logf("Now loading %s/%s/%s", expDate.ID(), issuer.ID(), serial.ID())
 
 	loaded, err := db.LoadCertificatePEM(context.TODO(), serial, expDate, issuer)
 	if err != nil {
@@ -29,7 +37,7 @@ func storeAndLoad(t *testing.T, serial Serial, expDate string, issuer Issuer, db
 }
 
 func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
-	expDate := "1234"
+	expDate := mkExpDate("2050-05-20")
 	issuer := NewIssuerFromString("test_file")
 
 	storeAndLoad(t, NewSerialFromHex("01"), expDate, issuer, db, []byte{})
@@ -48,12 +56,14 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	expectedFolders := []string{"2019-11-28"}
 	issuerObj := NewIssuerFromString("aki")
 
-	err := db.StoreCertificatePEM(context.TODO(), NewSerialFromHex("01"), "2019-11-28", issuerObj, []byte{0xDA, 0xDA})
+	expDate := mkExpDate("2019-11-28")
+
+	err := db.StoreCertificatePEM(context.TODO(), NewSerialFromHex("01"), expDate, issuerObj, []byte{0xDA, 0xDA})
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
 	// Normally the FilesystemDatabase object is responsible for this allocation
-	err = db.AllocateExpDateAndIssuer(context.TODO(), "2019-11-28", issuerObj)
+	err = db.AllocateExpDateAndIssuer(context.TODO(), expDate, issuerObj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,16 +72,23 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	if err != nil {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
-	expDates, err := db.ListExpirationDates(context.TODO(), refTime)
+	var expDates ExpDateList
+	expDates, err = db.ListExpirationDates(context.TODO(), refTime)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	sort.Strings(expDates)
-	if !reflect.DeepEqual(expectedFolders, expDates) {
-		t.Fatalf("Failed ListExpirationDates expected: %s result: %s", expectedFolders, expDates)
+	sort.Sort(expDates)
+
+	if len(expectedFolders) != len(expDates) {
+		t.Errorf("Expected %s result %s", expectedFolders, expDates)
+	}
+	for i, val := range expectedFolders {
+		if expDates[i].ID() != val {
+			t.Errorf("Mismatch at idx=%d: expected %s got %s", i, val, expDates[i])
+		}
 	}
 
-	issuers, err := db.ListIssuersForExpirationDate(context.TODO(), "2019-11-28")
+	issuers, err := db.ListIssuersForExpirationDate(context.TODO(), expDate)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -152,7 +169,7 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 }
 
 func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
-	expDate := "2019-11-28"
+	expDate := mkExpDate("2019-11-28")
 	issuer := NewIssuerFromString("issuerAKI")
 	expectedSerials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
 

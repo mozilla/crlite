@@ -55,11 +55,11 @@ func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata 
 	return im
 }
 
-func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]string, error) {
+func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]ExpDate, error) {
 	return db.backend.ListExpirationDates(context.Background(), aNotBefore)
 }
 
-func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate string) ([]Issuer, error) {
+func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate ExpDate) ([]Issuer, error) {
 	return db.backend.ListIssuersForExpirationDate(context.Background(), expDate)
 }
 
@@ -95,7 +95,7 @@ func getSpki(aCert *x509.Certificate) SPKI {
 
 func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
 	aLogURL string, aEntryId int64) error {
-	expDate := aCert.NotAfter.Format(kExpirationFormat)
+	expDate := NewExpDateFromTime(aCert.NotAfter)
 	issuer := NewIssuer(aIssuer)
 	knownCerts := db.GetKnownCertificates(expDate, issuer)
 
@@ -148,11 +148,11 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	return nil
 }
 
-func (db *FilesystemDatabase) GetKnownCertificates(aExpDate string,
+func (db *FilesystemDatabase) GetKnownCertificates(aExpDate ExpDate,
 	aIssuer Issuer) *KnownCertificates {
 	var kc *KnownCertificates
 
-	id := aExpDate + aIssuer.ID()
+	id := aExpDate.ID() + aIssuer.ID()
 
 	cacheObj, err := db.knownCertsCache.GetIFPresent(id)
 	if err != nil {

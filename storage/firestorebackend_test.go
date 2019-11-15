@@ -131,7 +131,6 @@ func Test_FirestoreCollectionHeirarchy(t *testing.T) {
 		}
 
 		t.Logf("List: %s - %+v", doc.Ref.ID, doc)
-
 	}
 }
 
@@ -163,7 +162,10 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 	h := makeFirestoreHarness(t)
 	defer h.cleanup()
 
-	expDate := "2019-11-30"
+	expDate, err := NewExpDate("2019-11-30")
+	if err != nil {
+		t.Error(err)
+	}
 	issuer := NewIssuerFromString("streamIssuer")
 
 	h.be.PageSize = 0x10
@@ -185,7 +187,7 @@ func Test_FirestoreStreamManySerialsForExpirationDateAndIssuer(t *testing.T) {
 
 	quitChan := make(chan struct{})
 	resultChan := make(chan UniqueCertIdentifier, 1024)
-	err := h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer,
+	err = h.be.StreamSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer,
 		quitChan, resultChan)
 	if err != nil {
 		t.Error(err)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/pem"
 	"net/url"
-	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -110,23 +109,42 @@ func Test_GetSpkiSyntheticSPKI(t *testing.T) {
 	}
 }
 
+func mkExp(s string) ExpDate {
+	d, err := NewExpDate(s)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+func expDatesAndStringsEqual(t *testing.T, expected []string, found ExpDateList) {
+	if len(expected) != len(found) {
+		t.Errorf("Expected %s result %s", expected, found)
+	}
+	for i, val := range expected {
+		if found[i].ID() != val {
+			t.Errorf("Mismatch at idx=%d: expected %s got %s", i, val, found[i])
+		}
+	}
+}
+
 func Test_ListExpiration(t *testing.T) {
 	mockBackend, storageDB := getTestHarness(t)
 
 	testIssuer := NewIssuerFromString("test issuer")
 
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2017-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2017-11-28"), testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2018-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2018-11-28"), testIssuer); err != nil {
 		t.Error(err)
 	}
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), "2019-11-28", testIssuer); err != nil {
+	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2019-11-28"), testIssuer); err != nil {
 		t.Error(err)
 	}
 
 	var refTime time.Time
-	var expDates []string
+	var expDates ExpDateList
 	var err error
 
 	// All dirs valid.
@@ -136,13 +154,13 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Strings(expDates)
+	sort.Sort(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	if reflect.DeepEqual(expectedDates, expDates) == false {
-		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
-	}
+
+	expDatesAndStringsEqual(t, expectedDates, expDates)
+
 	// Some dirs valid.
 	expectedDates = []string{"2019-11-28"}
 	refTime, err = time.Parse(time.RFC3339, "2018-11-29T15:04:05Z")
@@ -150,13 +168,12 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Strings(expDates)
+	sort.Sort(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	if reflect.DeepEqual(expectedDates, expDates) == false {
-		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
-	}
+	expDatesAndStringsEqual(t, expectedDates, expDates)
+
 	// Close-in date, it's the same day as the expiration tag
 	expectedDates = []string{"2019-11-28"}
 	refTime, err = time.Parse(time.RFC3339, "2019-11-28T01:04:05Z")
@@ -164,13 +181,12 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Strings(expDates)
+	sort.Sort(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	if reflect.DeepEqual(expectedDates, expDates) == false {
-		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
-	}
+	expDatesAndStringsEqual(t, expectedDates, expDates)
+
 	// No dirs valid
 	expectedDates = []string{}
 	refTime, err = time.Parse(time.RFC3339, "2020-11-29T15:04:05Z")
@@ -178,13 +194,11 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Strings(expDates)
+	sort.Sort(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	if reflect.DeepEqual(expectedDates, expDates) == false {
-		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
-	}
+	expDatesAndStringsEqual(t, expectedDates, expDates)
 
 	// Some dirs valid with ref year, month, and day equal to a dir name
 	expectedDates = []string{"2018-11-28", "2019-11-28"}
@@ -193,13 +207,11 @@ func Test_ListExpiration(t *testing.T) {
 		t.Fatalf("Couldn't parse time %+v", err)
 	}
 	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Strings(expDates)
+	sort.Sort(expDates)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	if reflect.DeepEqual(expectedDates, expDates) == false {
-		t.Fatalf("Failed expected: %s result: %s", expectedDates, expDates)
-	}
+	expDatesAndStringsEqual(t, expectedDates, expDates)
 }
 
 func Test_LogState(t *testing.T) {

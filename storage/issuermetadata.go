@@ -90,16 +90,16 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
 // TODO: See which is faster, locking on these local caches, or just using extCache
 // solely
 func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
-	expDate := aCert.NotAfter.Format(kExpirationFormat)
+	expDate := NewExpDateFromTime(aCert.NotAfter)
 	dn := aCert.Issuer.String()
 	im.mutex.RLock()
-	_, seenExpDateBefore := im.knownExpDates[expDate]
+	_, seenExpDateBefore := im.knownExpDates[expDate.ID()]
 	_, seenIssuerDn := im.knownIssuerDNs[dn]
 	im.mutex.RUnlock()
 
 	if !seenExpDateBefore {
 		im.mutex.Lock()
-		im.knownExpDates[expDate] = struct{}{}
+		im.knownExpDates[expDate.ID()] = struct{}{}
 		im.mutex.Unlock()
 
 		cacheSeenBefore, err := im.cache.Exists(im.issuersId())

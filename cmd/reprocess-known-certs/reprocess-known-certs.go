@@ -34,20 +34,24 @@ var (
 const kIssuerExpdateQueueName string = "reprocess-issuerExpDateWorkQueue"
 
 type issuerDateTuple struct {
-	expDate string
+	expDate storage.ExpDate
 	issuer  storage.Issuer
 }
 
 func decodeIssuerDateTuple(s string) issuerDateTuple {
-	expDate, issuerStr := filepath.Split(s)
+	e, issuerStr := filepath.Split(s)
+	expDate, err := storage.NewExpDate(e[:len(e)-1]) // trailing slash
+	if err != nil {
+		glog.Fatalf("Could not decode expiration date=%s: %v", e, err)
+	}
 	return issuerDateTuple{
-		expDate: expDate[:len(expDate)-1], // trailing slash
+		expDate: expDate,
 		issuer:  storage.NewIssuerFromString(issuerStr),
 	}
 }
 
 func (t *issuerDateTuple) String() string {
-	return filepath.Join(t.expDate, t.issuer.ID())
+	return filepath.Join(t.expDate.ID(), t.issuer.ID())
 }
 
 func shouldProcess(expDate string, issuer string) bool {
@@ -301,7 +305,7 @@ func main() {
 				fetchingJobs.IncrBy(1, time.Since(lastTime))
 				lastTime = time.Now()
 
-				if shouldProcess(expDate, issuer.ID()) {
+				if shouldProcess(expDate.ID(), issuer.ID()) {
 					tuple := issuerDateTuple{expDate, issuer}
 
 					count, err = extCache.Queue(kIssuerExpdateQueueName, tuple.String())

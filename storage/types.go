@@ -44,24 +44,24 @@ type DocumentType int
 type StorageBackend interface {
 	MarkDirty(id string) error
 
-	StoreCertificatePEM(ctx context.Context, serial Serial, expDate string,
+	StoreCertificatePEM(ctx context.Context, serial Serial, expDate ExpDate,
 		issuer Issuer, b []byte) error
 	StoreLogState(ctx context.Context, log *CertificateLog) error
 	StoreKnownCertificateList(ctx context.Context, issuer Issuer,
 		serials []Serial) error
 
-	LoadCertificatePEM(ctx context.Context, serial Serial, expDate string,
+	LoadCertificatePEM(ctx context.Context, serial Serial, expDate ExpDate,
 		issuer Issuer) ([]byte, error)
 	LoadLogState(ctx context.Context, logURL string) (*CertificateLog, error)
 
-	AllocateExpDateAndIssuer(ctx context.Context, expDate string, issuer Issuer) error
+	AllocateExpDateAndIssuer(ctx context.Context, expDate ExpDate, issuer Issuer) error
 
-	ListExpirationDates(ctx context.Context, aNotBefore time.Time) ([]string, error)
-	ListIssuersForExpirationDate(ctx context.Context, expDate string) ([]Issuer, error)
+	ListExpirationDates(ctx context.Context, aNotBefore time.Time) ([]ExpDate, error)
+	ListIssuersForExpirationDate(ctx context.Context, expDate ExpDate) ([]Issuer, error)
 
-	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
+	ListSerialsForExpirationDateAndIssuer(ctx context.Context, expDate ExpDate,
 		issuer Issuer) ([]Serial, error)
-	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate string,
+	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate ExpDate,
 		issuer Issuer, quitChan <-chan struct{}, stream chan<- UniqueCertIdentifier) error
 }
 
@@ -71,9 +71,9 @@ type CertDatabase interface {
 	GetLogState(url *url.URL) (*CertificateLog, error)
 	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string,
 		aEntryId int64) error
-	ListExpirationDates(aNotBefore time.Time) ([]string, error)
-	ListIssuersForExpirationDate(expDate string) ([]Issuer, error)
-	GetKnownCertificates(aExpDate string, aIssuer Issuer) *KnownCertificates
+	ListExpirationDates(aNotBefore time.Time) ([]ExpDate, error)
+	ListIssuersForExpirationDate(expDate ExpDate) ([]Issuer, error)
+	GetKnownCertificates(aExpDate ExpDate, aIssuer Issuer) *KnownCertificates
 	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
 }
 
@@ -259,24 +259,32 @@ func (sl SerialList) Swap(i, j int) {
 }
 
 type UniqueCertIdentifier struct {
-	ExpDate   string
+	ExpDate   ExpDate
 	Issuer    Issuer
 	SerialNum Serial
 }
 
 type ExpDate struct {
-	date     time.Time
-	lastGood time.Time
-	hasHour  bool
+	date           time.Time
+	lastGood       time.Time
+	hourResolution bool
 }
 
-func NewExpDate(s string) (*ExpDate, error) {
+func NewExpDateFromTime(t time.Time) ExpDate {
+	return ExpDate{
+		date:           t,
+		lastGood:       t.Add(-1 * time.Millisecond),
+		hourResolution: true,
+	}
+}
+
+func NewExpDate(s string) (ExpDate, error) {
 	if len(s) > 10 {
 		t, err := time.Parse(kExpirationFormatWithHour, s)
 		if err == nil {
 			lastGood := t.Add(1 * time.Hour)
 			lastGood = lastGood.Add(-1 * time.Millisecond)
-			return &ExpDate{t, lastGood, true}, nil
+			return ExpDate{t, lastGood, true}, nil
 		}
 	}
 
@@ -284,26 +292,42 @@ func NewExpDate(s string) (*ExpDate, error) {
 	if err == nil {
 		lastGood := t.Add(24 * time.Hour)
 		lastGood = lastGood.Add(-1 * time.Millisecond)
-		return &ExpDate{t, lastGood, false}, nil
+		return ExpDate{t, lastGood, false}, nil
 	}
-	return nil, err
+	return ExpDate{}, err
 }
 
-func (e *ExpDate) HasHour() bool {
-	return e.hasHour
-}
-
-func (e *ExpDate) IsExpiredAt(t time.Time) bool {
+func (e ExpDate) IsExpiredAt(t time.Time) bool {
 	return e.lastGood.Before(t)
 }
 
-func (e *ExpDate) String() string {
-	return e.date.String()
+func (e ExpDate) ExpireTime() time.Time {
+	return e.date
 }
 
-func (e *ExpDate) ID() string {
-	if e.hasHour {
+func (e ExpDate) String() string {
+	return e.ID()
+}
+
+func (e ExpDate) ID() string {
+	if e.hourResolution {
 		return e.date.Format(kExpirationFormatWithHour)
 	}
 	return e.date.Format(kExpirationFormat)
+}
+
+type ExpDateList []ExpDate
+
+func (sl ExpDateList) Len() int {
+	return len(sl)
+}
+
+func (sl ExpDateList) Less(i, j int) bool {
+	return sl[i].date.Before(sl[j].date)
+}
+
+func (sl ExpDateList) Swap(i, j int) {
+	tmp := sl[i]
+	sl[i] = sl[j]
+	sl[j] = tmp
 }

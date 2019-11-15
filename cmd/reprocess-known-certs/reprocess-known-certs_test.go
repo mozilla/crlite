@@ -8,12 +8,16 @@ import (
 )
 
 func Test_issuerDateTuple(t *testing.T) {
+	ed, err := storage.NewExpDate("2050-12-31")
+	if err != nil {
+		t.Error(err)
+	}
 	tuple := issuerDateTuple{
-		expDate: "20501231",
+		expDate: ed,
 		issuer:  storage.NewIssuerFromString("an issuer"),
 	}
 
-	expected := "20501231/an issuer"
+	expected := "2050-12-31/an issuer"
 	encoded := tuple.String()
 	if encoded != expected {
 		t.Errorf("Expected %s but got %s", expected, encoded)

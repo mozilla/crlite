@@ -200,13 +200,10 @@ func TestLog(t *testing.T) {
 }
 
 func TestExpDate(t *testing.T) {
-	testParsing := func(d string, hasHour bool) *ExpDate {
+	testParsing := func(d string) ExpDate {
 		expDate, err := NewExpDate(d)
 		if err != nil {
 			t.Error(err)
-		}
-		if hasHour != expDate.HasHour() {
-			t.Errorf("Expected an hour to be provided")
 		}
 		if expDate.ID() != d {
 			t.Errorf("Expected ID of %s but got %s", d, expDate.ID())
@@ -214,7 +211,7 @@ func TestExpDate(t *testing.T) {
 		return expDate
 	}
 
-	hourless := testParsing("2004-01-19", false)
+	hourless := testParsing("2004-01-19")
 	if !hourless.IsExpiredAt(time.Date(2004, 01, 20, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("Should have been expired: %s", hourless)
 	}
@@ -222,7 +219,7 @@ func TestExpDate(t *testing.T) {
 		t.Errorf("Should have been valid: %s", hourless)
 	}
 
-	fourOclock := testParsing("2004-01-19-04", true)
+	fourOclock := testParsing("2004-01-19-04")
 	if !fourOclock.IsExpiredAt(time.Date(2004, 01, 19, 05, 0, 0, 0, time.UTC)) {
 		t.Errorf("Should have been expired: %s", fourOclock)
 	}
@@ -230,11 +227,23 @@ func TestExpDate(t *testing.T) {
 		t.Errorf("Should have been valid: %s", fourOclock)
 	}
 
-	elevenOclock := testParsing("2004-01-19-23", true)
+	elevenOclock := testParsing("2004-01-19-23")
 	if !elevenOclock.IsExpiredAt(time.Date(2004, 01, 19, 24, 0, 0, 0, time.UTC)) {
 		t.Errorf("Should have been expired: %s", elevenOclock)
 	}
 	if elevenOclock.IsExpiredAt(time.Date(2004, 01, 19, 23, 59, 59, 59, time.UTC)) {
 		t.Errorf("Should have been valid: %s", elevenOclock)
+	}
+}
+
+func TestExpDateFromTime(t *testing.T) {
+	date := time.Date(2004, 01, 20, 0, 0, 0, 0, time.UTC)
+	expDate := NewExpDateFromTime(date)
+	if !expDate.IsExpiredAt(date) {
+		t.Errorf("Should have expired at its own time")
+	}
+
+	if expDate.IsExpiredAt(date.Add(-1 * time.Millisecond)) {
+		t.Errorf("Should not be expired a moment earlier")
 	}
 }

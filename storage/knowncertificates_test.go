@@ -12,7 +12,11 @@ func Test_Unknown(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("2029-01-30", testIssuer, backend)
+	expDate, err := NewExpDate("2029-01-30")
+	if err != nil {
+		t.Error(err)
+	}
+	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
 	testList := []Serial{
 		NewSerialFromHex("01"),
@@ -54,7 +58,11 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("2029-01-30", testIssuer, backend)
+	expDate, err := NewExpDate("2029-01-30")
+	if err != nil {
+		t.Error(err)
+	}
+	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
 	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
@@ -73,13 +81,17 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("2029-02-30", testIssuer, backend)
+	expDate, err := NewExpDate("2029-02-28")
+	if err != nil {
+		t.Error(err)
+	}
+	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
 	testList := SerialList{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 
 	for i, serial := range testList {
 		id := kc.serialId(fmt.Sprintf("-%02d", i))
-		if id != fmt.Sprintf("serials::2029-02-30-%02d::test issuer", i) {
+		if id != fmt.Sprintf("serials::2029-02-28-%02d::test issuer", i) {
 			t.Errorf("id=%s didn't match for %d", id, i)
 		}
 		backend.Data[id] = []string{serial.BinaryString()}

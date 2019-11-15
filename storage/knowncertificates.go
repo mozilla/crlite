@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/golang/glog"
 )
@@ -11,13 +10,13 @@ import (
 const kSerials = "serials"
 
 type KnownCertificates struct {
-	expDate   string
+	expDate   ExpDate
 	issuer    Issuer
 	cache     RemoteCache
 	expirySet bool
 }
 
-func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *KnownCertificates {
+func NewKnownCertificates(aExpDate ExpDate, aIssuer Issuer, aCache RemoteCache) *KnownCertificates {
 	return &KnownCertificates{
 		expDate:   aExpDate,
 		issuer:    aIssuer,
@@ -27,7 +26,7 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *
 }
 
 func (kc *KnownCertificates) id(params ...string) string {
-	return fmt.Sprintf("%s%s::%s", kc.expDate, strings.Join(params, ""), kc.issuer.ID())
+	return fmt.Sprintf("%s%s::%s", kc.expDate.ID(), strings.Join(params, ""), kc.issuer.ID())
 }
 
 func (kc *KnownCertificates) serialId(params ...string) string {
@@ -89,11 +88,7 @@ func (kc *KnownCertificates) Known() []Serial {
 }
 
 func (kc *KnownCertificates) setExpiryFlag() {
-	expireTime, timeErr := time.ParseInLocation(kExpirationFormat, kc.expDate, time.UTC)
-	if timeErr != nil {
-		glog.Errorf("Couldn't parse expiration time %s: %v", kc.expDate, timeErr)
-		return
-	}
+	expireTime := kc.expDate.ExpireTime()
 
 	if err := kc.cache.ExpireAt(kc.serialId(), expireTime); err != nil {
 		glog.Errorf("Couldn't set expiration time %v for serials %s: %v", expireTime, kc.id(), err)
