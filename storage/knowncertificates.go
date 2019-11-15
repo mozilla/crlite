@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -25,12 +26,12 @@ func NewKnownCertificates(aExpDate string, aIssuer Issuer, aCache RemoteCache) *
 	}
 }
 
-func (kc *KnownCertificates) id() string {
-	return fmt.Sprintf("%s::%s", kc.expDate, kc.issuer.ID())
+func (kc *KnownCertificates) id(params ...string) string {
+	return fmt.Sprintf("%s%s::%s", kc.expDate, strings.Join(params, ""), kc.issuer.ID())
 }
 
-func (kc *KnownCertificates) serialId() string {
-	return fmt.Sprintf("%s::%s", kSerials, kc.id())
+func (kc *KnownCertificates) serialId(params ...string) string {
+	return fmt.Sprintf("%s::%s", kSerials, kc.id(params...))
 }
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
@@ -55,17 +56,35 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	strList, err := kc.cache.SetList(kc.serialId())
+	knownKeys, err := kc.cache.Keys(kc.serialId("*"))
 	if err != nil {
 		glog.Fatalf("Error obtaining list of known certificates: %v", err)
 	}
-	serials := make([]Serial, len(strList))
-	for i, str := range strList {
-		serials[i], err = NewSerialFromBinaryString(str)
+
+	var serials []Serial
+	for _, key := range knownKeys {
+		strList, err := kc.cache.SetList(key)
 		if err != nil {
-			glog.Errorf("Failed to populate serial idx %d str=[%s] %v", i, str, err)
+			glog.Fatalf("Error obtaining list of known certificates: %v", err)
+		}
+
+		if cap(serials) < len(serials)+len(strList) {
+			tmp := make([]Serial, len(serials), len(serials)+len(strList))
+			copy(tmp, serials)
+			serials = tmp
+		}
+
+		for _, str := range strList {
+			bs, err := NewSerialFromBinaryString(str)
+			if err != nil {
+				glog.Errorf("Failed to populate serial str=[%s] %v", str, err)
+				continue
+			}
+
+			serials = append(serials, bs)
 		}
 	}
+
 	return serials
 }
 

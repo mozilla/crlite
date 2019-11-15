@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -10,7 +11,7 @@ func Test_Unknown(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("date", testIssuer, backend)
+	kc := NewKnownCertificates("2029-01-30", testIssuer, backend)
 
 	testList := []Serial{
 		NewSerialFromHex("01"),
@@ -52,7 +53,7 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
 
-	kc := NewKnownCertificates("date", testIssuer, backend)
+	kc := NewKnownCertificates("2029-01-30", testIssuer, backend)
 
 	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
@@ -60,6 +61,28 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
+
+	result := kc.Known()
+	if !reflect.DeepEqual(testList, result) {
+		t.Errorf("Known should get the data: %+v // %+v", testList, result)
+	}
+}
+
+func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
+	backend := NewMockRemoteCache()
+	testIssuer := NewIssuerFromString("test issuer")
+
+	kc := NewKnownCertificates("2029-02-30", testIssuer, backend)
+
+	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
+
+	for i, serial := range testList {
+		id := kc.serialId(fmt.Sprintf("-%02d", i))
+		if id != fmt.Sprintf("serials::2029-02-30-%02d::test issuer", i) {
+			t.Errorf("id=%s didn't match for %d", id, i)
+		}
+		backend.Data[id] = []string{serial.BinaryString()}
+	}
 
 	result := kc.Known()
 	if !reflect.DeepEqual(testList, result) {

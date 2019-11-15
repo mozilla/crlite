@@ -250,6 +250,7 @@ func Test_RedisKeyList(t *testing.T) {
 		"2019-01-01-01::issuer",
 		"2019-01-01-02::issuer",
 		"2019-01-01-03::issuer",
+		"2019-01-01::issuer",
 		"2019-01-02-15::issuer",
 		"2019-01-01-01::otherissuer",
 		"2019-01-01-02::otherissuer",
@@ -270,7 +271,7 @@ func Test_RedisKeyList(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if len(l) != 3 {
+	if len(l) != 4 {
 		t.Errorf("Expected 3 entries matching 2019-01-01*::issuer, got %+v", l)
 	}
 
