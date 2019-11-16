@@ -32,7 +32,7 @@ var (
 type knownWorkUnit struct {
 	issuer   storage.Issuer
 	issuerDN string
-	expDates []string
+	expDates []storage.ExpDate
 }
 
 type knownWorker struct {
@@ -159,7 +159,7 @@ func main() {
 				continue
 			}
 
-			glog.V(1).Infof("(%d) Collating %s/%s", count, expDate, issuer.ID())
+			glog.V(1).Infof("(%d) Collating %s/%s", count, expDate.ID(), issuer.ID())
 			count = count + 1
 
 			wu, ok := issuerToWorkUnit[issuer.ID()]

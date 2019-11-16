@@ -21,3 +21,8 @@
       language: script
       entry: hooks/go-unit-tests.sh
       files: '\.go$'
+    - id: go-no-replacement
+      name: Avoid committing a go module replacement
+      entry: ./hooks/go-no-replacement.sh
+      language: script
+      files: go.mod

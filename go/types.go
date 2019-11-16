@@ -24,7 +24,7 @@ func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
 }
 
 type MetadataTuple struct {
-	ExpDate string
+	ExpDate storage.ExpDate
 	Issuer  storage.Issuer
 }
 
