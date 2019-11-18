@@ -96,7 +96,10 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 
 	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
 	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
-	_, err = metrics.NewGlobal(metrics.DefaultConfig(utilName), metricsSink)
+
+	metricsConf := metrics.DefaultConfig(utilName)
+	metricsConf.EnableRuntimeMetrics = false
+	_, err = metrics.NewGlobal(metricsConf, metricsSink)
 	if err != nil {
 		glog.Fatal(err)
 	}
