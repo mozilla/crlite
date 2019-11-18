@@ -373,8 +373,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 				d := b.Duration()
 				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.LogURL, index, d, err)
 
-				metrics.IncrCounter([]string{"LogWorker", "429 Too Many Requests", lw.LogState.ShortURL}, 1)
-				metrics.AddSample([]string{"LogWorker", "429 Too Many Requests", lw.LogState.ShortURL, "Backoff"},
+				metrics.IncrCounter([]string{"LogWorker", "429 Too Many Requests"}, 1)
+				metrics.AddSample([]string{"LogWorker", "429 Too Many Requests", "Backoff"},
 					float32(d))
 
 				time.Sleep(d)
@@ -385,7 +385,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 			metrics.IncrCounter([]string{"LogWorker", "GetRawEntries", "error"}, 1)
 			return index, lastEntryTimestamp, err
 		}
-		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries", lw.LogState.ShortURL}, cycleTime)
+		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries"}, cycleTime)
 		b.Reset()
 
 		for _, entry := range resp.Entries {
