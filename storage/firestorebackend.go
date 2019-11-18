@@ -423,9 +423,9 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 				glog.Fatalf("StreamSerialsForExpirationDateAndIssuer iter.Next fatal top-level context "+
 					"failure, received %d/%d records. (ctx.Err=%v) %s", count, db.PageSize, ctx.Err(),
 					overlayErr)
-			} else if status.Code(err) == codes.Unavailable ||
+			} else if err != nil && (status.Code(err) == codes.Unavailable ||
 				status.Code(err) == codes.DeadlineExceeded ||
-				strings.Contains(err.Error(), "context deadline exceeded") {
+				strings.Contains(err.Error(), "context deadline exceeded")) {
 				d := b.Duration()
 				if d > time.Minute {
 					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+

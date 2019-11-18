@@ -9,20 +9,23 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"cloud.google.com/go/profiler"
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
-
-	"cloud.google.com/go/profiler"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -173,17 +176,46 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 	storageDB storage.CertDatabase, backendDB storage.StorageBackend) {
 	defer wg.Done()
 
+	b := &backoff.Backoff{
+		Jitter: true,
+		Min:    125 * time.Millisecond,
+		Max:    5 * time.Minute,
+	}
+
 	for tuple := range certSerialChan {
-		subCtx, subCancel := context.WithTimeout(ctx, 10*time.Minute)
+		var pemBytes []byte
+		var err error
 
 		pemTime := time.Now()
-		pemBytes, err := backendDB.LoadCertificatePEM(subCtx, tuple.SerialNum, tuple.ExpDate,
-			tuple.Issuer)
-		subCancel()
-		if err != nil {
-			glog.Errorf("LoadCertificatePEM failed, issuer=%s expDate=%s, serial=%s %v",
-				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
-			continue
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
+			pemBytes, err = backendDB.LoadCertificatePEM(subCtx, tuple.SerialNum, tuple.ExpDate,
+				tuple.Issuer)
+			subCancel()
+
+			if ctx.Err() != nil {
+				glog.Fatalf("LoadCertificatePEM fatal top-level context "+
+					"failure, issuer=%s expDate=%s, serial=%s. (ctx.Err=%v)", tuple.Issuer.ID(),
+					tuple.ExpDate, tuple.SerialNum, ctx.Err())
+			} else if err != nil && (status.Code(err) == codes.Unavailable ||
+				status.Code(err) == codes.DeadlineExceeded ||
+				strings.Contains(err.Error(), "context deadline exceeded")) {
+				d := b.Duration()
+				if d > time.Minute {
+					glog.Warningf("LoadCertificatePEM failed, issuer=%s expDate=%s, serial=%s time=%s"+
+						" Retrying in %s: %v", tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum,
+						time.Since(pemTime), d, err)
+				}
+				time.Sleep(d)
+				continue
+			}
+			break
 		}
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
 
@@ -225,7 +257,7 @@ func main() {
 	ctconfig.Init()
 
 	// Long context is required for these operations
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	val, ok := os.LookupEnv("profile")
@@ -337,6 +369,7 @@ func main() {
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
 
+	// Nonbuffered channels so we can track completion without dataloss
 	certSerialChan := make(chan storage.UniqueCertIdentifier)
 	deduplicatedSerialChan := make(chan storage.UniqueCertIdentifier)
 
