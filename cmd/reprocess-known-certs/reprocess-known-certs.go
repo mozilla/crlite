@@ -131,7 +131,6 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 		if err != nil {
 			glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
 		}
-		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "ListSerials"}, startTime)
 
 		ctxCancel()
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
