@@ -237,13 +237,15 @@ func TestExpDate(t *testing.T) {
 }
 
 func TestExpDateFromTime(t *testing.T) {
-	date := time.Date(2004, 01, 20, 0, 0, 0, 0, time.UTC)
+	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
+	truncDate := time.Date(2004, 01, 20, 0, 0, 0, 0, time.UTC)
+
 	expDate := NewExpDateFromTime(date)
 	if !expDate.IsExpiredAt(date) {
 		t.Errorf("Should have expired at its own time")
 	}
 
-	if expDate.IsExpiredAt(date.Add(-1 * time.Millisecond)) {
+	if expDate.IsExpiredAt(truncDate.Add(-1 * time.Millisecond)) {
 		t.Errorf("Should not be expired a moment earlier")
 	}
 }

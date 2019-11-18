@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 )
 
 func Test_Unknown(t *testing.T) {
@@ -103,5 +104,32 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
+	}
+}
+
+func Test_ExpireAt(t *testing.T) {
+	backend := NewMockRemoteCache()
+	testIssuer := NewIssuerFromString("test issuer")
+
+	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
+	expDate := NewExpDateFromTime(date)
+
+	kc := NewKnownCertificates(expDate, testIssuer, backend)
+
+	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == false {
+		t.Error("5 should not have been known")
+	}
+
+	if len(backend.Expirations) != 1 {
+		t.Error("Should have been length 1")
+	}
+
+	val, ok := backend.Expirations["serials::2004-01-20-04::test issuer"]
+	if !ok {
+		t.Errorf("Expected exp date of 2004-01-20-04 but got %+v", backend.Expirations)
+	}
+	expected := time.Date(2004, 01, 20, 4, 0, 0, 0, time.UTC)
+	if val != expected {
+		t.Errorf("Expected the expiration date to match: %v != %v", val, expected)
 	}
 }

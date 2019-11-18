@@ -271,9 +271,10 @@ type ExpDate struct {
 }
 
 func NewExpDateFromTime(t time.Time) ExpDate {
+	truncTime := t.Truncate(time.Hour)
 	return ExpDate{
-		date:           t,
-		lastGood:       t.Add(-1 * time.Millisecond),
+		date:           truncTime,
+		lastGood:       truncTime.Add(-1 * time.Millisecond),
 		hourResolution: true,
 	}
 }
