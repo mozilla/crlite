@@ -385,7 +385,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 	b := &backoff.Backoff{
 		Jitter: true,
 		Min:    125 * time.Millisecond,
-		Max:    5 * time.Minute,
+		Max:    30 * time.Second,
 	}
 
 	totalTime := time.Now()
@@ -427,8 +427,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 				status.Code(err) == codes.DeadlineExceeded ||
 				strings.Contains(err.Error(), "context deadline exceeded")) {
 				d := b.Duration()
-				if d > time.Minute {
-					glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+				if d == b.Max {
+					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
 						"received %d/%d records. Retrying in %s: %s", count, db.PageSize, d,
 						overlayErr)
 				}

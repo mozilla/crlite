@@ -179,7 +179,7 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 	b := &backoff.Backoff{
 		Jitter: true,
 		Min:    125 * time.Millisecond,
-		Max:    5 * time.Minute,
+		Max:    30 * time.Second,
 	}
 
 	for tuple := range certSerialChan {
@@ -207,8 +207,8 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 				status.Code(err) == codes.DeadlineExceeded ||
 				strings.Contains(err.Error(), "context deadline exceeded")) {
 				d := b.Duration()
-				if d > time.Minute {
-					glog.Warningf("LoadCertificatePEM failed, issuer=%s expDate=%s, serial=%s time=%s"+
+				if d == b.Max {
+					glog.Warningf("LoadCertificatePEM timed out, issuer=%s expDate=%s, serial=%s time=%s"+
 						" Retrying in %s: %v", tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum,
 						time.Since(pemTime), d, err)
 				}
@@ -394,7 +394,7 @@ func main() {
 	go closeChanWhenWaitGroupCompletes(&deDupeWg, deduplicatedSerialChan)
 
 	// Start the Cert processors, that load PEMs from Firestore and handle them
-	for t := 0; t < *ctconfig.NumThreads; t++ {
+	for t := 0; t < *ctconfig.NumProcessingThreads; t++ {
 		topWg.Add(1)
 		go certProcessingWorker(ctx, &topWg, deduplicatedSerialChan,
 			serialProgressBar, storageDB, backend)
