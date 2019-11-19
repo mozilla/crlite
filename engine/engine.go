@@ -65,6 +65,9 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 }
 
 func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
+	metricsConf := metrics.DefaultConfig(utilName)
+	metricsConf.EnableRuntimeMetrics = false
+
 	val, ok := os.LookupEnv("stackdriverMetrics")
 	if ok && val == "true" {
 		client, err := monitoring.NewMetricClient(context.Background())
@@ -75,7 +78,7 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 		metricsSink := stackdriver.NewSink(client, &stackdriver.Config{
 			ProjectID: *ctconfig.GoogleProjectId,
 		})
-		_, err = metrics.NewGlobal(metrics.DefaultConfig(utilName), metricsSink)
+		_, err = metrics.NewGlobal(metricsConf, metricsSink)
 		if err != nil {
 			glog.Fatal(err)
 		}
@@ -97,8 +100,6 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsSink := metrics.NewInmemSink(infoDumpPeriod, 5*infoDumpPeriod)
 	telemetry.NewMetricsDumper(metricsSink, infoDumpPeriod)
 
-	metricsConf := metrics.DefaultConfig(utilName)
-	metricsConf.EnableRuntimeMetrics = false
 	_, err = metrics.NewGlobal(metricsConf, metricsSink)
 	if err != nil {
 		glog.Fatal(err)
