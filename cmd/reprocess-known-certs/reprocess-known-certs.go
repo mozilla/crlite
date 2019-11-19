@@ -225,6 +225,12 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 			glog.Errorf("PEM data had extra bytes: issuer=%s expDate=%s, serial=%s %v",
 				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, rest)
 		}
+		if block == nil {
+			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
+			glog.Errorf("ParseCertificate had an empty PEM, len=%d issuer=%s expDate=%s, serial=%s %v",
+				len(pemBytes), tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			continue
+		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
