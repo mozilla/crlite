@@ -80,6 +80,7 @@ type CertDatabase interface {
 type RemoteCache interface {
 	Exists(key string) (bool, error)
 	SetInsert(key string, aEntry string) (bool, error)
+	SetRemove(key string, entry string) (bool, error)
 	SetContains(key string, aEntry string) (bool, error)
 	SetList(key string) ([]string, error)
 	ExpireAt(key string, aExpTime time.Time) error

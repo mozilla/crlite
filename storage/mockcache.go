@@ -57,6 +57,27 @@ func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
 	return true, nil
 }
 
+func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
+	ec.CleanupExpiry()
+	count := len(ec.Data[key])
+
+	idx := sort.Search(count, func(i int) bool {
+		return strings.Compare(entry, ec.Data[key][i]) <= 0
+	})
+
+	var cmp int
+	if idx < count {
+		cmp = strings.Compare(entry, ec.Data[key][idx])
+	}
+
+	if idx < count && cmp == 0 {
+		ec.Data[key] = append(ec.Data[key][:idx], ec.Data[key][idx:]...)
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (ec *MockRemoteCache) SetContains(key string, entry string) (bool, error) {
 	ec.CleanupExpiry()
 	count := len(ec.Data[key])

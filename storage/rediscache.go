@@ -62,6 +62,13 @@ func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 	return added == 1, err
 }
 
+func (rc *RedisCache) SetRemove(key string, entry string) (bool, error) {
+	defer metrics.MeasureSince([]string{"SetRemove"}, time.Now())
+	ir := rc.client.SRem(key, entry)
+	removed, err := ir.Result()
+	return removed > 0, err
+}
+
 func (rc *RedisCache) SetContains(key string, entry string) (bool, error) {
 	defer metrics.MeasureSince([]string{"SetContains"}, time.Now())
 	br := rc.client.SIsMember(key, entry)

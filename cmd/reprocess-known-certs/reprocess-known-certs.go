@@ -35,6 +35,7 @@ var (
 )
 
 const kIssuerExpdateQueueName string = "reprocess-issuerExpDateWorkQueue"
+const kIssuerExpdateInProcessQueueName string = "reprocess-issuerExpDateInProcessWorkQueue"
 
 type issuerDateTuple struct {
 	expDate storage.ExpDate
@@ -109,6 +110,10 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 				if err != nil {
 					glog.Errorf("Couldn't re-queue our current place, [%s]: %s", tupleStr, err)
 				}
+				_, err = extCache.SetRemove(kIssuerExpdateInProcessQueueName, tupleStr)
+				if err != nil {
+					glog.Errorf("During stop, couldn't remove our in-progress work [%s]: %s", tupleStr, err)
+				}
 			}
 			return
 		default:
@@ -120,6 +125,11 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 				return
 			}
 			glog.Fatalf("Error popping off cache queue %s: %s", kIssuerExpdateQueueName, err)
+		}
+
+		_, err = extCache.SetInsert(kIssuerExpdateInProcessQueueName, tupleStr)
+		if err != nil {
+			glog.Errorf("Couldn't note our in-progress work [%s]: %s", tupleStr, err)
 		}
 
 		tuple := decodeIssuerDateTuple(tupleStr)
@@ -138,6 +148,11 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 		ctxCancel()
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
 		issuerDateProgressBar.IncrBy(1, time.Since(startTime))
+
+		_, err = extCache.SetRemove(kIssuerExpdateInProcessQueueName, tupleStr)
+		if err != nil {
+			glog.Errorf("Couldn't complete our in-progress work [%s]: %s", tupleStr, err)
+		}
 	}
 }
 
@@ -301,6 +316,25 @@ func main() {
 	display := mpb.NewWithContext(ctx,
 		mpb.WithRefreshRate(refreshDur),
 	)
+
+	// Collect all entries from the in-process and assume they need to be re-done
+	inProcess, err := extCache.SetList(kIssuerExpdateInProcessQueueName)
+	if err != nil {
+		glog.Fatalf("Couldn't get in progress queue data %s", err)
+	}
+	if len(inProcess) > 0 {
+		glog.Infof("Recovering %d in-progress tuples: %v", len(inProcess), inProcess)
+	}
+	for _, tuple := range inProcess {
+		_, err := extCache.Queue(kIssuerExpdateQueueName, tuple)
+		if err != nil {
+			glog.Fatalf("Couldn't enqueue in progress tuple [%s]: %s", tuple, err)
+		}
+		_, err = extCache.SetRemove(kIssuerExpdateInProcessQueueName, tuple)
+		if err != nil {
+			glog.Fatalf("Couldn't remove tuple from in-progress queue [%s]: %s", tuple, err)
+		}
+	}
 
 	var count int64
 	count, err = extCache.QueueLength(kIssuerExpdateQueueName)
