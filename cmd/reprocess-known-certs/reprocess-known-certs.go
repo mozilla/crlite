@@ -215,9 +215,10 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 			subCancel()
 
 			if ctx.Err() != nil {
-				glog.Fatalf("LoadCertificatePEM fatal top-level context "+
+				glog.Error("LoadCertificatePEM fatal top-level context "+
 					"failure, issuer=%s expDate=%s, serial=%s. (ctx.Err=%v)", tuple.Issuer.ID(),
 					tuple.ExpDate, tuple.SerialNum, ctx.Err())
+				return
 			} else if err != nil && (status.Code(err) == codes.Unavailable ||
 				status.Code(err) == codes.DeadlineExceeded ||
 				strings.Contains(err.Error(), "context deadline exceeded")) {
@@ -234,6 +235,13 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 		}
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "Load"}, pemTime)
 
+		if err != nil {
+			glog.Errorf("LoadCertificatePEM unexpected error, issuer=%s expDate=%s, serial=%s time=%s"+
+				" skipping: %v", tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum,
+				time.Since(pemTime), err)
+			continue
+		}
+
 		decodeTime := time.Now()
 		block, rest := pem.Decode(pemBytes)
 		if len(rest) > 0 {
@@ -249,8 +257,9 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			metrics.IncrCounter([]string{"ReconstructIssuerMetadata", "certParseError"}, 1)
-			glog.Errorf("ParseCertificate failed, issuer=%s expDate=%s, serial=%s %v",
-				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			glog.Errorf("ParseCertificate, issuer=%s expDate=%s, serial=%s time=%s"+
+				" skipping: %v", tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum,
+				time.Since(pemTime), err)
 			continue
 		}
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "DecodeParse"}, decodeTime)
@@ -258,8 +267,9 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 		redisTime := time.Now()
 		_, err = storageDB.GetIssuerMetadata(tuple.Issuer).Accumulate(cert)
 		if err != nil {
-			glog.Errorf("Accumulate failed issuer=%s expDate=%s, serial=%s %v",
-				tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum, err)
+			glog.Errorf("Accumulate failed, issuer=%s expDate=%s, serial=%s time=%s"+
+				" skipping: %v", tuple.Issuer.ID(), tuple.ExpDate, tuple.SerialNum,
+				time.Since(pemTime), err)
 			continue
 		}
 
@@ -390,19 +400,19 @@ func main() {
 
 	expIssuerProgressBar := display.AddBar(count,
 		mpb.AppendDecorators(
-			decor.Percentage(decor.WC{W: 6, C: decor.DidentRight}),
 			decor.Name("ExpDate/Issuers"),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
+			decor.Percentage(decor.WC{W: 10}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 		),
 	)
 
 	serialProgressBar := display.AddBar(math.MaxInt64,
 		mpb.AppendDecorators(
-			decor.Name("Unknown Certs Processed"),
-			decor.CountersNoUnit("%d%.T", decor.WC{W: 8}), // %.T ignores the total
-			decor.AverageSpeed(0, "%.1f/s", decor.WC{W: 8}),
-			decor.Elapsed(decor.ET_STYLE_GO, decor.WCSyncSpace),
+			decor.Name("Unknown PEMs"),
+			decor.CountersNoUnit("%d%.T", decor.WC{W: 10}), // %.T ignores the total
+			decor.AverageSpeed(0, "%.1f/s", decor.WCSyncSpace),
+			decor.Elapsed(decor.ET_STYLE_GO, decor.WC{W: 14}),
 		),
 	)
 
