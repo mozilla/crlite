@@ -210,12 +210,12 @@ func Test_RedisExpiration(t *testing.T) {
 		t.Errorf("Should have inserted: %v", err)
 	}
 
-	instantly := time.Millisecond
+	instantly := time.Second
 	if err := rc.ExpireIn("expTest", instantly); err != nil {
 		t.Error(err)
 	}
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	if exists, err := rc.Exists("expTest"); exists == true || err != nil {
 		t.Errorf("Should not exist anymore: %v %v", exists, err)
@@ -351,7 +351,7 @@ func Test_RedisTrySet(t *testing.T) {
 		t.Error(err)
 	}
 	if v != "me" {
-		t.Errorf("Should have worked trivially")
+		t.Errorf("Should have worked trivially, got %s", v)
 	}
 
 	v2, err := rc.TrySet(q, "you", time.Minute)
@@ -359,6 +359,56 @@ func Test_RedisTrySet(t *testing.T) {
 		t.Error(err)
 	}
 	if v2 != "me" {
-		t.Errorf("Should not have changed from me")
+		t.Errorf("Should not have changed from me, is now %s", v2)
+	}
+}
+
+func Test_RedisBlockingQueue(t *testing.T) {
+	t.Parallel()
+	rc := getRedisCache(t)
+
+	qi := "Test_RedisBlockingQueue"
+	qd := "Test_RedisBlockingQueueDest"
+	defer rc.client.Del(qi)
+	defer rc.client.Del(qd)
+
+	queueInsert(t, qi, "one", 1, rc)
+
+	v, err := rc.BlockingPopCopy(qi, qd, time.Second)
+	if err != nil {
+		t.Error(err)
+	}
+	if v != "one" {
+		t.Errorf("Unexpected value %s", v)
+	}
+	queueExpect(t, qd, "one", rc)
+
+	queueInsert(t, qi, "two", 1, rc)
+
+	v, err = rc.BlockingPopCopy(qi, qd, time.Second)
+	if err != nil {
+		t.Error(err)
+	}
+	if v != "two" {
+		t.Errorf("Unexpected value %s", v)
+	}
+	err = rc.ListRemove(qd, v)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRedisListRemove(t *testing.T) {
+	t.Parallel()
+	rc := getRedisCache(t)
+
+	q := "TestRedisListRemove"
+	defer rc.client.Del(q)
+
+	queueInsert(t, q, "known", 1, rc)
+
+	err := rc.ListRemove(q, "unknown")
+	if err != nil {
+		t.Error(err)
 	}
 }

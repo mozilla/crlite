@@ -89,8 +89,10 @@ type RemoteCache interface {
 	Queue(key string, identifier string) (int64, error)
 	Pop(key string) (string, error)
 	QueueLength(key string) (int64, error)
-	Keys(pattern string) ([]string, error)
+	BlockingPopCopy(key string, dest string, timeout time.Duration) (string, error)
+	ListRemove(key string, value string) error
 	TrySet(k string, v string, life time.Duration) (string, error)
+	Keys(pattern string) ([]string, error)
 }
 
 type Issuer struct {

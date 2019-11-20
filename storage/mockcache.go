@@ -120,15 +120,15 @@ func (ec *MockRemoteCache) ExpireIn(key string, dur time.Duration) error {
 }
 
 func (ec *MockRemoteCache) Queue(key string, identifier string) (int64, error) {
-	return int64(0), fmt.Errorf("unimplemented")
+	return int64(0), fmt.Errorf("Queue unimplemented")
 }
 
 func (ec *MockRemoteCache) Pop(key string) (string, error) {
-	return "", fmt.Errorf("unimplemented")
+	return "", fmt.Errorf("Pop unimplemented")
 }
 
 func (ec *MockRemoteCache) QueueLength(key string) (int64, error) {
-	return int64(0), fmt.Errorf("unimplemented")
+	return int64(0), fmt.Errorf("QueueLength unimplemented")
 }
 
 func (ec *MockRemoteCache) Keys(pattern string) ([]string, error) {
@@ -154,4 +154,22 @@ func (ec *MockRemoteCache) TrySet(key string, v string, life time.Duration) (str
 	ec.Data[key] = []string{v}
 	err := ec.ExpireAt(key, time.Now().Add(life))
 	return v, err
+}
+
+func (ec *MockRemoteCache) BlockingPopCopy(key string, dest string,
+	timeout time.Duration) (string, error) {
+	v, err := ec.Pop(key)
+	if err != nil {
+		return "", err
+	}
+	_, err = ec.Queue(dest, v)
+	if err != nil {
+		return "", err
+	}
+	return v, err
+}
+
+func (ec *MockRemoteCache) ListRemove(key string, value string) error {
+	_, err := ec.SetRemove(key, value)
+	return err
 }

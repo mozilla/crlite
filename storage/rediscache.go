@@ -104,6 +104,17 @@ func (rc *RedisCache) Queue(key string, identifier string) (int64, error) {
 	return ir.Result()
 }
 
+func (rc *RedisCache) BlockingPopCopy(key string, dest string,
+	timeout time.Duration) (string, error) {
+	sr := rc.client.BRPopLPush(key, dest, timeout)
+	return sr.Result()
+}
+
+func (rc *RedisCache) ListRemove(key string, value string) error {
+	ir := rc.client.LRem(key, 1, value)
+	return ir.Err()
+}
+
 func (rc *RedisCache) Pop(key string) (string, error) {
 	sr := rc.client.LPop(key)
 	return sr.Result()
