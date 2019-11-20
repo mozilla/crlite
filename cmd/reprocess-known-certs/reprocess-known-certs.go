@@ -37,6 +37,7 @@ var (
 
 const kIssuerExpdateQueueName string = "reprocess-issuerExpDateWorkQueue"
 const kIssuerExpdateInProcessQueueName string = "reprocess-issuerExpDateInProcessWorkQueue"
+const kSerialInProcessQueueName string = "reprocess-serialInProcessWorkQueue"
 
 type issuerDateTuple struct {
 	expDate storage.ExpDate
@@ -189,7 +190,8 @@ func deduplicationWorker(wg *sync.WaitGroup, certSerialChan <-chan storage.Uniqu
 // which aren't already known.
 func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 	certSerialChan <-chan storage.UniqueCertIdentifier, serialProgressBar *mpb.Bar,
-	storageDB storage.CertDatabase, backendDB storage.StorageBackend) {
+	storageDB storage.CertDatabase, backendDB storage.StorageBackend,
+	extCache storage.RemoteCache) {
 	defer wg.Done()
 
 	b := &backoff.Backoff{
@@ -203,6 +205,12 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 		var err error
 
 		pemTime := time.Now()
+
+		_, err = extCache.SetInsert(kSerialInProcessQueueName, tuple.String())
+		if err != nil {
+			glog.Errorf("Couldn't note our in-progress work [%s]: %s", tuple, err)
+		}
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -276,6 +284,11 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata", "CacheInsertion"}, redisTime)
 
+		_, err = extCache.SetRemove(kSerialInProcessQueueName, tuple.String())
+		if err != nil {
+			glog.Errorf("Couldn't complete our in-progress work [%s]: %s", tuple, err)
+		}
+
 		serialProgressBar.IncrBy(1)
 	}
 }
@@ -334,7 +347,7 @@ func main() {
 		glog.Fatalf("Couldn't get in progress queue data %s", err)
 	}
 	if len(inProcess) > 0 {
-		glog.Infof("Recovering %d in-progress tuples: %v", len(inProcess), inProcess)
+		glog.Infof("Recovering %d in-progress issuer tuples: %v", len(inProcess), inProcess)
 	}
 	for _, tuple := range inProcess {
 		_, err := extCache.Queue(kIssuerExpdateQueueName, tuple)
@@ -445,6 +458,27 @@ func main() {
 	certSerialChan := make(chan storage.UniqueCertIdentifier)
 	deduplicatedSerialChan := make(chan storage.UniqueCertIdentifier)
 
+	// Load any outstanding entries into certSerialChan
+	serialsInProcess, err := extCache.SetList(kSerialInProcessQueueName)
+	if err != nil {
+		glog.Fatalf("Couldn't get in progress queue data %s", err)
+	}
+	if len(serialsInProcess) > 0 {
+		glog.Infof("Recovering %d in-progress serial tuples: %v", len(serialsInProcess), serialsInProcess)
+	}
+	for _, tuple := range serialsInProcess {
+		uci, err := storage.ParseUniqueCertIdentifier(tuple)
+		if err != nil {
+			glog.Errorf("Could not parse in-progress serial tuple %s: %s", tuple, err)
+			continue
+		}
+		certSerialChan <- uci
+		_, err = extCache.SetRemove(kSerialInProcessQueueName, tuple)
+		if err != nil {
+			glog.Fatalf("Couldn't remove tuple from in-progress queue [%s]: %s", tuple, err)
+		}
+	}
+
 	var issuerDateWorkerWg sync.WaitGroup
 	// Start the issuer/date workers, they populate certSerialChan
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -469,7 +503,7 @@ func main() {
 	for t := 0; t < *ctconfig.NumProcessingThreads; t++ {
 		topWg.Add(1)
 		go certProcessingWorker(ctx, &topWg, deduplicatedSerialChan,
-			serialProgressBar, storageDB, backend)
+			serialProgressBar, storageDB, backend, extCache)
 	}
 
 	doneChan := make(chan storage.UniqueCertIdentifier)
