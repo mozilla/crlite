@@ -54,7 +54,7 @@ func NewFirestoreBackend(ctx context.Context, projectId string) (*FirestoreBacke
 
 	return &FirestoreBackend{
 		client:   client,
-		PageSize: 8 * 1024,
+		PageSize: 4 * 1024,
 	}, nil
 }
 
@@ -387,7 +387,6 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		Min:    125 * time.Millisecond,
 		Max:    30 * time.Second,
 	}
-	var isStuck bool
 
 	totalTime := time.Now()
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
@@ -430,12 +429,9 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 				strings.Contains(err.Error(), "context deadline exceeded")) {
 				d := b.Duration()
 				if d == b.Max {
-					if isStuck {
-						glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
-							"stuck, received %d/%d records. Retrying in %s: %s", count, db.PageSize, d,
-							overlayErr)
-					}
-					isStuck = true
+					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+						"received %d/%d records. Retrying in %s: %s", count, db.PageSize, d,
+						overlayErr)
 				}
 				time.Sleep(d)
 				continue
@@ -453,9 +449,8 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		}
 
 		b.Reset()
-		isStuck = false
 
-		if count == 0 {
+		if count == 0 && err == nil {
 			return nil
 		}
 	}
