@@ -94,6 +94,11 @@ func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
 	return br.Err()
 }
 
+func (rc *RedisCache) ExpireIn(key string, aDuration time.Duration) error {
+	br := rc.client.Expire(key, aDuration)
+	return br.Err()
+}
+
 func (rc *RedisCache) Queue(key string, identifier string) (int64, error) {
 	ir := rc.client.RPush(key, identifier)
 	return ir.Result()
@@ -109,7 +114,17 @@ func (rc *RedisCache) QueueLength(key string) (int64, error) {
 	return ir.Result()
 }
 
+// TODO remove in favor of SCAN (https://github.com/jcjones/ct-mapreduce/issues/28)
 func (rc *RedisCache) Keys(pattern string) ([]string, error) {
 	sr := rc.client.Keys(pattern)
+	return sr.Result()
+}
+
+func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, error) {
+	br := rc.client.SetNX(k, v, life)
+	if br.Err() != nil {
+		return "", br.Err()
+	}
+	sr := rc.client.Get(k)
 	return sr.Result()
 }

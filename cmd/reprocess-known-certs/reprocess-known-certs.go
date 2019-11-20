@@ -19,6 +19,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/config"
+	"github.com/jcjones/ct-mapreduce/coordinator"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jpillora/backoff"
@@ -346,6 +347,20 @@ func main() {
 		}
 	}
 
+	coord := coordinator.NewCoordinator(extCache, "reprocess-known-certs")
+
+	isLeader, err := coord.AwaitLeader()
+	if err != nil {
+		glog.Fatalf("Couldn't await leader: %s", err)
+	}
+
+	if !isLeader {
+		err := coord.AwaitStart()
+		if err != nil {
+			glog.Fatalf("Couldn't await start: %s", err)
+		}
+	}
+
 	var count int64
 	count, err = extCache.QueueLength(kIssuerExpdateQueueName)
 	if err != nil {
@@ -395,6 +410,13 @@ func main() {
 					}
 				}
 			}
+		}
+	}
+
+	if isLeader {
+		err := coord.SendStart()
+		if err != nil {
+			glog.Fatalf("Couldn't send start: %s", err)
 		}
 	}
 

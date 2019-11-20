@@ -114,21 +114,26 @@ func (ec *MockRemoteCache) ExpireAt(key string, expTime time.Time) error {
 	return nil
 }
 
-func (rc *MockRemoteCache) Queue(key string, identifier string) (int64, error) {
+func (ec *MockRemoteCache) ExpireIn(key string, dur time.Duration) error {
+	ec.Expirations[key] = time.Now().Add(dur)
+	return nil
+}
+
+func (ec *MockRemoteCache) Queue(key string, identifier string) (int64, error) {
 	return int64(0), fmt.Errorf("unimplemented")
 }
 
-func (rc *MockRemoteCache) Pop(key string) (string, error) {
+func (ec *MockRemoteCache) Pop(key string) (string, error) {
 	return "", fmt.Errorf("unimplemented")
 }
 
-func (rc *MockRemoteCache) QueueLength(key string) (int64, error) {
+func (ec *MockRemoteCache) QueueLength(key string) (int64, error) {
 	return int64(0), fmt.Errorf("unimplemented")
 }
 
-func (rc *MockRemoteCache) Keys(pattern string) ([]string, error) {
+func (ec *MockRemoteCache) Keys(pattern string) ([]string, error) {
 	var matches []string
-	for key := range rc.Data {
+	for key := range ec.Data {
 		matched, err := filepath.Match(pattern, key)
 		if err != nil {
 			return nil, err
@@ -139,4 +144,14 @@ func (rc *MockRemoteCache) Keys(pattern string) ([]string, error) {
 	}
 
 	return matches, nil
+}
+
+func (ec *MockRemoteCache) TrySet(key string, v string, life time.Duration) (string, error) {
+	val, ok := ec.Data[key]
+	if ok {
+		return val[0], nil
+	}
+	ec.Data[key] = []string{v}
+	err := ec.ExpireAt(key, time.Now().Add(life))
+	return v, err
 }

@@ -27,6 +27,7 @@ func getRedisCache(tb testing.TB) *RedisCache {
 }
 
 func Test_RedisPoicy(t *testing.T) {
+	t.Parallel()
 	rc := getRedisCache(t)
 	if err := rc.MemoryPolicyCorrect(); err != nil {
 		t.Error(err)
@@ -34,6 +35,7 @@ func Test_RedisPoicy(t *testing.T) {
 }
 
 func Test_RedisInvalidHost(t *testing.T) {
+	t.Parallel()
 	_, err := NewRedisCache("unknown_host:999999", time.Second)
 	if err == nil {
 		t.Error("Should have failed to construct invalid redis cache host")
@@ -41,6 +43,7 @@ func Test_RedisInvalidHost(t *testing.T) {
 }
 
 func Test_RedisInsertion(t *testing.T) {
+	t.Parallel()
 	rc := getRedisCache(t)
 	defer rc.client.Del("key")
 
@@ -110,6 +113,7 @@ func Test_RedisInsertion(t *testing.T) {
 }
 
 func Test_RedisSortedCache(t *testing.T) {
+	t.Parallel()
 	rc := getRedisCache(t)
 	defer rc.client.Del("sortedCache")
 
@@ -179,6 +183,7 @@ func BenchmarkSortedCacheInsertion(b *testing.B) {
 }
 
 func Test_RedisExpiration(t *testing.T) {
+	t.Parallel()
 	rc := getRedisCache(t)
 	defer rc.client.Del("expTest")
 
@@ -195,6 +200,22 @@ func Test_RedisExpiration(t *testing.T) {
 	if err := rc.ExpireAt("expTest", anHourAgo); err != nil {
 		t.Error(err)
 	}
+
+	if exists, err := rc.Exists("expTest"); exists == true || err != nil {
+		t.Errorf("Should not exist anymore: %v %v", exists, err)
+	}
+
+	success, err = rc.SetInsert("expTest", "b")
+	if !success || err != nil {
+		t.Errorf("Should have inserted: %v", err)
+	}
+
+	instantly := time.Millisecond
+	if err := rc.ExpireIn("expTest", instantly); err != nil {
+		t.Error(err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
 
 	if exists, err := rc.Exists("expTest"); exists == true || err != nil {
 		t.Errorf("Should not exist anymore: %v %v", exists, err)
@@ -222,6 +243,7 @@ func queueExpect(t *testing.T, q string, v string, rc *RedisCache) {
 }
 
 func Test_RedisQueue(t *testing.T) {
+	t.Parallel()
 	q := "queueTest"
 	rc := getRedisCache(t)
 	defer rc.client.Del(q)
@@ -262,6 +284,7 @@ func Test_RedisQueue(t *testing.T) {
 }
 
 func Test_RedisKeyList(t *testing.T) {
+	t.Parallel()
 	queues := []string{
 		"2019-01-01-01::issuer",
 		"2019-01-01-02::issuer",
@@ -313,5 +336,29 @@ func Test_RedisKeyList(t *testing.T) {
 	}
 	if len(l) != 0 {
 		t.Errorf("Expected no matches for unknownissuer, got %+v", l)
+	}
+}
+
+func Test_RedisTrySet(t *testing.T) {
+	t.Parallel()
+	rc := getRedisCache(t)
+
+	q := "Test_RedisTrySet"
+	defer rc.client.Del(q)
+
+	v, err := rc.TrySet(q, "me", time.Minute)
+	if err != nil {
+		t.Error(err)
+	}
+	if v != "me" {
+		t.Errorf("Should have worked trivially")
+	}
+
+	v2, err := rc.TrySet(q, "you", time.Minute)
+	if err != nil {
+		t.Error(err)
+	}
+	if v2 != "me" {
+		t.Errorf("Should not have changed from me")
 	}
 }
