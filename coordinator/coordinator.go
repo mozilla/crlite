@@ -75,7 +75,7 @@ func (c *Coordinator) AwaitLeader() (bool, error) {
 					glog.Warningf("Failed to update our leadership expiration: %s", err)
 				}
 				time.Sleep(c.RenewalPeriod)
-				glog.Infof("Re-announcing our leadership.")
+				glog.V(1).Infof("Re-announcing our leadership.")
 			}
 		}()
 	}
@@ -129,7 +129,7 @@ func (c Coordinator) SendStart() error {
 				glog.Warningf("Failed to update our start expiration: %s", err)
 			}
 			time.Sleep(c.RenewalPeriod)
-			glog.Infof("Re-announcing our start.")
+			glog.V(1).Infof("Re-announcing our start.")
 		}
 	}()
 
