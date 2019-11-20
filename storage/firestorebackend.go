@@ -387,6 +387,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		Min:    125 * time.Millisecond,
 		Max:    30 * time.Second,
 	}
+	var isStuck bool
 
 	totalTime := time.Now()
 	defer metrics.MeasureSince([]string{"StreamSerialsForExpirationDateAndIssuer"}, totalTime)
@@ -425,12 +426,16 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 					overlayErr)
 			} else if err != nil && (status.Code(err) == codes.Unavailable ||
 				status.Code(err) == codes.DeadlineExceeded ||
+				status.Code(err) == codes.Internal ||
 				strings.Contains(err.Error(), "context deadline exceeded")) {
 				d := b.Duration()
 				if d == b.Max {
-					glog.V(1).Infof("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
-						"received %d/%d records. Retrying in %s: %s", count, db.PageSize, d,
-						overlayErr)
+					if isStuck {
+						glog.Warningf("StreamSerialsForExpirationDateAndIssuer iter.Next Firestore unavailable, "+
+							"stuck, received %d/%d records. Retrying in %s: %s", count, db.PageSize, d,
+							overlayErr)
+					}
+					isStuck = true
 				}
 				time.Sleep(d)
 				continue
@@ -448,6 +453,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 		}
 
 		b.Reset()
+		isStuck = false
 
 		if count == 0 {
 			return nil
