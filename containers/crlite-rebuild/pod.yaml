@@ -7,6 +7,7 @@ metadata:
   name: crlite-rebuild
   namespace: default
 spec:
+  parallelism: 2
   template:
     metadata:
       creationTimestamp: null
@@ -22,12 +23,12 @@ spec:
         imagePullPolicy: Always
         resources:
           requests:
-            cpu: 4
-            memory: 1Gi
+            cpu: 1
+            memory: 128Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       dnsPolicy: ClusterFirst
-      restartPolicy: Never
+      restartPolicy: OnFailure
       schedulerName: default-scheduler
       securityContext: {}
       terminationGracePeriodSeconds: 120

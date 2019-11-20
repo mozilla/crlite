@@ -6,9 +6,27 @@ from pathlib import Path
 import argparse
 import os
 import sys
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument("identifier", help="Path to folder to upload", nargs=1)
+
+
+def uploadFiles(files, localFolder, remoteFolder, bucket):
+    log = logging.getLogger('upload_artifacts_to_storage')
+
+    log.info(f"Uploading {len(files)} files from {localFolder} to {remoteFolder}")
+    for item in files:
+        localFilePath = localFolder.joinpath(item)
+        remoteFilePath = remoteFolder.joinpath(item)
+
+        if localFilePath.is_symlink():
+            continue
+
+        log.debug(f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
+                  + f"from {localFilePath}")
+        blob = bucket.blob(str(remoteFilePath))
+        blob.upload_from_filename(str(localFilePath))
 
 
 def main():
@@ -28,17 +46,14 @@ def main():
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(idPath.parent)
 
-        for item in files:
-            localFilePath = localFolder.joinpath(item)
-            remoteFilePath = remoteFolder.joinpath(item)
+        uploadFiles(files, localFolder, remoteFolder, bucket)
 
-            if localFilePath.is_symlink():
-                continue
-
-            print(f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
-                  + f"from {localFilePath}")
-            blob = bucket.blob(str(remoteFilePath))
-            blob.upload_from_filename(str(localFilePath))
+    for path, dirs, files in os.walk(idPath / "mlbf"):
+        localFolder = Path(path)
+        remoteFolder = Path("latest")
+        uploadFiles(files, localFolder, remoteFolder, bucket)
 
 
-main()
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    main()

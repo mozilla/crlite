@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import base64
 import glog as log
@@ -23,6 +24,7 @@ class BearerTokenAuth(requests.auth.AuthBase):
     def __call__(self, r):
         r.headers['Authorization'] = 'Bearer ' + self.token
         return r
+
 
 def ensureNonBlank(settingNames):
     for setting in settingNames:
@@ -187,7 +189,8 @@ class Intermediate:
     pubKeyHash: bytes
 
     def __init__(self, debug=False, **kwargs):
-        self.pubKeyHash = base64.b64decode(kwargs['pubKeyHash'], altchars="-_", validate=True)  # sha256 of the SPKI
+        self.pubKeyHash = base64.b64decode(kwargs['pubKeyHash'], altchars="-_",
+                                           validate=True)  # sha256 of the SPKI
         self.subject = kwargs['subject']
         self.whitelist = kwargs['whitelist']
 
@@ -241,10 +244,13 @@ class Intermediate:
             self.derHash = hashlib.sha256(self._get_binary_der()).digest()
 
     def __str__(self):
-        return f"{{Int: {self.subject} [h={base64.b85encode(self.pubKeyHash).decode('utf-8')} e={self.crlite_enrolled}]}}"
+        return (f"{{Int: {self.subject} "
+                + f"[h={base64.b85encode(self.pubKeyHash).decode('utf-8')}"
+                + f" e={self.crlite_enrolled}]}}")
 
     def unique_id(self):
-        return f"{base64.b85encode(self.pubKeyHash).decode('utf-8')}-{self.subject}-{self.certHash}"
+        return (f"{base64.b85encode(self.pubKeyHash).decode('utf-8')}"
+                + f"-{self.subject}-{self.certHash}")
 
     def _get_attributes(self, *, complete=False, new=False):
         attributes = {
