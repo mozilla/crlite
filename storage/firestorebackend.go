@@ -172,12 +172,12 @@ func (db *FirestoreBackend) LoadCertificatePEM(ctx context.Context, serial Seria
 
 	docsnap, err := doc.Get(ctx)
 	if err != nil {
-		return []byte{}, fmt.Errorf("Couldn't get document snapshot for %s: %v", id, err)
+		return []byte{}, err
 	}
 
 	data, err := docsnap.DataAt(kFieldData)
 	if err != nil {
-		return []byte{}, fmt.Errorf("Couldn't get data field for %s: %v", id, err)
+		return []byte{}, err
 	}
 	return data.([]byte), nil
 }
