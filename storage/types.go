@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
@@ -265,6 +266,35 @@ type UniqueCertIdentifier struct {
 	ExpDate   ExpDate
 	Issuer    Issuer
 	SerialNum Serial
+}
+
+func ParseUniqueCertIdentifier(s string) (UniqueCertIdentifier, error) {
+	parts := strings.Split(s, "::")
+	if len(parts) != 3 {
+		return UniqueCertIdentifier{}, fmt.Errorf("Expected 3 parts, got %d", len(parts))
+	}
+
+	e, err := NewExpDate(parts[0])
+	if err != nil {
+		return UniqueCertIdentifier{}, err
+	}
+
+	i := NewIssuerFromString(parts[1])
+
+	n, err := NewSerialFromIDString(parts[2])
+	if err != nil {
+		return UniqueCertIdentifier{}, err
+	}
+
+	return UniqueCertIdentifier{
+		ExpDate:   e,
+		Issuer:    i,
+		SerialNum: n,
+	}, nil
+}
+
+func (uci UniqueCertIdentifier) String() string {
+	return fmt.Sprintf("%s::%s::%s", uci.ExpDate.ID(), uci.Issuer.ID(), uci.SerialNum.ID())
 }
 
 type ExpDate struct {

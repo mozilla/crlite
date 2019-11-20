@@ -249,3 +249,20 @@ func TestExpDateFromTime(t *testing.T) {
 		t.Errorf("Should not be expired a moment earlier")
 	}
 }
+
+func TestParseUniqueCertIdentifier(t *testing.T) {
+	_, err := ParseUniqueCertIdentifier("a::b")
+	if err == nil {
+		t.Error("Should have been an error")
+	}
+
+	expected := "2019-04-28-22::an issuer::AESq_w=="
+	n, err := ParseUniqueCertIdentifier(expected)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if n.String() != expected {
+		t.Errorf("Expected %s got %s", expected, n.String())
+	}
+}
