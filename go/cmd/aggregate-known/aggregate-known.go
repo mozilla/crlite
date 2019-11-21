@@ -58,6 +58,11 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			case <-quitChan:
 				return
 			default:
+				if expDate.IsExpiredAt(time.Now()) {
+					glog.Warningf("Date %s is expired now, skipping (issuer=%s)", expDate, tuple.issuer.ID())
+					continue
+				}
+
 				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.remoteCache)
 
 				knownSet := known.Known()
@@ -125,63 +130,47 @@ func main() {
 
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
 
-	var wg sync.WaitGroup
-	workChan := make(chan knownWorkUnit, 16*1024*1024)
-
-	// Handle signals from the OS
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
-	defer signal.Stop(sigChan)
-
-	// Exit signal, used by signals from the OS
-	quitChan := make(chan struct{})
-
-	glog.Infof("Listing expiration dates...")
-	expDates, err := storageDB.ListExpirationDates(time.Now())
+	glog.Infof("Listing issuers and their expiration dates...")
+	issuerList, err := storageDB.GetIssuerAndDatesFromCache()
 	if err != nil {
-		glog.Fatalf("Could not list expiration dates: %s", err)
+		glog.Fatal(err)
 	}
-	glog.Infof("Processing %d expiration dates...", len(expDates))
-
-	issuerToWorkUnit := make(map[string]knownWorkUnit)
 
 	var count int64
-	for _, expDate := range expDates {
-		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
-		if err != nil {
-			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
-		}
-
-		glog.V(1).Infof("Issuers for %s (%d)", expDate, len(issuers))
-
-		for _, issuer := range issuers {
-			if !mozIssuers.IsIssuerEnrolled(issuer) {
-				continue
-			}
-
-			glog.V(1).Infof("(%d) Collating %s/%s", count, expDate.ID(), issuer.ID())
-			count = count + 1
-
-			wu, ok := issuerToWorkUnit[issuer.ID()]
-			if !ok {
-				issuerSubj, err := mozIssuers.GetSubjectForIssuer(issuer)
+	for _, iObj := range issuerList {
+		if mozIssuers.IsIssuerEnrolled(iObj.Issuer) {
+			count = count + int64(len(iObj.ExpDates))
+		} else {
+			if mozIssuers.IsIssuerInProgram(iObj.Issuer) {
+				subj, err := mozIssuers.GetSubjectForIssuer(iObj.Issuer)
 				if err != nil {
-					glog.Warningf("Couldn't get subject for issuer=%s that is in the root program: %s",
-						issuer.ID(), err)
-					issuerSubj = "<unknown>"
+					glog.Error(err)
 				}
-				wu = knownWorkUnit{
-					issuer:   issuer,
-					issuerDN: issuerSubj,
-				}
+				glog.Infof("Skipping in-program issuer ID=%s that is not enrolled: %s",
+					iObj.Issuer.ID(), subj)
 			}
-			wu.expDates = append(wu.expDates, expDate)
-			issuerToWorkUnit[issuer.ID()] = wu
 		}
 	}
 
-	glog.V(1).Infof("Filling work channel...")
-	for _, wu := range issuerToWorkUnit {
+	workChan := make(chan knownWorkUnit, count)
+	for _, iObj := range issuerList {
+		if !mozIssuers.IsIssuerEnrolled(iObj.Issuer) {
+			continue
+		}
+
+		issuerSubj, err := mozIssuers.GetSubjectForIssuer(iObj.Issuer)
+		if err != nil {
+			glog.Warningf("Couldn't get subject for issuer=%s that is in the root program: %s",
+				iObj.Issuer.ID(), err)
+			issuerSubj = "<unknown>"
+		}
+
+		wu := knownWorkUnit{
+			issuer:   iObj.Issuer,
+			issuerDN: issuerSubj,
+			expDates: iObj.ExpDates,
+		}
+
 		select {
 		case workChan <- wu:
 		default:
@@ -201,13 +190,23 @@ func main() {
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 128, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
 	)
 
 	glog.Infof("Starting worker processes to handle %d work units", count)
+
+	// Handle signals from the OS
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
+	defer signal.Stop(sigChan)
+
+	// Exit signal, used by signals from the OS
+	quitChan := make(chan struct{})
+
+	var wg sync.WaitGroup
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -235,5 +234,4 @@ func main() {
 	case <-doneChan:
 		glog.Infof("Completed.")
 	}
-
 }
