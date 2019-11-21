@@ -68,21 +68,21 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 	return filename
 }
 
-func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan types.MetadataTuple, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
+func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, issuerChan <-chan storage.Issuer, quitChan <-chan struct{}, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	lastTime := time.Now()
 
 	issuerCrls := make(types.IssuerCrlMap)
 
-	for tuple := range metaChan {
+	for issuer := range issuerChan {
 		select {
 		case <-quitChan:
 			return
 		default:
-			meta := ae.loadStorageDB.GetIssuerMetadata(tuple.Issuer)
+			meta := ae.loadStorageDB.GetIssuerMetadata(issuer)
 
-			crls, prs := issuerCrls[tuple.Issuer.ID()]
+			crls, prs := issuerCrls[issuer.ID()]
 			if !prs {
 				crls = make(map[string]bool)
 			}
@@ -90,14 +90,14 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 			crlSet := meta.CRLs()
 
 			if len(crlSet) == 0 {
-				if ae.issuers.IsIssuerInProgram(tuple.Issuer) {
-					issuerSubj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
+				if ae.issuers.IsIssuerInProgram(issuer) {
+					issuerSubj, err := ae.issuers.GetSubjectForIssuer(issuer)
 					if err != nil {
 						glog.Warningf("No known CRLs and couldn't get subject for issuer=%s that is in the root program: %s",
-							tuple.Issuer.ID(), err)
+							issuer.ID(), err)
 					} else {
 						glog.Infof("No known CRLs for issuer=%s (%s) in the root program. Not enrolling into CRLite.",
-							tuple.Issuer.ID(), issuerSubj)
+							issuer.ID(), issuerSubj)
 					}
 				}
 			}
@@ -105,7 +105,7 @@ func (ae *AggregateEngine) findCrlWorker(wg *sync.WaitGroup, metaChan <-chan typ
 			for _, url := range crlSet {
 				crls[url] = true
 			}
-			issuerCrls[tuple.Issuer.ID()] = crls
+			issuerCrls[issuer.ID()] = crls
 
 			progBar.IncrBy(1, time.Since(lastTime))
 			lastTime = time.Now()
@@ -274,36 +274,30 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, workChan <-cha
 func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.IssuerCrlMap {
 	var wg sync.WaitGroup
 
-	metaChan := make(chan types.MetadataTuple, 16*1024*1024)
-
-	expDates, err := ae.loadStorageDB.ListExpirationDates(time.Now())
+	glog.Infof("Listing issuers and their expiration dates...")
+	issuerList, err := ae.loadStorageDB.GetIssuerAndDatesFromCache()
 	if err != nil {
-		glog.Fatalf("Could not list expiration dates: %s", err)
+		glog.Fatal(err)
 	}
 
+	issuerChan := make(chan storage.Issuer, len(issuerList))
+
 	var count int64
-	for _, expDate := range expDates {
-		issuers, err := ae.loadStorageDB.ListIssuersForExpirationDate(expDate)
-		if err != nil {
-			glog.Fatalf("Could not list issuers (%s) %s", expDate, err)
+	for _, issuerObj := range issuerList {
+		if !ae.issuers.IsIssuerInProgram(issuerObj.Issuer) {
+			continue
 		}
 
-		for _, issuer := range issuers {
-			if !ae.issuers.IsIssuerInProgram(issuer) {
-				continue
-			}
-
-			select {
-			case metaChan <- types.MetadataTuple{ExpDate: expDate, Issuer: issuer}:
-				count = count + 1
-			default:
-				glog.Fatalf("Channel overflow. Aborting at %s %s", expDate, issuer.ID())
-			}
+		select {
+		case issuerChan <- issuerObj.Issuer:
+			count = count + 1
+		default:
+			glog.Fatalf("Channel overflow. Aborting at %s", issuerObj.Issuer.ID())
 		}
 	}
 
 	// Signal that was the last work
-	close(metaChan)
+	close(issuerChan)
 
 	// Exit signal, used by signals from the OS
 	quitChan := make(chan struct{})
@@ -315,7 +309,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 16, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
@@ -326,7 +320,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(sigChan <-chan os.Signal) types.
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go ae.findCrlWorker(&wg, metaChan, quitChan, resultChan, progressBar)
+		go ae.findCrlWorker(&wg, issuerChan, quitChan, resultChan, progressBar)
 	}
 
 	// Set up a notifier for the workers closing
@@ -391,7 +385,7 @@ func (ae *AggregateEngine) downloadCRLs(issuerToUrls types.IssuerCrlMap, sigChan
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 4, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),
@@ -437,7 +431,7 @@ func (ae *AggregateEngine) aggregateCRLs(count int64, crlPaths <-chan types.Issu
 		mpb.AppendDecorators(
 			decor.Percentage(),
 			decor.Name(""),
-			decor.EwmaETA(decor.ET_STYLE_GO, 4, decor.WC{W: 14}),
+			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
 			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
 		),
 		mpb.BarRemoveOnComplete(),

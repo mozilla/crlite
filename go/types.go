@@ -23,11 +23,6 @@ func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
 	}
 }
 
-type MetadataTuple struct {
-	ExpDate storage.ExpDate
-	Issuer  storage.Issuer
-}
-
 type IssuerRevocations struct {
 	Issuer         storage.Issuer
 	RevokedSerials []storage.Serial
