@@ -83,6 +83,7 @@ func (rc *RedisCache) SetList(key string) ([]string, error) {
 
 func (rc *RedisCache) SetToChan(key string, c chan<- string) error {
 	defer close(c)
+	defer metrics.MeasureSince([]string{"SetToChan"}, time.Now())
 	scanres := rc.client.SScan(key, 0, "", 0)
 	err := scanres.Err()
 	if err != nil {
@@ -149,6 +150,7 @@ func (rc *RedisCache) QueueLength(key string) (int64, error) {
 
 func (rc *RedisCache) KeysToChan(pattern string, c chan<- string) error {
 	defer close(c)
+	defer metrics.MeasureSince([]string{"KeysToChan"}, time.Now())
 	scanres := rc.client.Scan(0, pattern, 0)
 	err := scanres.Err()
 	if err != nil {

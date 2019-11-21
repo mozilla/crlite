@@ -58,9 +58,10 @@ func (kc *KnownCertificates) Known() []Serial {
 	keyChan := make(chan string)
 
 	go func() {
-		err := kc.cache.KeysToChan(kc.serialId("*"), keyChan)
-		if err != nil {
-			glog.Fatalf("Error obtaining list of known certificates: %v", err)
+		defer close(keyChan)
+		keyChan <- kc.serialId()
+		for hour := 0; hour < 24; hour++ {
+			keyChan <- kc.serialId(fmt.Sprintf("-%02d", hour))
 		}
 	}()
 
