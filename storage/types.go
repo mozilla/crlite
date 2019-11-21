@@ -76,6 +76,7 @@ type CertDatabase interface {
 	ListIssuersForExpirationDate(expDate ExpDate) ([]Issuer, error)
 	GetKnownCertificates(aExpDate ExpDate, aIssuer Issuer) *KnownCertificates
 	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
+	GetIssuerAndDatesFromCache() ([]IssuerDate, error)
 }
 
 type RemoteCache interface {
@@ -368,4 +369,9 @@ func (sl ExpDateList) Swap(i, j int) {
 	tmp := sl[i]
 	sl[i] = sl[j]
 	sl[j] = tmp
+}
+
+type IssuerDate struct {
+	Issuer   Issuer
+	ExpDates []ExpDate
 }

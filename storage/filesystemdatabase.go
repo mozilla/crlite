@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,49 @@ func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata 
 
 	db.metaMutex.Unlock()
 	return im
+}
+
+func (db *FilesystemDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
+	issuerMap := make(map[string]IssuerDate)
+	allChan := make(chan string)
+	go func() {
+		err := db.extCache.KeysToChan("serials::*", allChan)
+		if err != nil {
+			glog.Fatalf("Couldn't list from cache")
+		}
+	}()
+
+	for entry := range allChan {
+		parts := strings.Split(entry, "::")
+		if len(parts) != 3 {
+			return []IssuerDate{}, fmt.Errorf("Unexpected key format: %s", entry)
+		}
+
+		issuer := NewIssuerFromString(parts[2])
+		expDate, err := NewExpDate(parts[1])
+		if err != nil {
+			glog.Warningf("Couldn't parse expiration date %s: %s", entry, err)
+			continue
+		}
+
+		_, ok := issuerMap[issuer.ID()]
+		if !ok {
+			issuerMap[issuer.ID()] = IssuerDate{
+				Issuer:   issuer,
+				ExpDates: make([]ExpDate, 0),
+			}
+		}
+
+		tmp := issuerMap[issuer.ID()]
+		tmp.ExpDates = append(tmp.ExpDates, expDate)
+		issuerMap[issuer.ID()] = tmp
+	}
+
+	issuerList := make([]IssuerDate, 0, len(issuerMap))
+	for _, v := range issuerMap {
+		issuerList = append(issuerList, v)
+	}
+	return issuerList, nil
 }
 
 func (db *FilesystemDatabase) ListExpirationDates(aNotBefore time.Time) ([]ExpDate, error) {

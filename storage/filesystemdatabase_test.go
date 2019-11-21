@@ -261,3 +261,39 @@ func Test_LogState(t *testing.T) {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
 	}
 }
+
+func Test_GetIssuerAndDatesFromCache(t *testing.T) {
+	_, storageDB := getTestHarness(t)
+
+	l, err := storageDB.GetIssuerAndDatesFromCache()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(l) != 0 {
+		t.Errorf("Should have been empty with an empty DB: %v", l)
+	}
+
+	expDate, err := NewExpDate("2040-02-03-19")
+	if err != nil {
+		t.Error(err)
+	}
+	issuer := NewIssuerFromString("Honesty Issuer")
+	serial := NewSerialFromHex("FEEDBEEF")
+
+	kc := storageDB.GetKnownCertificates(expDate, issuer)
+	_, err = kc.WasUnknown(serial)
+	if err != nil {
+		t.Error(err)
+	}
+
+	l2, err := storageDB.GetIssuerAndDatesFromCache()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(l2) != 1 {
+		t.Errorf("Should have been one entry: %v", l2)
+	}
+	if len(l2[0].ExpDates) != 1 {
+		t.Errorf("Should have been one expDate %v", l2[0].ExpDates)
+	}
+}
