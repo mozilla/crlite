@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/config"
@@ -26,64 +25,43 @@ func main() {
 	engine.PrepareTelemetry("storage-statistics", ctconfig)
 	defer glog.Flush()
 
-	expDateList, err := storageDB.ListExpirationDates(time.Now())
+	issuerList, err := storageDB.GetIssuerAndDatesFromCache()
 	if err != nil {
-		glog.Fatalf("Couldn't list expiration dates: %v", err)
+		glog.Fatal(err)
 	}
 
 	totalSerials := 0
-	knownIssuers := make(map[string]bool)
 	totalCRLs := 0
 
-	for _, expDate := range expDateList {
-		dateTotalSerials := 0
-		dateTotalIssuers := 0
-		dateTotalCRLs := 0
+	for _, issuerObj := range issuerList {
+		issuerMetadata := storageDB.GetIssuerMetadata(issuerObj.Issuer)
 
-		glog.Infof("Processing expiration date %s", expDate)
-		issuers, err := storageDB.ListIssuersForExpirationDate(expDate)
-		if err != nil {
-			glog.Errorf("Couldn't list issuers for %s: %v", expDate, err)
-			continue
-		}
+		crlList := issuerMetadata.CRLs()
+		totalCRLs = totalCRLs + len(crlList)
 
-		for _, issuer := range issuers {
-			knownIssuers[issuer.ID()] = true
+		issuerDNList := issuerMetadata.Issuers()
 
-			knownCerts := storageDB.GetKnownCertificates(expDate, issuer)
-			issuerMetadata := storageDB.GetIssuerMetadata(issuer)
+		countIssuerSerials := 0
 
+		glog.Infof("Issuer: %s (%v)", issuerObj.Issuer.ID(), issuerDNList)
+
+		for _, expDate := range issuerObj.ExpDates {
+			knownCerts := storageDB.GetKnownCertificates(expDate, issuerObj.Issuer)
 			knownList := knownCerts.Known()
-			crlList := issuerMetadata.CRLs()
-			issuerDNList := issuerMetadata.Issuers()
-
 			countSerials := len(knownList)
-			countCRLs := len(crlList)
-			countIssuerDNs := len(issuerDNList)
 
-			dateTotalSerials = dateTotalSerials + countSerials
-			dateTotalIssuers = dateTotalIssuers + 1
-			dateTotalCRLs = dateTotalCRLs + countCRLs
-
-			if countSerials == 0 {
-				continue
-			}
-
+			countIssuerSerials = countIssuerSerials + countSerials
 			totalSerials = totalSerials + countSerials
-			totalCRLs = totalCRLs + countCRLs
 
-			if countIssuerDNs == 0 {
-				glog.Warningf("No DNs for issuer %v on %s", issuer.ID(), expDate)
-			}
-
-			glog.V(1).Infof(" * %s (%v): %d serials known, %d crls known, %d issuerDNs known", issuer.ID(), issuerDNList, countSerials, countCRLs, countIssuerDNs)
-			glog.V(2).Infof("Serials: %v", knownList)
+			glog.V(1).Infof("- %s (%d serials)", expDate.ID(), countSerials)
+			glog.V(2).Infof("  Serials: %v", knownList)
 
 			if glog.V(3) {
 				for _, serial := range knownList {
-					glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(), serial.BinaryString())
+					glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(),
+						serial.BinaryString())
 
-					pemBytes, err := backend.LoadCertificatePEM(context.TODO(), serial, expDate, issuer)
+					pemBytes, err := backend.LoadCertificatePEM(context.TODO(), serial, expDate, issuerObj.Issuer)
 					if err != nil {
 						glog.Error(err)
 					}
@@ -95,11 +73,11 @@ func main() {
 				}
 			}
 		}
-
-		glog.Infof("%s totals: %d issuers, %d serials, %d crls", expDate, dateTotalIssuers, dateTotalSerials, dateTotalCRLs)
+		glog.Infof(" --> %d hours, %d serials known, %d crls known, %d issuerDNs known", len(issuerObj.ExpDates),
+			countIssuerSerials, len(crlList), len(issuerDNList))
 	}
 
-	glog.Infof("overall totals: %d issuers, %d serials, %d crls", len(knownIssuers), totalSerials, totalCRLs)
+	glog.Infof("overall totals: %d issuers, %d serials, %d crls", len(issuerList), totalSerials, totalCRLs)
 	glog.Infof("")
 	glog.Infof("Log status:")
 
