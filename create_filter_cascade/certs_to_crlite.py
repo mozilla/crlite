@@ -345,15 +345,13 @@ def main():
 
     # Setup for diff if previous filter specified
     if args.previd is not None:
-        diffMetaPath = os.path.join(args.certPath, args.previd, args.outDirName,
-                                    "filter.meta")
-        diffBasePath = os.path.join(args.certPath, args.previd, args.outDirName,
-                                    "filter")
+        diffMetaPath = os.path.join(args.certPath, args.previd, "filter.meta")
+        diffBasePath = os.path.join(args.certPath, args.previd, "filter")
         if os.path.isfile(diffMetaPath) and os.path.isfile(diffBasePath):
             args.diffMetaFile = diffMetaPath
             args.diffBaseFile = diffBasePath
             args.patchFile = os.path.join(args.certPath, args.id, args.outDirName,
-                                          "filter.%s.patch" % args.previd)
+                                          "filter.patch")
         else:
             log.warning("Previous ID specified but no filter files found.")
     # Generate new filter
