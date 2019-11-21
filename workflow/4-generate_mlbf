@@ -2,8 +2,10 @@
 
 from pathlib import Path
 from google.cloud import storage
+from google.api_core import exceptions
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
@@ -15,6 +17,7 @@ parser.add_argument("--nodiff", help="Avoid building a diff")
 
 
 def main():
+    log = logging.getLogger('generate_mlbf')
     args = parser.parse_args()
 
     if not args.identifier or len(args.identifier) != 1:
@@ -29,24 +32,28 @@ def main():
 
     cmdline = cmdline + args.identifier
 
-    if not args.nodiff:
-        storage_client = storage.Client()
-        bucket_name = 'crlite_filters'
-        bucket = storage_client.get_bucket(bucket_name)
+    if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+        try:
+            storage_client = storage.Client()
+            bucket_name = 'crlite_filters'
+            bucket = storage_client.get_bucket(bucket_name)
 
-        tmpDir = tempfile.mkdtemp()
+            tmpDir = tempfile.mkdtemp()
 
-        blob = bucket.blob("latest/filter")
-        blob.download_to_filename(tmpDir / Path("filter"))
+            blob = bucket.blob("latest/filter")
+            blob.download_to_filename(tmpDir / Path("filter"))
 
-        blob = bucket.blob("latest/filter.meta")
-        blob.download_to_filename(tmpDir / Path("filter.meta"))
+            blob = bucket.blob("latest/filter.meta")
+            blob.download_to_filename(tmpDir / Path("filter.meta"))
 
-        cmdline = cmdline + ["-previd", tmpDir]
+            cmdline = cmdline + ["-previd", tmpDir]
+        except exceptions.NotFound as e:
+            log.error(f"Could not download existing filter: {e}")
 
-    print(cmdline)
+    log.info(f"Running {cmdline}")
     subprocess.run(cmdline, check=True)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
