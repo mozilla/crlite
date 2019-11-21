@@ -343,6 +343,10 @@ def main():
             revoked=len(revoked_certs), nonrevoked=len(nonrevoked_certs)))
     sw.end('certs')
 
+    if len(revoked_certs) == 0 or len(nonrevoked_certs) == 0:
+        log.info("No certificates, exiting failure")
+        sys.exit(1)
+
     # Setup for diff if previous filter specified
     if args.previd is not None:
         diffMetaPath = os.path.join(args.certPath, args.previd, "filter.meta")
