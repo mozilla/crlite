@@ -84,6 +84,8 @@ type RemoteCache interface {
 	SetRemove(key string, entry string) (bool, error)
 	SetContains(key string, aEntry string) (bool, error)
 	SetList(key string) ([]string, error)
+	SetToChan(key string, c chan<- string) error
+	SetCardinality(key string) (int, error)
 	ExpireAt(key string, aExpTime time.Time) error
 	ExpireIn(key string, aDur time.Duration) error
 	Queue(key string, identifier string) (int64, error)
@@ -92,7 +94,7 @@ type RemoteCache interface {
 	BlockingPopCopy(key string, dest string, timeout time.Duration) (string, error)
 	ListRemove(key string, value string) error
 	TrySet(k string, v string, life time.Duration) (string, error)
-	Keys(pattern string) ([]string, error)
+	KeysToChan(pattern string, c chan<- string) error
 }
 
 type Issuer struct {

@@ -112,10 +112,11 @@ func Test_RedisInsertion(t *testing.T) {
 	}
 }
 
-func Test_RedisSortedCache(t *testing.T) {
+func Test_RedisSets(t *testing.T) {
 	t.Parallel()
 	rc := getRedisCache(t)
-	defer rc.client.Del("sortedCache")
+	q := "setCache"
+	defer rc.client.Del(q)
 
 	sortedSerials := make([]string, 999)
 
@@ -131,7 +132,7 @@ func Test_RedisSortedCache(t *testing.T) {
 	})
 
 	for _, s := range randomSerials {
-		success, err := rc.SetInsert("sortedCache", s)
+		success, err := rc.SetInsert(q, s)
 		if err != nil {
 			t.Error(err)
 		}
@@ -146,7 +147,7 @@ func Test_RedisSortedCache(t *testing.T) {
 
 	for _, s := range randomSerials {
 		// check'em
-		exists, err := rc.SetContains("sortedCache", s)
+		exists, err := rc.SetContains(q, s)
 		if err != nil {
 			t.Error(err)
 		}
@@ -155,12 +156,46 @@ func Test_RedisSortedCache(t *testing.T) {
 		}
 	}
 
-	list, err := rc.SetList("sortedCache")
+	list, err := rc.SetList(q)
 	if err != nil {
 		t.Error(err)
 	}
 	if len(list) != len(sortedSerials) {
 		t.Errorf("Expected %d serials but got %d", len(sortedSerials), len(list))
+	}
+
+	c := make(chan string)
+	go func() {
+		err = rc.SetToChan(q, c)
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	counter := 0
+	for v := range c {
+		var found bool
+		for _, s := range sortedSerials {
+			if s == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Unexpected value from chan, got %s", v)
+		}
+		counter++
+	}
+	if counter != len(sortedSerials) {
+		t.Errorf("Expected %d values from the channel, got %d", len(sortedSerials),
+			counter)
+	}
+
+	card, err := rc.SetCardinality(q)
+	if err != nil {
+		t.Error(err)
+	}
+	if card != counter {
+		t.Errorf("Expected exact SetCardinality match, got ")
 	}
 }
 
@@ -283,6 +318,23 @@ func Test_RedisQueue(t *testing.T) {
 	}
 }
 
+func isKeyPatternExpected(t *testing.T, rc *RedisCache, pattern string, expectedCount int) {
+	c := make(chan string)
+	go func() {
+		err := rc.KeysToChan(pattern, c)
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	var count int
+	for range c {
+		count++
+	}
+	if count != expectedCount {
+		t.Errorf("Expected %d entries matching %s, got %d", expectedCount, pattern, count)
+	}
+}
+
 func Test_RedisKeyList(t *testing.T) {
 	t.Parallel()
 	queues := []string{
@@ -306,37 +358,10 @@ func Test_RedisKeyList(t *testing.T) {
 		}
 	}()
 
-	l, err := rc.Keys("2019-01-01*::issuer")
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l) != 4 {
-		t.Errorf("Expected 3 entries matching 2019-01-01*::issuer, got %+v", l)
-	}
-
-	l, err = rc.Keys("2019-01-05*::otherissuer")
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l) != 1 {
-		t.Errorf("Expected 1 entry matching 2019-01-05*::otherissuer, got %+v", l)
-	}
-
-	l, err = rc.Keys("2019-01-01-03*::otherissuer")
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l) != 1 {
-		t.Errorf("Expected 1 entry matching 2019-01-01-03*::otherissuer, got %+v", l)
-	}
-
-	l, err = rc.Keys("2019-01-01-03*::unknownissuer")
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l) != 0 {
-		t.Errorf("Expected no matches for unknownissuer, got %+v", l)
-	}
+	isKeyPatternExpected(t, rc, "2019-01-01*::issuer", 4)
+	isKeyPatternExpected(t, rc, "2019-01-05*::otherissuer", 1)
+	isKeyPatternExpected(t, rc, "2019-01-01-03*::otherissuer", 1)
+	isKeyPatternExpected(t, rc, "2019-01-01-03*::unknownissuer", 0)
 }
 
 func Test_RedisTrySet(t *testing.T) {

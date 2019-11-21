@@ -81,6 +81,28 @@ func (rc *RedisCache) SetList(key string) ([]string, error) {
 	return slicer.Result()
 }
 
+func (rc *RedisCache) SetToChan(key string, c chan<- string) error {
+	defer close(c)
+	scanres := rc.client.SScan(key, 0, "", 0)
+	err := scanres.Err()
+	if err != nil {
+		return err
+	}
+
+	iter := scanres.Iterator()
+
+	for iter.Next() {
+		c <- iter.Val()
+	}
+
+	return iter.Err()
+}
+
+func (rc *RedisCache) SetCardinality(key string) (int, error) {
+	v, err := rc.client.SCard(key).Result()
+	return int(v), err
+}
+
 func (rc *RedisCache) Exists(key string) (bool, error) {
 	defer metrics.MeasureSince([]string{"Exists"}, time.Now())
 	ir := rc.client.Exists(key)
@@ -125,10 +147,21 @@ func (rc *RedisCache) QueueLength(key string) (int64, error) {
 	return ir.Result()
 }
 
-// TODO remove in favor of SCAN (https://github.com/jcjones/ct-mapreduce/issues/28)
-func (rc *RedisCache) Keys(pattern string) ([]string, error) {
-	sr := rc.client.Keys(pattern)
-	return sr.Result()
+func (rc *RedisCache) KeysToChan(pattern string, c chan<- string) error {
+	defer close(c)
+	scanres := rc.client.Scan(0, pattern, 0)
+	err := scanres.Err()
+	if err != nil {
+		return err
+	}
+
+	iter := scanres.Iterator()
+
+	for iter.Next() {
+		c <- iter.Val()
+	}
+
+	return iter.Err()
 }
 
 func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, error) {

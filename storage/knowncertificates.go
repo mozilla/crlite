@@ -55,25 +55,40 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	knownKeys, err := kc.cache.Keys(kc.serialId("*"))
-	if err != nil {
-		glog.Fatalf("Error obtaining list of known certificates: %v", err)
-	}
+	keyChan := make(chan string)
 
-	var serials []Serial
-	for _, key := range knownKeys {
-		strList, err := kc.cache.SetList(key)
+	go func() {
+		err := kc.cache.KeysToChan(kc.serialId("*"), keyChan)
 		if err != nil {
 			glog.Fatalf("Error obtaining list of known certificates: %v", err)
 		}
+	}()
 
-		if cap(serials) < len(serials)+len(strList) {
-			tmp := make([]Serial, len(serials), len(serials)+len(strList))
+	var serials []Serial
+	for key := range keyChan {
+		setLen, err := kc.cache.SetCardinality(key)
+		if err != nil {
+			// Not a fatal, as we can naively double serials (the default for append)
+			// which could happen anyway in the rare event the set changes size during
+			// iteration
+			glog.Errorf("Error determining set length for %s: %s", key, err)
+		}
+
+		if cap(serials) < len(serials)+setLen {
+			tmp := make([]Serial, len(serials), len(serials)+setLen)
 			copy(tmp, serials)
 			serials = tmp
 		}
 
-		for _, str := range strList {
+		strChan := make(chan string)
+		go func() {
+			err := kc.cache.SetToChan(key, strChan)
+			if err != nil {
+				glog.Fatalf("Error obtaining list of known certificates: %v", err)
+			}
+		}()
+
+		for str := range strChan {
 			bs, err := NewSerialFromBinaryString(str)
 			if err != nil {
 				glog.Errorf("Failed to populate serial str=[%s] %v", str, err)

@@ -103,6 +103,19 @@ func (ec *MockRemoteCache) SetList(key string) ([]string, error) {
 	return ec.Data[key], nil
 }
 
+func (ec *MockRemoteCache) SetToChan(key string, c chan<- string) error {
+	defer close(c)
+	ec.CleanupExpiry()
+	for _, v := range ec.Data[key] {
+		c <- v
+	}
+	return nil
+}
+
+func (ec *MockRemoteCache) SetCardinality(key string) (int, error) {
+	return len(ec.Data[key]), nil
+}
+
 func (ec *MockRemoteCache) Exists(key string) (bool, error) {
 	ec.CleanupExpiry()
 	_, ok := ec.Data[key]
@@ -131,19 +144,20 @@ func (ec *MockRemoteCache) QueueLength(key string) (int64, error) {
 	return int64(0), fmt.Errorf("QueueLength unimplemented")
 }
 
-func (ec *MockRemoteCache) Keys(pattern string) ([]string, error) {
-	var matches []string
+func (ec *MockRemoteCache) KeysToChan(pattern string, c chan<- string) error {
+	defer close(c)
+
 	for key := range ec.Data {
 		matched, err := filepath.Match(pattern, key)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if matched {
-			matches = append(matches, key)
+			c <- key
 		}
 	}
 
-	return matches, nil
+	return nil
 }
 
 func (ec *MockRemoteCache) TrySet(key string, v string, life time.Duration) (string, error) {
