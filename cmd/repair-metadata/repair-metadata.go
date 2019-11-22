@@ -170,6 +170,8 @@ func (rj *RepairJob) fillIssuerChanFromExpDateChan(ctx context.Context, wg *sync
 	expDateIssuerChan chan<- string) {
 	defer wg.Done()
 
+	timeStarted := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,7 +183,21 @@ func (rj *RepairJob) fillIssuerChanFromExpDateChan(ctx context.Context, wg *sync
 				return
 			}
 
-			err := rj.constructExpDateMetadata(ctx, expPath)
+			str, err := getExpDateFromPath(expPath)
+			if err != nil {
+				glog.Fatalf("Unexpected exp date %s: %s", expPath, err)
+			}
+			ed, err := storage.NewExpDate(str)
+			if err != nil {
+				glog.Fatalf("Unexpected exp date parse error %s: %s", str, err)
+			}
+			if ed.IsExpiredAt(timeStarted) {
+				glog.V(1).Infof("Skipping expired expDate %s", str)
+				metrics.IncrCounter([]string{"expired expDate"}, 1)
+				continue
+			}
+
+			err = rj.constructExpDateMetadata(ctx, expPath)
 			if err != nil {
 				glog.Errorf("%s err=%v", expPath, err)
 				continue
@@ -273,6 +289,8 @@ func main() {
 	defer glog.Flush()
 
 	_, extCache, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+
+	engine.PrepareTelemetry("repair-metadata", ctconfig)
 
 	client, err := firestore.NewClient(ctx, *ctconfig.GoogleProjectId)
 	if err != nil {
