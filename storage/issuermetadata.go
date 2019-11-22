@@ -102,11 +102,9 @@ func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
 		im.knownExpDates[expDate.ID()] = struct{}{}
 		im.mutex.Unlock()
 
-		cacheSeenBefore, err := im.cache.Exists(im.issuersId())
-		if err != nil {
-			return seenExpDateBefore, fmt.Errorf("Could not accumulate expDate %s: %v", im.id(), err)
-		}
-		seenExpDateBefore = cacheSeenBefore
+		// Don't bother checking the extCache. Even if it's there, the persistent
+		// DB might be missing data, so let's permit a gentle collision just in case
+		// the data was missing.
 	}
 
 	im.mutex.RLock()

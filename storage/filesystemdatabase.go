@@ -164,11 +164,11 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	}
 
 	if certWasUnknown {
-		issuerSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(aCert)
+		issuerDateSeenBefore, err := db.GetIssuerMetadata(issuer).Accumulate(aCert)
 		if err != nil {
 			return err
 		}
-		if !issuerSeenBefore {
+		if !issuerDateSeenBefore {
 			// if the issuer/expdate was unknown in the cache
 			errAlloc := db.backend.AllocateExpDateAndIssuer(ctx, expDate, issuer)
 			if errAlloc != nil {

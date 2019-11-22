@@ -169,22 +169,47 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 }
 
 func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
-	expDate := mkExpDate("2019-11-28")
 	issuer := NewIssuerFromString("issuerAKI")
-	expectedSerials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
+	expectedSerials := map[string][]Serial{
+		"2019-11-28":    []Serial{NewSerialFromHex("01")},
+		"2019-11-28-04": []Serial{NewSerialFromHex("02")},
+		"2019-11-28-23": []Serial{NewSerialFromHex("03")},
+	}
 
-	for _, serial := range expectedSerials {
-		err := db.StoreCertificatePEM(context.TODO(), serial, expDate, issuer, []byte{0xDA, 0xDA})
+	for date, serials := range expectedSerials {
+		for _, serial := range serials {
+			err := db.StoreCertificatePEM(context.TODO(), serial, mkExpDate(date), issuer,
+				[]byte{0xDA, 0xDA})
+			if err != nil {
+				t.Fatalf("%s", err.Error())
+			}
+		}
+		// Normally the FilesystemDatabase object is responsible for this allocation
+		err := db.AllocateExpDateAndIssuer(context.TODO(), mkExpDate(date), issuer)
 		if err != nil {
-			t.Fatalf("%s", err.Error())
+			t.Fatal(err)
 		}
 	}
 
-	resultList, err := db.ListSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer)
+	list, err := db.ListExpirationDates(context.TODO(),
+		time.Date(2010, time.January, 01, 12, 00, 00, 00, time.UTC))
 	if err != nil {
 		t.Error(err)
 	}
-	if !reflect.DeepEqual(expectedSerials, resultList) {
-		t.Errorf("Expected equality %+v & %+v", expectedSerials, resultList)
+
+	var count int
+	for _, expDate := range list {
+		resultList, err := db.ListSerialsForExpirationDateAndIssuer(context.TODO(), expDate, issuer)
+		if err != nil {
+			t.Error(err)
+		}
+		if !reflect.DeepEqual(expectedSerials[expDate.ID()], resultList) {
+			t.Errorf("Expected equality %+v & %+v for date %s", expectedSerials[expDate.ID()], resultList, expDate.ID())
+		}
+		count += 1
+	}
+
+	if count != len(expectedSerials) {
+		t.Errorf("Found %d entries, expected %d", count, len(expectedSerials))
 	}
 }

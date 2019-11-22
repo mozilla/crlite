@@ -128,6 +128,7 @@ func (db *FirestoreBackend) allocateExpDate(ctx context.Context, expDate ExpDate
 		kFieldType:    kTypeExpDate,
 		kFieldExpDate: expDate.ID(),
 	})
+
 	return err
 }
 
@@ -233,7 +234,7 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 		defer close(c)
 
 		aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(),
-			0, 0, 0, 0, time.UTC)
+			aNotBefore.Hour(), 0, 0, 0, time.UTC)
 
 		iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).
 			Select().Documents(ctx)
@@ -251,8 +252,13 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 				return
 			}
 
-			t, err := time.Parse(kExpirationFormat, doc.Ref.ID)
-			if err == nil && !t.Before(aNotBefore) {
+			expDate, err := NewExpDate(doc.Ref.ID)
+			if err != nil {
+				glog.Warningf("Firestore document expdate %s parse error: %s", doc.Ref.ID, err)
+				continue
+			}
+
+			if !expDate.IsExpiredAt(aNotBefore) {
 				c <- doc.Ref.ID
 			}
 
