@@ -458,27 +458,6 @@ func main() {
 	certSerialChan := make(chan storage.UniqueCertIdentifier)
 	deduplicatedSerialChan := make(chan storage.UniqueCertIdentifier)
 
-	// Load any outstanding entries into certSerialChan
-	serialsInProcess, err := extCache.SetList(kSerialInProcessQueueName)
-	if err != nil {
-		glog.Fatalf("Couldn't get in progress queue data %s", err)
-	}
-	if len(serialsInProcess) > 0 {
-		glog.Infof("Recovering %d in-progress serial tuples: %v", len(serialsInProcess), serialsInProcess)
-	}
-	for _, tuple := range serialsInProcess {
-		uci, err := storage.ParseUniqueCertIdentifier(tuple)
-		if err != nil {
-			glog.Errorf("Could not parse in-progress serial tuple %s: %s", tuple, err)
-			continue
-		}
-		certSerialChan <- uci
-		_, err = extCache.SetRemove(kSerialInProcessQueueName, tuple)
-		if err != nil {
-			glog.Fatalf("Couldn't remove tuple from in-progress queue [%s]: %s", tuple, err)
-		}
-	}
-
 	var issuerDateWorkerWg sync.WaitGroup
 	// Start the issuer/date workers, they populate certSerialChan
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -508,6 +487,28 @@ func main() {
 
 	doneChan := make(chan storage.UniqueCertIdentifier)
 	go closeChanWhenWaitGroupCompletes(&topWg, doneChan)
+
+	// Load any outstanding entries into certSerialChan. This has to happen
+	// after the workers have all started, or we'll hang.
+	serialsInProcess, err := extCache.SetList(kSerialInProcessQueueName)
+	if err != nil {
+		glog.Fatalf("Couldn't get in progress queue data %s", err)
+	}
+	if len(serialsInProcess) > 0 {
+		glog.Infof("Recovering %d in-progress serial tuples: %v", len(serialsInProcess), serialsInProcess)
+	}
+	for _, tuple := range serialsInProcess {
+		uci, err := storage.ParseUniqueCertIdentifier(tuple)
+		if err != nil {
+			glog.Errorf("Could not parse in-progress serial tuple %s: %s", tuple, err)
+			continue
+		}
+		certSerialChan <- uci
+		_, err = extCache.SetRemove(kSerialInProcessQueueName, tuple)
+		if err != nil {
+			glog.Fatalf("Couldn't remove tuple from in-progress queue [%s]: %s", tuple, err)
+		}
+	}
 
 	select {
 	case <-sigChan:
