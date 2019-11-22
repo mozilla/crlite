@@ -302,6 +302,31 @@ func (uci UniqueCertIdentifier) String() string {
 	return fmt.Sprintf("%s::%s::%s", uci.ExpDate.ID(), uci.Issuer.ID(), uci.SerialNum.ID())
 }
 
+type IssuerAndDate struct {
+	ExpDate ExpDate
+	Issuer  Issuer
+}
+
+func ParseIssuerAndDate(s string) (IssuerAndDate, error) {
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		return IssuerAndDate{},
+			fmt.Errorf("Unexpected number of parts: %d from %s", len(parts), s)
+	}
+	expDate, err := NewExpDate(parts[0])
+	if err != nil {
+		return IssuerAndDate{}, err
+	}
+	return IssuerAndDate{
+		ExpDate: expDate,
+		Issuer:  NewIssuerFromString(parts[1]),
+	}, nil
+}
+
+func (t *IssuerAndDate) String() string {
+	return fmt.Sprintf("%s/%s", t.ExpDate.ID(), t.Issuer.ID())
+}
+
 type ExpDate struct {
 	date           time.Time
 	lastGood       time.Time

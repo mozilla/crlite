@@ -28,6 +28,7 @@ import (
 //                                 /certs
 //                                        /<spki>
 
+// Keep in-sync with firestorebackend.go
 const (
 	kFieldType     = "type"
 	kFieldData     = "data"
@@ -236,8 +237,7 @@ func (db *FirestoreBackend) StreamExpirationDates(ctx context.Context,
 		aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(),
 			aNotBefore.Hour(), 0, 0, 0, time.UTC)
 
-		iter := db.client.Collection("ct").Where(kFieldType, "==", kTypeExpDate).
-			Select().Documents(ctx)
+		iter := db.client.Collection("ct").Select().Documents(ctx)
 
 		for {
 			cycleTime := time.Now()
@@ -296,8 +296,7 @@ func (db *FirestoreBackend) StreamIssuersForExpirationDate(ctx context.Context,
 		defer close(c)
 
 		id := filepath.Join("ct", expDate.ID(), "issuer")
-		iter := db.client.Collection(id).Where(kFieldType, "==", kTypeMetadata).
-			Documents(ctx)
+		iter := db.client.Collection(id).Documents(ctx)
 		for {
 			cycleTime := time.Now()
 
@@ -410,7 +409,7 @@ func (db *FirestoreBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.
 
 		subCtx, subCancel := context.WithTimeout(ctx, 5*time.Minute)
 
-		query := db.client.Collection(id).Where(kFieldType, "==", kTypePEM).Limit(db.PageSize)
+		query := db.client.Collection(id).Limit(db.PageSize)
 		if lastRef != nil {
 			query = query.StartAfter(lastRef)
 		}

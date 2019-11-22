@@ -35,30 +35,10 @@ var (
 	matchingRegexes = make([]*regexp.Regexp, 0)
 )
 
+// Keep in-sync with repair-metadata.go
 const kIssuerExpdateQueueName string = "reprocess-issuerExpDateWorkQueue"
 const kIssuerExpdateInProcessQueueName string = "reprocess-issuerExpDateInProcessWorkQueue"
 const kSerialInProcessQueueName string = "reprocess-serialInProcessWorkQueue"
-
-type issuerDateTuple struct {
-	expDate storage.ExpDate
-	issuer  storage.Issuer
-}
-
-func decodeIssuerDateTuple(s string) issuerDateTuple {
-	e, issuerStr := filepath.Split(s)
-	expDate, err := storage.NewExpDate(e[:len(e)-1]) // trailing slash
-	if err != nil {
-		glog.Fatalf("Could not decode expiration date=%s: %v", e, err)
-	}
-	return issuerDateTuple{
-		expDate: expDate,
-		issuer:  storage.NewIssuerFromString(issuerStr),
-	}
-}
-
-func (t *issuerDateTuple) String() string {
-	return filepath.Join(t.expDate.ID(), t.issuer.ID())
-}
 
 func shouldProcess(expDate string, issuer string) bool {
 	if len(flag.Args()) == 0 {
@@ -134,14 +114,17 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 			glog.Errorf("Couldn't note our in-progress work [%s]: %s", tupleStr, err)
 		}
 
-		tuple := decodeIssuerDateTuple(tupleStr)
+		tuple, err := storage.ParseIssuerAndDate(tupleStr)
+		if err != nil {
+			glog.Fatalf("Couldn't decode %s: %s", tupleStr, err)
+		}
 
-		glog.V(1).Infof("Processing %s / %s", tuple.expDate, tuple.issuer.ID())
+		glog.V(1).Infof("Processing %s / %s", tuple.ExpDate, tuple.Issuer.ID())
 
 		startTime := time.Now()
 
 		subCtx, ctxCancel := context.WithCancel(ctx)
-		err = backendDB.StreamSerialsForExpirationDateAndIssuer(subCtx, tuple.expDate, tuple.issuer,
+		err = backendDB.StreamSerialsForExpirationDateAndIssuer(subCtx, tuple.ExpDate, tuple.Issuer,
 			quitChan, serialChan)
 		if err != nil {
 			glog.Fatalf("ReconstructIssuerMetadata StreamSerialsForExpirationDateAndIssuer %v", err)
@@ -415,7 +398,10 @@ func main() {
 				lastTime = time.Now()
 
 				if shouldProcess(expDate.ID(), issuer.ID()) {
-					tuple := issuerDateTuple{expDate, issuer}
+					tuple := storage.IssuerAndDate{
+						ExpDate: expDate,
+						Issuer:  issuer,
+					}
 
 					count, err = extCache.Queue(kIssuerExpdateQueueName, tuple.String())
 					if err != nil {
