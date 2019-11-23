@@ -30,8 +30,8 @@ func main() {
 		glog.Fatal(err)
 	}
 
-	totalSerials := 0
-	totalCRLs := 0
+	var totalSerials int64
+	var totalCRLs int
 
 	for _, issuerObj := range issuerList {
 		issuerMetadata := storageDB.GetIssuerMetadata(issuerObj.Issuer)
@@ -41,34 +41,36 @@ func main() {
 
 		issuerDNList := issuerMetadata.Issuers()
 
-		countIssuerSerials := 0
+		var countIssuerSerials int64
 
 		glog.Infof("Issuer: %s (%v)", issuerObj.Issuer.ID(), issuerDNList)
 
 		for _, expDate := range issuerObj.ExpDates {
 			knownCerts := storageDB.GetKnownCertificates(expDate, issuerObj.Issuer)
-			knownList := knownCerts.Known()
-			countSerials := len(knownList)
+			countSerials := knownCerts.Count()
 
 			countIssuerSerials = countIssuerSerials + countSerials
 			totalSerials = totalSerials + countSerials
 
 			glog.V(1).Infof("- %s (%d serials)", expDate.ID(), countSerials)
-			glog.V(2).Infof("  Serials: %v", knownList)
+			if glog.V(2) {
+				knownList := knownCerts.Known()
+				glog.Infof("  Serials: %v", knownList)
 
-			if glog.V(3) {
-				for _, serial := range knownList {
-					glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(),
-						serial.BinaryString())
+				if glog.V(3) {
+					for _, serial := range knownList {
+						glog.Infof("Certificate serial={%s} / {%s} / {%s}", serial.HexString(), serial.ID(),
+							serial.BinaryString())
 
-					pemBytes, err := backend.LoadCertificatePEM(context.TODO(), serial, expDate, issuerObj.Issuer)
-					if err != nil {
-						glog.Error(err)
-					}
+						pemBytes, err := backend.LoadCertificatePEM(context.TODO(), serial, expDate, issuerObj.Issuer)
+						if err != nil {
+							glog.Error(err)
+						}
 
-					_, err = os.Stdout.Write(pemBytes)
-					if err != nil {
-						glog.Error(err)
+						_, err = os.Stdout.Write(pemBytes)
+						if err != nil {
+							glog.Error(err)
+						}
 					}
 				}
 			}

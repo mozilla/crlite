@@ -76,6 +76,10 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
 	}
+
+	if kc.Count() != 3 {
+		t.Errorf("Expected 3, got %d", kc.Count())
+	}
 }
 
 func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
@@ -104,6 +108,10 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
+	}
+
+	if kc.Count() != 3 {
+		t.Errorf("Expected 3, got %d", kc.Count())
 	}
 }
 

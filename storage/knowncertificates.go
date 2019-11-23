@@ -33,6 +33,15 @@ func (kc *KnownCertificates) serialId(params ...string) string {
 	return fmt.Sprintf("%s::%s", kSerials, kc.id(params...))
 }
 
+func (kc *KnownCertificates) allSerialIds() []string {
+	ids := make([]string, 25)
+	ids[0] = kc.serialId()
+	for hour := 0; hour < 24; hour++ {
+		ids[hour+1] = kc.serialId(fmt.Sprintf("-%02d", hour))
+	}
+	return ids
+}
+
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
@@ -54,19 +63,21 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 	return result, nil
 }
 
-func (kc *KnownCertificates) Known() []Serial {
-	keyChan := make(chan string)
-
-	go func() {
-		defer close(keyChan)
-		keyChan <- kc.serialId()
-		for hour := 0; hour < 24; hour++ {
-			keyChan <- kc.serialId(fmt.Sprintf("-%02d", hour))
+func (kc *KnownCertificates) Count() int64 {
+	var count int64
+	for _, key := range kc.allSerialIds() {
+		setLen, err := kc.cache.SetCardinality(key)
+		if err != nil {
+			glog.Errorf("Couldn't determine count of %s, now at %d: %s", kc.id(), count, err)
 		}
-	}()
+		count += int64(setLen)
+	}
+	return count
+}
 
+func (kc *KnownCertificates) Known() []Serial {
 	var serials []Serial
-	for key := range keyChan {
+	for _, key := range kc.allSerialIds() {
 		setLen, err := kc.cache.SetCardinality(key)
 		if err != nil {
 			// Not a fatal, as we can naively double serials (the default for append)
