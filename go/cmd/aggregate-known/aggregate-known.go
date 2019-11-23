@@ -89,6 +89,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 		if err := kw.saveStorage.StoreKnownCertificateList(ctx, tuple.issuer, serials); err != nil {
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
+
+		glog.Infof("[%s] %d total serials for %s", tuple.issuer.ID(), serialCount, tuple.issuerDN)
 	}
 }
 
