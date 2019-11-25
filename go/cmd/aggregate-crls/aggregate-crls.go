@@ -124,6 +124,12 @@ func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan ty
 		paths := make([]string, 0)
 
 		for _, crlUrl := range tuple.Urls {
+			select {
+			case <-quitChan:
+				return
+			default:
+			}
+
 			filename := makeFilenameFromUrl(crlUrl)
 			err := os.MkdirAll(filepath.Join(*crlpath, tuple.Issuer.ID()), permModeDir)
 			if err != nil {
@@ -131,35 +137,44 @@ func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan ty
 				continue
 			}
 
-			path := filepath.Join(*crlpath, tuple.Issuer.ID(), filename)
+			tmpPath := filepath.Join(*crlpath, tuple.Issuer.ID(), filename+".tmp")
+			finalPath := filepath.Join(*crlpath, tuple.Issuer.ID(), filename)
 
-			err = downloader.DownloadFileSync(ae.display, crlUrl, path)
+			err = downloader.DownloadFileSync(ae.display, crlUrl, tmpPath, 3)
 			if err != nil {
-				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer.ID(), crlUrl.String(), path, err)
-				// Does it already exist on disk? If so, use that version and not die.
-
-				_, localDate, err := downloader.GetSizeAndDateOfFile(path)
+				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer.ID(), crlUrl.String(), tmpPath, err)
+			} else {
+				// Validate the file and move it to the finalPath
+				cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
 				if err != nil {
-					glog.Errorf("[%s] Could not download, and no local file, will not be populating the revocations", crlUrl.String())
-					// panic("Not handling download failure without a local copy")
-					continue
+					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 				}
-
-				age := time.Now().Sub(localDate)
-
-				if age > allowableAgeOfLocalCRL {
-					glog.Errorf("[%s] Could not download, and out of date local file, will not be populating the revocations. Age: %s", crlUrl.String(), age.String())
-					// panic("Not handling download failure without an up-to-date local copy")
-					continue
+				_, err = processCRL(tmpPath, cert)
+				if err != nil {
+					glog.Warningf("[%s] Downloaded %s to %s but file didn't validate: %s", tuple.Issuer.ID(), crlUrl.String(), tmpPath, err)
+				} else {
+					err = os.Rename(tmpPath, finalPath)
+					if err != nil {
+						glog.Errorf("[%s] Couldn't rename %s to %s: %s", tuple.Issuer.ID(), tmpPath, finalPath, err)
+					}
 				}
 			}
 
-			select {
-			case <-quitChan:
-				return
-			default:
-				paths = append(paths, path)
+			// Ensure the final path is acceptable
+			_, localDate, err := downloader.GetSizeAndDateOfFile(finalPath)
+			if err != nil {
+				glog.Errorf("[%s] Could not download, and no local file, will not be populating the revocations: %s", crlUrl.String(), err)
+				continue
 			}
+
+			age := time.Now().Sub(localDate)
+
+			if age > allowableAgeOfLocalCRL {
+				glog.Errorf("[%s] Could not download, and out of date local file, will not be populating the revocations. Age: %s", crlUrl.String(), age.String())
+				continue
+			}
+
+			paths = append(paths, finalPath)
 		}
 
 		resultChan <- types.IssuerCrlPaths{
@@ -172,25 +187,22 @@ func (ae *AggregateEngine) crlFetchWorker(wg *sync.WaitGroup, crlsChan <-chan ty
 	}
 }
 
-func processCRL(aPath string, aIssuerCert *x509.Certificate) []storage.Serial {
+func processCRL(aPath string, aIssuerCert *x509.Certificate) ([]storage.Serial, error) {
 	serials := make([]storage.Serial, 0, 1024*16)
 
 	glog.V(1).Infof("[%s] Proesssing CRL", aPath)
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		glog.Errorf("[%s] Error reading CRL, will not process revocations: %s", aPath, err)
-		return serials
+		return serials, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
-		glog.Errorf("[%s] Error parsing, will not process revocations: %s", aPath, err)
-		return serials
+		return serials, fmt.Errorf("Error parsing, will not process revocations: %s", err)
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
-		glog.Errorf("[%s] Invalid signature on CRL, will not process revocations: %s", aPath, err)
-		return serials
+		return serials, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
 	}
 
 	if crl.HasExpired(time.Now()) {
@@ -200,15 +212,15 @@ func processCRL(aPath string, aIssuerCert *x509.Certificate) []storage.Serial {
 	// Decode the raw DER serial numbers
 	revokedList, err := types.DecodeRawTBSCertList(crl.TBSCertList.Raw)
 	if err != nil {
-		glog.Warningf("[%s] CRL list couldn't be decoded: %s", aPath, err)
-		return serials
+		return serials, fmt.Errorf("CRL list couldn't be decoded: %s", err)
 	}
 
 	for _, ent := range revokedList.RevokedCertificates {
 		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
 		serials = append(serials, serial)
 	}
-	return serials
+
+	return serials, nil
 }
 
 func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, workChan <-chan types.IssuerCrlPaths, quitChan <-chan struct{}, progBar *mpb.Bar) {
@@ -221,6 +233,11 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, workChan <-cha
 
 		issuerEnrolled := false
 
+		cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
+		if err != nil {
+			glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
+		}
+
 		serialCount := 0
 		serials := make([]storage.Serial, 0, 128*1024)
 
@@ -229,14 +246,13 @@ func (ae *AggregateEngine) aggregateCRLWorker(wg *sync.WaitGroup, workChan <-cha
 			case <-quitChan:
 				return
 			default:
-				cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
+				revokedSerials, err := processCRL(crlPath, cert)
 				if err != nil {
-					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
+					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
+					continue
 				}
 
-				revokedSerials := processCRL(crlPath, cert)
 				revokedCount := len(revokedSerials)
-
 				if revokedCount == 0 {
 					continue
 				}

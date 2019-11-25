@@ -171,7 +171,7 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	lastModStr := resp.Header.Get("Last-Modified")
 	// http.TimeFormat is 29 characters
 	if len(lastModStr) < 16 {
-		glog.Warningf("[%s] No compliant reported last-modified time: [%s]", crlUrl.String(), lastModStr)
+		glog.Infof("[%s] No compliant reported last-modified time, file may expire early: [%s]", crlUrl.String(), lastModStr)
 		return nil
 	}
 
@@ -187,8 +187,17 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	return nil
 }
 
-func DownloadFileSync(display *mpb.Progress, crlUrl url.URL, path string) error {
+func DownloadFileSync(display *mpb.Progress, crlUrl url.URL, path string, maxRetries uint) error {
 	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String())
 
-	return download(display, crlUrl, path)
+	var err error
+	var i uint
+	for ; i <= maxRetries; i++ {
+		err = download(display, crlUrl, path)
+		if err == nil {
+			return nil
+		}
+		glog.Infof("Failed to download %s (%d/%d): %s", path, i, maxRetries, err)
+	}
+	return err
 }

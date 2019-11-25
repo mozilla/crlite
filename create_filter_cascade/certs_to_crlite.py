@@ -307,7 +307,9 @@ def parseArgs(argv):
 
 
 def saveStats(args, stats):
-    with open(os.path.join(args.certPath, args.id, args.outDirName, "stats.json"), 'w') as f:
+    statsPath = os.path.join(args.certPath, args.id, args.outDirName, "stats.json")
+    os.makedirs(os.path.dirname(statsPath), exist_ok=True)
+    with open(statsPath, 'w') as f:
         f.write(json.dumps(stats))
 
 

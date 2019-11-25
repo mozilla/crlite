@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func Test_DownloadNotFound(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(display, *url, tmpfile.Name())
+	err = DownloadFileSync(display, *url, tmpfile.Name(), 3)
 	if err.Error() != "Non-OK status: 404 Not Found" {
 		t.Error(err)
 	}
@@ -55,7 +56,83 @@ func Test_DownloadOK(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(display, *url, tmpfile.Name())
+	err = DownloadFileSync(display, *url, tmpfile.Name(), 1)
+	if err != nil {
+		t.Error(err)
+	}
+
+	content, err := ioutil.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(content) != "Hello, client\n" {
+		t.Logf("File contents: %s", content)
+		t.Error("File contents not correct")
+	}
+}
+
+type SingleFailureHandler struct {
+	mu         sync.Mutex // guards failedOnce
+	failedOnce bool
+	t          *testing.T
+}
+
+func (h *SingleFailureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.failedOnce {
+		h.failedOnce = true
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "failure")
+		return
+	}
+	fmt.Fprintln(w, "Hello, client")
+}
+
+func Test_DownloadFailureWithoutRetry(t *testing.T) {
+	ts := httptest.NewServer(http.Handler(&SingleFailureHandler{t: t}))
+	defer ts.Close()
+
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	tmpfile, err := ioutil.TempFile("", "Test_DownloadFailureWithoutRetry")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	url, _ := url.Parse(ts.URL)
+
+	err = DownloadFileSync(display, *url, tmpfile.Name(), 0)
+	if err == nil {
+		t.Error("Should have failed")
+	}
+}
+
+func Test_DownloadFailureWithRetry(t *testing.T) {
+	ts := httptest.NewServer(http.Handler(&SingleFailureHandler{t: t}))
+	defer ts.Close()
+
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	tmpfile, err := ioutil.TempFile("", "Test_DownloadFailureWithRetry")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	url, _ := url.Parse(ts.URL)
+
+	err = DownloadFileSync(display, *url, tmpfile.Name(), 1)
 	if err != nil {
 		t.Error(err)
 	}
@@ -101,7 +178,7 @@ func Test_DownloadResumeNotSupported(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(display, *url, downloadedfile.Name())
+	err = DownloadFileSync(display, *url, downloadedfile.Name(), 1)
 	if err != nil {
 		t.Error(err)
 	}
@@ -160,7 +237,7 @@ func Test_DownloadResume(t *testing.T) {
 		mpb.WithOutput(ioutil.Discard),
 	)
 
-	err = DownloadFileSync(display, *url, downloadedfile.Name())
+	err = DownloadFileSync(display, *url, downloadedfile.Name(), 1)
 	if err != nil {
 		t.Error(err)
 	}
