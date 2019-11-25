@@ -48,12 +48,10 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 	ctx := context.Background()
 
 	for tuple := range workChan {
-		serialCount := 0
+		var serialCount int
 		serials := make([]storage.Serial, 0, 128*1024)
 
 		for _, expDate := range tuple.expDates {
-			cycleTime := time.Now()
-
 			select {
 			case <-quitChan:
 				return
@@ -73,16 +71,17 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 						" (current count this worker=%d)", tuple.issuerDN, tuple.issuer.ID(), expDate, serialCount)
 				}
 
-				if cap(serials) < knownSetLen+serialCount {
-					newSerials := make([]storage.Serial, 0, serialCount+knownSetLen)
-					copy(newSerials, serials)
-					serials = newSerials
-				}
-
 				serials = append(serials, knownSet...)
 				serialCount += knownSetLen
 
-				kw.progBar.IncrBy(1, time.Since(cycleTime))
+				// This assertion should catch issues where append failed to append everything. For improvement
+				// in processing speed, pull this out, but right now it seems valuable.
+				if len(serials) != serialCount {
+					glog.Fatalf("expDate=%s issuer=%s serial count math error! expected %d but got %d", expDate,
+						tuple.issuer.ID(), serialCount, len(serials))
+				}
+
+				kw.progBar.IncrBy(1)
 			}
 		}
 
@@ -90,7 +89,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 
-		glog.Infof("[%s] %d total serials for %s", tuple.issuer.ID(), serialCount, tuple.issuerDN)
+		glog.Infof("[%s] %d total serials for %s (times=%d, len=%d, cap=%d)", tuple.issuer.ID(),
+			serialCount, tuple.issuerDN, len(tuple.expDates), len(serials), cap(serials))
 	}
 }
 
