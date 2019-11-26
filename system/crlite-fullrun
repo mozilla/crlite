@@ -29,6 +29,7 @@ else
   fi
 
   ${workflow}/7-cleanup-expired-processing-folders --keep 1 --path ${crlite_processing:-/ct/processing}
+  # TODO: Cleanup CRL folders
 
   df ${crlite_processing:-/ct/processing}
 

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -40,6 +41,7 @@ var (
 	crlpath      = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
 	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
 	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
+	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 
 	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\./]`)
@@ -527,8 +529,14 @@ func main() {
 		signal.Stop(sigChan)
 	}()
 
+	var barOutput io.Writer = nil
+	if nobars != nil && !*nobars {
+		barOutput = os.Stdout
+	}
+
 	display := mpb.NewWithContext(ctx,
 		mpb.WithRefreshRate(refreshDur),
+		mpb.WithOutput(barOutput),
 	)
 
 	ae := AggregateEngine{
