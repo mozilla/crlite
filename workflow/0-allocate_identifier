@@ -3,6 +3,8 @@
 import os
 import sys
 import argparse
+import __init__ as workflow
+
 from datetime import datetime
 
 parser = argparse.ArgumentParser()
@@ -15,15 +17,16 @@ if not args.path:
     sys.exit(0)
 
 dateprefix = datetime.utcnow().date().strftime("%Y%m%d")
+next_idx = 0
 
-existing = []
+all_identifiers = workflow.get_run_identifiers('crlite_filters')
+if all_identifiers:
+    most_recent_identifier = all_identifiers.pop().rstrip("/")
+    (date_part, idx_part) = most_recent_identifier.split("-")
+    if date_part == dateprefix:
+        next_idx = int(idx_part) + 1
 
-for path, dirs, files in os.walk(args.path):
-    for d in dirs:
-        if d.startswith(dateprefix):
-            existing.append(d)
-
-allocatedName = "{}-{}".format(dateprefix, len(existing))
+allocatedName = "{}-{}".format(dateprefix, next_idx)
 allocatedPath = os.path.join(args.path, allocatedName)
 
 os.mkdir(allocatedPath)
