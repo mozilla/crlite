@@ -23,5 +23,4 @@ fi
 
 ${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${WORKDIR}/known \
               -enrolledpath ${WORKDIR}/enrolled.json \
-              -alsologtostderr -stderrthreshold=WARNING \
-              -log_dir ${WORKDIR}/log
+              -stderrthreshold=WARNING -log_dir ${WORKDIR}/log

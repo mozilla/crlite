@@ -15,7 +15,7 @@ if [ "${remaining}" != "" ] ; then
 fi
 
 
-cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -alsologtostderr"
+cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -stderrthreshold=WARNING"
 env
 
 echo "Starting ${cmd}..."
