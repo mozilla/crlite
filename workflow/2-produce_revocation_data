@@ -25,4 +25,5 @@ ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_processing:-/ct}/crls \
               -revokedpath ${WORKDIR}/revoked \
               -enrolledpath ${WORKDIR}/enrolled.json \
               -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv \
-              -log_dir ${WORKDIR}/log -alsologtostderr
+              -alsologtostderr -stderrthreshold=WARNING \
+              -log_dir ${WORKDIR}/log

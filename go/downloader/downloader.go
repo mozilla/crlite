@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,7 +89,7 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 	return Create, szOnDisk, szOnServer
 }
 
-func download(display *mpb.Progress, crlUrl url.URL, path string) error {
+func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path string) error {
 	client := &http.Client{}
 
 	action, offset, size := determineAction(client, crlUrl, path)
@@ -97,7 +98,7 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 		return nil
 	}
 
-	req, err := http.NewRequest("GET", crlUrl.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", crlUrl.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -133,6 +134,10 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	}
 	defer outFile.Close()
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Fpr partial content, resp.ContentLength will
 	// be the partial length.
 	progBar := display.AddBar(resp.ContentLength,
@@ -145,6 +150,8 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 		),
 		mpb.BarRemoveOnComplete(),
 	)
+
+	defer progBar.Abort(true)
 
 	defer resp.Body.Close()
 	reader := progBar.ProxyReader(resp.Body)
@@ -187,15 +194,23 @@ func download(display *mpb.Progress, crlUrl url.URL, path string) error {
 	return nil
 }
 
-func DownloadFileSync(display *mpb.Progress, crlUrl url.URL, path string, maxRetries uint) error {
+func DownloadFileSync(ctx context.Context, display *mpb.Progress, crlUrl url.URL,
+	path string, maxRetries uint) error {
 	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String())
 
 	var err error
 	var i uint
+
 	for ; i <= maxRetries; i++ {
-		err = download(display, crlUrl, path)
-		if err == nil {
+		select {
+		case <-ctx.Done():
+			glog.Infof("Signal caught, stopping threads at next opportunity.")
 			return nil
+		default:
+			err = download(ctx, display, crlUrl, path)
+			if err == nil {
+				return nil
+			}
 		}
 		glog.Infof("Failed to download %s (%d/%d): %s", path, i, maxRetries, err)
 	}
