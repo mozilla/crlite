@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-from google.cloud import storage
 from google.api_core import exceptions
 
 import argparse
@@ -10,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import __init__ as workflow
 
 parser = argparse.ArgumentParser()
 parser.add_argument("identifier", help="Current working identifier", nargs=1)
@@ -34,19 +34,19 @@ def main():
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
-            storage_client = storage.Client()
             bucket_name = 'crlite_filters'
-            bucket = storage_client.get_bucket(bucket_name)
 
-            tmpDir = tempfile.mkdtemp()
+            latest = workflow.get_run_identifiers(bucket_name).pop().rstrip("/")
 
-            blob = bucket.blob("latest/filter")
-            blob.download_to_filename(tmpDir / Path("filter"))
+            dest = Path(tempfile.mkdtemp()) / Path(latest)
+            dest.mkdir()
 
-            blob = bucket.blob("latest/filter.meta")
-            blob.download_to_filename(tmpDir / Path("filter.meta"))
+            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter",
+                                                dest / Path("filter"))
+            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter.meta",
+                                                dest / Path("filter.meta"))
 
-            cmdline = cmdline + ["-previd", tmpDir]
+            cmdline = cmdline + ["-previd", dest]
         except exceptions.NotFound as e:
             log.error(f"Could not download existing filter: {e}")
 
