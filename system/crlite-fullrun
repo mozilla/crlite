@@ -28,10 +28,13 @@ else
     ${workflow}/8-upload_artifacts_to_storage ${ID}
   fi
 
-  ${workflow}/7-cleanup-expired-processing-folders --keep 1 --path ${crlite_processing:-/ct/processing}
+  # ${workflow}/7-cleanup-expired-processing-folders --keep 1 --path ${crlite_processing:-/ct/processing}
   # TODO: Cleanup CRL folders
 
+  echo "crlite_processing"
   df ${crlite_processing:-/ct/processing}
+  echo "crlite_persistent"
+  df ${crlite_persistent:-/ct/}
 
   if [ "x${KINTO_AUTH_USER}x" != "xx" ]; then
     ${workflow}/5-upload_intermediates ${ID}

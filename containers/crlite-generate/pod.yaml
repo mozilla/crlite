@@ -18,9 +18,9 @@ spec:
           containers:
           - name: init
             image: busybox:latest
-            command: ["/bin/chmod", "777", "/processing"]
+            command: ["/bin/chmod", "777", "/persistent"]
             volumeMounts:
-            - mountPath: "/processing"
+            - mountPath: "/persistent"
               name: crlite-crls
           - name: crlite-generate
             envFrom:
@@ -35,7 +35,7 @@ spec:
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: File
             volumeMounts:
-            - mountPath: "/processing"
+            - mountPath: "/persistent"
               name: crlite-crls
           volumes:
           - name: crlite-crls

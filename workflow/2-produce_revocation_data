@@ -21,7 +21,7 @@ if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
         --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
 fi
 
-${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_processing:-/ct}/crls \
+${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
               -revokedpath ${WORKDIR}/revoked \
               -enrolledpath ${WORKDIR}/enrolled.json \
               -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv \

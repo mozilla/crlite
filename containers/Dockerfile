@@ -22,11 +22,12 @@ RUN adduser --system --home /app appuser
 
 ENV crlite_log /var/log
 ENV crlite_processing /processing
+ENV crlite_persistent /persistent
 ENV crlite_workflow /app/workflow
 ENV crlite_bin /app
 
 RUN mkdir /processing && chown appuser /processing && chmod 777 /processing
-VOLUME /var/log /processing
+VOLUME /var/log /processing /persistent
 
 COPY requirements.txt /app/
 RUN pip3 install -r /app/requirements.txt
@@ -41,7 +42,7 @@ COPY workflow /app/workflow
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
-ENTRYPOINT ["/tini", "--"]
+ENTRYPOINT ["/tini", "-g", "--"]
 
 USER appuser
 WORKDIR /app
