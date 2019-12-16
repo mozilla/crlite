@@ -6,7 +6,7 @@ require (
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/go-redis/redis v6.15.5+incompatible
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/google/certificate-transparency-go v1.0.21
+	github.com/google/certificate-transparency-go v1.1.0
 	github.com/google/go-metrics-stackdriver v0.0.0-20190906162917-b5a9a4179f28
 	github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e // indirect
 	github.com/jpillora/backoff v1.0.0
