@@ -1,9 +1,9 @@
 import re
 import logging
-from google.api_core import page_iterator
+from google.api_core import exceptions, page_iterator
 from google.cloud import storage
 
-kIdentifierFormat = re.compile(r'\d{8}-\d+/')
+kIdentifierFormat = re.compile(r'(\d{8}-\d+)/?')
 
 
 def _item_to_value(iterator, item):
@@ -49,7 +49,8 @@ def normalize_identifier(s):
 
 def get_run_identifiers(bucket_name):
     dirs = list_google_storage_directories(bucket_name)
-    identifiers = filter(lambda x: kIdentifierFormat.match(x) is not None, dirs)
+    identifiers = filter(lambda x: kIdentifierFormat.match(x), dirs)
+    identifiers = map(lambda x: kIdentifierFormat.match(x).group(1), identifiers)
     return sorted(identifiers, key=normalize_identifier)
 
 
@@ -59,7 +60,7 @@ def download_from_google_cloud(bucket_name, remote, local):
 
     blob = storage.blob.Blob(remote, bucket)
     if not blob.exists():
-        raise Exception(f"{remote} does not exist")
+        raise exceptions.NotFound(f"{remote} does not exist")
     with open(local, "wb") as file_obj:
         blob.download_to_file(file_obj)
         logging.info(f"Downloaded {blob.public_url} to {local}")

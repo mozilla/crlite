@@ -21,7 +21,7 @@ next_idx = 0
 
 all_identifiers = workflow.get_run_identifiers('crlite_filters')
 if all_identifiers:
-    most_recent_identifier = all_identifiers.pop().rstrip("/")
+    most_recent_identifier = all_identifiers.pop()
     (date_part, idx_part) = most_recent_identifier.split("-")
     if date_part == dateprefix:
         next_idx = int(idx_part) + 1

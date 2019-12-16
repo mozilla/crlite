@@ -36,7 +36,7 @@ def main():
         try:
             bucket_name = 'crlite_filters'
 
-            latest = workflow.get_run_identifiers(bucket_name).pop().rstrip("/")
+            latest = workflow.get_run_identifiers(bucket_name).pop()
 
             dest = Path(tempfile.mkdtemp()) / Path(latest)
             dest.mkdir()

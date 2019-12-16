@@ -23,11 +23,15 @@ const (
 	kMozCCADBReport = "https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport"
 )
 
-type IssuerData struct {
+type issuerCert struct {
 	cert      *x509.Certificate
 	subjectDN string
 	pemInfo   string
-	enrolled  bool
+}
+
+type IssuerData struct {
+	certs    []issuerCert
+	enrolled bool
 }
 
 type EnrolledIssuer struct {
@@ -73,7 +77,8 @@ func (mi *MozIssuers) GetIssuers() []storage.Issuer {
 	i := 0
 
 	for _, value := range mi.issuerMap {
-		issuers[i] = storage.NewIssuer(value.cert)
+		cert := value.certs[0].cert
+		issuers[i] = storage.NewIssuer(cert)
 		i++
 	}
 	return issuers
@@ -83,26 +88,28 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 	enrolledCount := 0
+	certCount := 0
 
-	issuers := make([]EnrolledIssuer, len(mi.issuerMap))
-	i := 0
+	issuers := make([]EnrolledIssuer, 0, len(mi.issuerMap))
 	for _, val := range mi.issuerMap {
-		pubKeyHash := sha256.Sum256(val.cert.RawSubjectPublicKeyInfo)
-		issuers[i] = EnrolledIssuer{
-			PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
-			Whitelist:  false,
-			SubjectDN:  base64.URLEncoding.EncodeToString([]byte(val.subjectDN)),
-			Subject:    val.subjectDN,
-			Pem:        val.pemInfo,
-			Enrolled:   val.enrolled,
+		for _, cert := range val.certs {
+			pubKeyHash := sha256.Sum256(cert.cert.RawSubjectPublicKeyInfo)
+			issuers = append(issuers, EnrolledIssuer{
+				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
+				Whitelist:  false,
+				SubjectDN:  base64.URLEncoding.EncodeToString([]byte(cert.subjectDN)),
+				Subject:    cert.subjectDN,
+				Pem:        cert.pemInfo,
+				Enrolled:   val.enrolled,
+			})
+			certCount++
+			if val.enrolled {
+				enrolledCount++
+			}
 		}
-		if val.enrolled {
-			enrolledCount++
-		}
-		i++
 	}
 
-	glog.Infof("Saving %d issuers, of which %d are marked as enrolled", len(mi.issuerMap), enrolledCount)
+	glog.Infof("Saving %d issuers and %d certs, of which %d are marked as enrolled", len(mi.issuerMap), certCount, enrolledCount)
 	fd, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		glog.Errorf("Error opening enrolled issuer %s: %s", filePath, err)
@@ -181,7 +188,7 @@ func (mi *MozIssuers) GetCertificateForIssuer(aIssuer storage.Issuer) (*x509.Cer
 	if !ok {
 		return nil, fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
 	}
-	return entry.cert, nil
+	return entry.certs[0].cert, nil
 }
 
 func (mi *MozIssuers) GetSubjectForIssuer(aIssuer storage.Issuer) (string, error) {
@@ -192,7 +199,7 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer storage.Issuer) (string, error
 	if !ok {
 		return "", fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
 	}
-	return entry.subjectDN, nil
+	return entry.certs[0].subjectDN, nil
 }
 
 func decodeCertificateFromPem(aPem string) (*x509.Certificate, error) {
@@ -221,11 +228,23 @@ func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum in
 
 func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string) storage.Issuer {
 	issuer := storage.NewIssuer(aCert)
-	mi.issuerMap[issuer.ID()] = IssuerData{
+	ic := issuerCert{
 		cert:      aCert,
 		subjectDN: aCert.Subject.String(),
 		pemInfo:   aPem,
-		enrolled:  false,
+	}
+
+	v, exists := mi.issuerMap[issuer.ID()]
+	if exists {
+		glog.Infof("[%s] Duplicate issuer ID: %v with %v", issuer.ID(), v, aCert.Subject.String())
+		v.certs = append(v.certs, ic)
+		mi.issuerMap[issuer.ID()] = v
+		return issuer
+	}
+
+	mi.issuerMap[issuer.ID()] = IssuerData{
+		certs:    []issuerCert{ic},
+		enrolled: false,
 	}
 	return issuer
 }

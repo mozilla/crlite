@@ -6,6 +6,13 @@ if [ "x${credentials_data}x" != "xx" ] ; then
   export GOOGLE_APPLICATION_CREDENTIALS=/tmp/credentials.json
 fi
 
+if [ "x${GOOGLE_APPLICATION_CREDENTIALS}x" == "xx" ] ; then
+  echo "You'll need to provide GOOGLE_APPLICATION_CREDENTIALS somehow"
+  echo "because all the scripts depend on it. Maybe you should also set"
+  echo "DoNotUpload to something, to avoid uploading accidentally?"
+  exit 1
+fi
+
 workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 
 # TODO: renumber
@@ -24,7 +31,7 @@ else
   ${workflow}/3-produce_known_data ${ID}
   ${workflow}/4-generate_mlbf ${ID}
 
-  if [ "x${GOOGLE_APPLICATION_CREDENTIALS}x" != "xx" ] ; then
+  if [ "x${DoNotUpload}x" == "xx" ] ; then
     ${workflow}/8-upload_artifacts_to_storage ${ID}
   fi
 

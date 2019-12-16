@@ -19,6 +19,8 @@ func main() {
 
 	var err error
 
+	defer glog.Flush()
+
 	mozIssuers := rootprogram.NewMozillaIssuers()
 
 	if *inccadb != "<path>" {
