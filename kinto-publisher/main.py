@@ -10,9 +10,10 @@ import requests
 import settings
 
 from datetime import datetime
-from requests.auth import HTTPBasicAuth
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
+from pathlib import Path
+from requests.auth import HTTPBasicAuth
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 
@@ -92,6 +93,7 @@ def main():
                         help="Enter a debugger during processing (only valid for Intermediates)")
     parser.add_argument('--delete', action='store_true',
                         help="Delete entries that are now missing (only valid for Intermediates)")
+    parser.add_argument('--export', help="Export intermediate set inspection files to this folder")
     parser.add_argument('--verbose', '-v', help="Be more verbose", action='store_true')
 
     args = parser.parse_args()
@@ -150,6 +152,10 @@ class IntermediateRecordError(KintoException):
 
 
 class AttachedPem:
+    attachments_base_url = requests.get(
+        settings.KINTO_SERVER_URL
+    ).json()["capabilities"]["attachments"]["base_url"]
+
     def __init__(self, **kwargs):
         self.filename = kwargs['filename']
         self.size = kwargs['size']
@@ -183,6 +189,7 @@ class Intermediate:
     whitelist: bool
     crlite_enrolled: bool
     pemAttachment: AttachedPem
+    cert: x509.Certificate
     certHash: str
     subjectDN: bytes
     derHash: bytes
@@ -230,9 +237,9 @@ class Intermediate:
         if 'subjectDN' in kwargs:
             self.subjectDN = base64.b64decode(kwargs['subjectDN'], altchars="-_", validate=True)
 
+        self.cert = None
         if self.pemData:
-            self.cert = x509.load_pem_x509_certificate(self.pemData.encode("utf-8"),
-                                                       default_backend())
+            self.set_pem(self.pemData)
             self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
 
         self.derHash = None  # Base64 of `openssl x509 -fingerprint -sha256`
@@ -271,7 +278,7 @@ class Intermediate:
         client.attach_file(
           collection=settings.KINTO_INTERMEDIATES_COLLECTION,
           fileContents=self.pemData,
-          fileName=f"{base64.urlsafe_base64(self.pubKeyHash).decode('utf-8')}.pem",
+          fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}.pem",
           mimeType="application/x-pem-file",
           recordId=kinto_id or self.kinto_id,
         )
@@ -283,6 +290,23 @@ class Intermediate:
         sameAttributes = self._get_attributes() == remote_record._get_attributes()
         sameAttachment = remote_record.pemAttachment.verify(pemData=self.pemData)
         return sameAttributes and sameAttachment
+
+    def set_pem(self, pem_data):
+        self.pemData = pem_data
+        self.cert = x509.load_pem_x509_certificate(pem_data.encode("utf-8"),
+                                                   default_backend())
+
+    def download_pem(self):
+        if not self.pemAttachment:
+            raise Exception("pemAttachment not set")
+        r = requests.get(f"{AttachedPem.attachments_base_url}{self.pemAttachment.location}")
+        r.raise_for_status()
+        self.set_pem(r.text)
+
+    def is_expired(self):
+        if not self.cert:
+            self.download_pem()
+        return self.cert.not_valid_after <= datetime.utcnow()
 
     def delete_from_kinto(self, *, client=None):
         if self.kinto_id is None:
@@ -346,6 +370,21 @@ class Intermediate:
             log.error("Stale record deleted.")
             raise ke
 
+    def details(self):
+        return self._get_attributes()
+
+
+def export_intermediates(writer, keys, intermediates, *, old=None):
+    for key in keys:
+        details = intermediates[key].details()
+        writer.write("\n\t".join([f"{key} = {value}" for key, value in details.items()]))
+        writer.write("\n\n")
+        if old:
+            details = old[key].details()
+            writer.write("Previous state: \n")
+            writer.write("\n\t".join([f"{key} = {value}" for key, value in details.items()]))
+            writer.write("\n---------------\n\n")
+
 
 def publish_intermediates(*, args=None, auth=None, client=None):
     local_intermediates = {}
@@ -355,12 +394,12 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     with open(args.inpath) as f:
         for entry in json.load(f):
             try:
-                decodedSubjectBytes = base64.urlsafe_b64decode(entry['subject'])
-                entry['subject'] = decodedSubjectBytes.decode("utf-8", "replace")
                 intObj = Intermediate(**entry, debug=args.debug)
 
                 if intObj.unique_id() in local_intermediates:
-                    raise Exception("Local collision: {}".format(intObj))
+                    log.warning(f"[{intObj.unique_id()}] Local collision: {intObj} with "
+                                + f"{local_intermediates[intObj.unique_id()]}")
+                    continue
 
                 local_intermediates[intObj.unique_id()] = intObj
             except Exception as e:
@@ -387,17 +426,71 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         if not local_intermediates[i].equals(remote_record=remote_intermediates[i]):
             to_update.add(i)
 
+    expired = set()
+    for i in to_delete:
+        if remote_intermediates[i].is_expired():
+            expired.add(i)
+
+    to_delete_not_expired = to_delete - expired
+
     delete_pubkeys = {remote_intermediates[i].pubKeyHash for i in to_delete}
     upload_pubkeys = {local_intermediates[i].pubKeyHash for i in to_upload}
 
+    unenrollments = set()
+    new_enrollments = set()
+    update_other_than_enrollment = set()
+    for i in to_update:
+        if local_intermediates[i].crlite_enrolled and not remote_intermediates[i].crlite_enrolled:
+            new_enrollments.add(i)
+        elif (remote_intermediates[i].crlite_enrolled
+                and not local_intermediates[i].crlite_enrolled):
+            unenrollments.add(i)
+        else:
+            update_other_than_enrollment.add(i)
+
+    print(f"Total entries before update: {len(remote_intermediates)}")
     print(f"To delete: {len(to_delete)} (Deletion enabled: {args.delete})")
+    print(f"- Expired: {len(expired)}")
     print(f"To add: {len(to_upload)}")
     print(f"Certificates updated (without a key change): {len(delete_pubkeys & upload_pubkeys)}")
     print(f"Total entries updated: {len(to_update)}")
+    print(f"- New enrollments: {len(new_enrollments)}")
+    print(f"- Unenrollments: {len(unenrollments)}")
+    print(f"- Other: {len(update_other_than_enrollment)}")
+    print(f"Total entries after update: {len(local_intermediates)}")
     print("")
 
-    if args.debug:
+    if args.export:
+        with open(Path(args.export) / Path("to_delete"), "w") as df:
+            export_intermediates(df, to_delete, remote_intermediates)
+        with open(Path(args.export) / Path("to_delete_not_expired"), "w") as df:
+            export_intermediates(df, to_delete_not_expired, remote_intermediates)
+        with open(Path(args.export) / Path("expired"), "w") as df:
+            export_intermediates(df, expired, remote_intermediates)
+        with open(Path(args.export) / Path("to_upload"), "w") as df:
+            export_intermediates(df, to_upload, local_intermediates)
+        with open(Path(args.export) / Path("to_update"), "w") as df:
+            export_intermediates(
+                df, to_update, local_intermediates,
+                old=remote_intermediates
+            )
+        with open(Path(args.export) / Path("unenrollments"), "w") as df:
+            export_intermediates(
+                df, unenrollments, local_intermediates,
+                old=remote_intermediates
+            )
+        with open(Path(args.export) / Path("new_enrollments"), "w") as df:
+            export_intermediates(
+                df, new_enrollments, local_intermediates,
+                old=remote_intermediates
+            )
+        with open(Path(args.export) / Path("update_other_than_enrollment"), "w") as df:
+            export_intermediates(
+                df, update_other_than_enrollment, local_intermediates,
+                old=remote_intermediates
+            )
 
+    if args.debug:
         print("Variables available:")
         print("  local_intermediates")
         print("  remote_intermediates")
@@ -406,6 +499,9 @@ def publish_intermediates(*, args=None, auth=None, client=None):
         print("  to_upload")
         print("  to_delete")
         print("  to_update")
+        print("")
+        print("  new_enrollments")
+        print("  unenrollments")
         print("")
         print("  delete_pubkeys")
         print("  upload_pubkeys")
@@ -515,10 +611,14 @@ def publish_intermediates(*, args=None, auth=None, client=None):
                 raise KintoException(
                                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
-    log.info("Set for review")
-    client.request_review_of_collection(
-      collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-    )
+    if to_update or to_upload or to_delete:
+        log.info(f"Set for review, {len(to_update)} updates, {len(to_upload)} uploads, "
+                 + f"{len(to_delete)} deletions.")
+        client.request_review_of_collection(
+          collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+        )
+    else:
+        log.info(f"No updates to do")
 
     # Todo - use different credentials, as editor cannot review.
     # log.info("Requesting signature")
