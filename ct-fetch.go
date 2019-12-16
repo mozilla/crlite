@@ -10,6 +10,7 @@ import (
 	"context"
 	"math"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -206,7 +207,21 @@ func (ld *LogSyncEngine) insertCTWorker() {
 }
 
 func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
-	ctLog, err := client.New(ctLogUrl, nil, jsonclient.Options{})
+	ctLog, err := client.New(ctLogUrl,
+		&http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSHandshakeTimeout:   30 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				MaxIdleConnsPerHost:   10,
+				DisableKeepAlives:     false,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		}, jsonclient.Options{
+			UserAgent: "ct-mapreduce; https://github.com/jcjones/ct-mapreduce",
+		})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
 		return nil, err
@@ -359,7 +374,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 
 	index := lw.StartPos
 	for index < lw.EndPos {
-		max := index + 32768
+		max := index + 1000
 		if max >= lw.EndPos {
 			max = lw.EndPos - 1
 		}
