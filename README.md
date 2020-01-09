@@ -1,19 +1,68 @@
 This collection of tools is designed to assemble a cascading
 bloom filter containing all TLS certificate revocations, as described
-in this [CRLite paper.](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf)
+in the [CRLite paper](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
 
-These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper.
+These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper, however it is a separate implementation, and should still be considered a work in progress, particularly the details of filter generation in [`create_filter_cascade`](https://github.com/mozilla/crlite/tree/master/create_filter_cascade).
 
-## Dependancies
+For details about CRLite, [Mozilla Security Engineering has a blog post series](https://blog.mozilla.org/security/tag/crlite/), and [this repository has a FAQ](https://github.com/mozilla/crlite/wiki#faq).
+
+
+## Dependencies
 1. `ct-fetch` from [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
 1. Python 3
-1. Patience; many scripts take several hours even with multiprocessing
+1. Kubernetes / Docker
+1. Patience
 
-## Setup
 
-### Installation
+## General Structure
 
-```
+At this point, CRLite is intended to be run in a series of Docker containers, run as differing kinds of jobs:
+
+1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/master/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
+1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/master/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
+1. [`containers/crlite-rebuild`](https://github.com/mozilla/crlite/tree/master/containers/crlite-rebuild), an as-needed job that reads out all data in Google Firestore and writes the necessary metadata into Redis, for the generate task. This is intended for use when Redis has to be reinitialized (e.g., after a resize).
+
+Each of these jobs has a `pod.yaml` intended for use in Kubernetes.
+
+There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/master/containers) to build Docker images both using Google Cloud's builder and locally with Docker, see `build-gcp.sh` and `build-local.sh`. They make assumptions about the `PROJECT_ID` which will need to change, but PRs are welcome.
+
+
+### Storage
+Storage consists of four parts:
+
+1. Google Firestore, for bulk certificate PEM data, bucketed by expiration date for easy deletion
+1. Redis, e.g. Google Cloud Memorystore, for certificate metadata (CRL DPs, serial numbers, expirations, issuers), used in filter generation.
+1. Google Cloud Storage, for storage of the artifacts when a job is completed.
+1. A local persistent disk, for persistent storage of downloaded CRLs. This is defined in [`containers/crl-storage-claim.yaml`](https://github.com/mozilla/crlite/blob/master/containers/crl-storage-claim.yaml).
+
+
+### Information Flow
+
+This tooling monitors Certificate Transparency logs and, upon secheduled execution, `crlite-generate` produces a new filter and uploads it to Cloud Storage.
+
+![Information flow](docs/figure1-information_flow.png)
+
+The process for producing a CRLite filter, is run by [`system/crlite-fullrun`](https://github.com/mozilla/crlite/blob/master/system/crlite-fullrun), which is described in block form in this diagram:
+
+![Process for building a CRLite Bloom filter](docs/figure2-filter_process.png)
+
+
+The output Bloom filter cascade is built by the Python [`mozilla/filter-cascade`](https://github.com/mozilla/filter-cascade) tool and then read in Firefox by the Rust [`mozilla/rust-cascade`](https://github.com/mozilla/rust-cascade) package.
+
+For complete details of the filter construction see Section III.B of the [CRLite paper](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
+
+![Structure of the CRLite Bloom filter cascade](docs/figure3-filter_structure.png)
+
+The keys used into the CRLite data structure consist of the SHA256 digest of the issuer's `Subject Public Key Information` field in DER-encoded form, followed by the the certificate's serial number, unmodified, in DER-encoded form.
+
+![Structure of Certificate Identifiers](docs/figure4-certificate_identifier.png)
+
+
+## Local Installation
+
+It's possible to run the tools locally, though you will need local instances of Redis and Firestore. First, install the tools and their dependnecnies
+
+```sh
 go install -u github.com/jcjones/ct-mapreduce/cmd/ct-fetch
 go install -u github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-crls
@@ -21,6 +70,7 @@ go install -u github.com/mozilla/crlite/go/cmd/aggregate-known
 
 pipenv install
 ```
+
 
 ### Configuration
 
@@ -71,24 +121,35 @@ If you set `firestoreProjectId`, then choose a firestore instance type:
 
 If you need to proxy the connection, perhaps via SSH, set the `HTTPS_PROXY` to something like `socks5://localhost:32547/"` as well.
 
-## General Operation
+
+### General Operation
 
 [`system/crlite-fullrun`](https://github.com/mozilla/crlite/tree/master/system/crlite-fullrun) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables. Generally, this is run from a Docker container.
 
 That script ultimately runs the scripts in [`workflow/`](https://github.com/mozilla/crlite/tree/master/workflow), in order. They can be run independently for fine control.
 
+
+### Starting the Local Dependencies
+
+To run with Firestore locally, you'll need the `gcloud` Google Cloud utility's Firestore emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
+
+```sh
+gcloud beta emulators firestore start --host-port="my_ip_address:8403"
+```
+
+Redis can be provided in a variety of ways, easiest is probably the Redis docker distribution. For whatever reason, I have the
+best luck remapping ports to make it run on 6379:
+```sh
+docker run -p 6379:7000 redis:4 --port 7000
+```
+
+
 ## Running from a Docker Container
 
 To construct a container, see [`containers/README.md`](https://github.com/mozilla/crlite/tree/master/containers/README.md).
 
-To run with Firestore locally, you'll need the `gcloud` Google Cloud utility's Firestore emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
 
-```
-gcloud beta emulators firestore start --host-port="my_ip_address:8403"
-```
-
-
-```
+```sh
 docker run --rm -it \
   -e "FIRESTORE_EMULATOR_HOST=my_ip_address:8403" \
   -e "outputRefreshMs=1000" \
@@ -96,7 +157,8 @@ docker run --rm -it \
 ```
 
 To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
-```
+
+```sh
 docker run --rm -it \
   -e "certPath=/ctdata" \
   -e "outputRefreshMs=1000" \
@@ -106,7 +168,7 @@ docker run --rm -it \
 ```
 
 
-To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work.
+To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work. See [`containers/crlite-config.properties.example`](https://github.com/mozilla/crlite/blob/master/containers/crlite-config.properties.example) for an example of the Kubernetes environment that can be imported using `kubectl create configmap`, see the `containers` README.md for details.
 
 
 ## Tools
@@ -134,7 +196,6 @@ If the certificate cohort is 500M, and Firestore costs $0.60 / 1M reads, then `r
 ## Credits
 
 * Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis)
-* JC Jones for [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
 * Mark Goodwin for original
   [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py)
 * The CRLite research team
