@@ -236,7 +236,7 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 
 	v, exists := mi.issuerMap[issuer.ID()]
 	if exists {
-		glog.Infof("[%s] Duplicate issuer ID: %v with %v", issuer.ID(), v, aCert.Subject.String())
+		glog.V(1).Infof("[%s] Duplicate issuer ID: %v with %v", issuer.ID(), v, aCert.Subject.String())
 		v.certs = append(v.certs, ic)
 		mi.issuerMap[issuer.ID()] = v
 		return issuer
