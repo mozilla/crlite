@@ -196,6 +196,6 @@ If the certificate cohort is 500M, and Firestore costs $0.60 / 1M reads, then `r
 ## Credits
 
 * Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis)
-* Mark Goodwin for original
-  [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py)
-* The CRLite research team
+* Mark Goodwin for the original Python [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py)
+* Dana Keeler and Mark Goodwin together for the Rust [`rust-cascade`](https://github.com/mozilla/rust-cascade)
+* The CRLite research team: James Larsich, David Choffnes, Dave Levin, Bruce M. Maggs, Alan Mislove, and Christo Wilson
