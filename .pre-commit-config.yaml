@@ -26,3 +26,8 @@
       entry: ./hooks/go-no-replacement.sh
       language: script
       files: go.mod
+    - id: create-filter-cascade-tests
+      name: Tests for create-filter-cascade
+      language: system
+      entry: python3 -m unittest create_filter_cascade/test.py
+      files: '.py$'
