@@ -1,7 +1,7 @@
 bsdiff4>=1.1
 cryptography>=2.2
 dbx-stopwatch>=1.5
-filtercascade>=0.2.0
+filtercascade>=0.2.1
 glog>=0.3
 google-cloud-storage>=1.2
 kinto-http>=9.1
