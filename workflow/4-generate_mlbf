@@ -42,9 +42,9 @@ def main():
             dest.mkdir()
 
             workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter",
-                                                dest / Path("filter"))
+                                                dest / Path("list-revoked.keys"))
             workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter.meta",
-                                                dest / Path("filter.meta"))
+                                                dest / Path("list-valid.keys"))
 
             cmdline = cmdline + ["-previd", dest]
         except exceptions.NotFound as e:
