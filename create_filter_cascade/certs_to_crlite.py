@@ -397,8 +397,8 @@ def parseArgs(argv):
     if args.revokedPath is None:
         args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
     args.revokedKeys = os.path.join(args.certPath, args.id,
-                                    args.outDirName, "keys-revoked.keys")
-    args.validKeys = os.path.join(args.certPath, args.id, args.outDirName, "keys-valid.keys")
+                                    args.outDirName, "list-revoked.keys")
+    args.validKeys = os.path.join(args.certPath, args.id, args.outDirName, "list-valid.keys")
     return args
 
 
