@@ -1,8 +1,12 @@
 package storage
 
 import (
+	"bytes"
+	"context"
+	"encoding/hex"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -51,4 +55,31 @@ func Test_LocalDiskLogState(t *testing.T) {
 	h := makeLocalDiskHarness(t)
 	defer h.cleanup()
 	BackendTestLogState(t, h.db)
+}
+
+func Test_KnownCertificateList(t *testing.T) {
+	h := makeLocalDiskHarness(t)
+	defer h.cleanup()
+
+	issuer := NewIssuerFromString("issuerAKI")
+	serials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
+
+	err := h.db.StoreKnownCertificateList(context.TODO(), issuer, serials)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fileBytes, err := ioutil.ReadFile(filepath.Join(h.root, issuer.ID()))
+	if err != nil {
+		t.Error(err)
+	}
+
+	expected, err := hex.DecodeString("30310A30320A30330A")
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !bytes.Equal(expected, fileBytes) {
+		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
+	}
 }
