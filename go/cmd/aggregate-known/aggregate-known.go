@@ -57,7 +57,9 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 				return
 			default:
 				if expDate.IsExpiredAt(time.Now()) {
-					glog.Warningf("Date %s is expired now, skipping (issuer=%s)", expDate, tuple.issuer.ID())
+					if glog.V(1) {
+						glog.Warningf("Date %s is expired now, skipping (issuer=%s)", expDate, tuple.issuer.ID())
+					}
 					continue
 				}
 
