@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -26,6 +27,7 @@ const (
 var (
 	enrolledpath = flag.String("enrolledpath", "<path>", "input enrolled issuers JSON")
 	knownpath    = flag.String("knownpath", "<dir>", "output directory for <issuer> files")
+	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 )
 
@@ -54,6 +56,7 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 		for _, expDate := range tuple.expDates {
 			select {
 			case <-quitChan:
+				glog.Warningf("Signal on worker quit channel, quitting (count=%d).", serialCount)
 				return
 			default:
 				if expDate.IsExpiredAt(time.Now()) {
@@ -69,6 +72,8 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 				knownSetLen := len(knownSet)
 
 				if knownSetLen == 0 {
+					// This is almost certainly due to an hour-rollover since the loader ran, and expired all the next hour's
+					// certs.
 					glog.Warningf("No cached certificates for issuer=%s (%s) expDate=%s, but the loader thought there should be."+
 						" (current count this worker=%d)", tuple.issuerDN, tuple.issuer.ID(), expDate, serialCount)
 				}
@@ -185,9 +190,15 @@ func main() {
 	// Signal that was the last work
 	close(workChan)
 
+	var barOutput io.Writer = nil
+	if nobars != nil && !*nobars {
+		barOutput = os.Stdout
+	}
+
 	// Start the display
 	display := mpb.NewWithContext(ctx,
 		mpb.WithRefreshRate(refreshDur),
+		mpb.WithOutput(barOutput),
 	)
 
 	progressBar := display.AddBar(count,
