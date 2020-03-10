@@ -273,17 +273,20 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 		t.Errorf("Should have been empty with an empty DB: %v", l)
 	}
 
-	expDate, err := NewExpDate("2040-02-03-19")
-	if err != nil {
-		t.Error(err)
-	}
 	issuer := NewIssuerFromString("Honesty Issuer")
-	serial := NewSerialFromHex("FEEDBEEF")
 
-	kc := storageDB.GetKnownCertificates(expDate, issuer)
-	_, err = kc.WasUnknown(serial)
-	if err != nil {
-		t.Error(err)
+	{
+		expDate, err := NewExpDate("2040-02-03-19")
+		if err != nil {
+			t.Error(err)
+		}
+		serial := NewSerialFromHex("FEEDBEEF")
+
+		kc := storageDB.GetKnownCertificates(expDate, issuer)
+		_, err = kc.WasUnknown(serial)
+		if err != nil {
+			t.Error(err)
+		}
 	}
 
 	l2, err := storageDB.GetIssuerAndDatesFromCache()
@@ -291,9 +294,33 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 		t.Error(err)
 	}
 	if len(l2) != 1 {
-		t.Errorf("Should have been one entry: %v", l2)
+		t.Errorf("Should have been one issuer: %v", l2)
 	}
 	if len(l2[0].ExpDates) != 1 {
 		t.Errorf("Should have been one expDate %v", l2[0].ExpDates)
+	}
+
+	{
+		expDate, err := NewExpDate("2040-02-03")
+		if err != nil {
+			t.Error(err)
+		}
+		serial := NewSerialFromHex("BEEF")
+		kc := storageDB.GetKnownCertificates(expDate, issuer)
+		_, err = kc.WasUnknown(serial)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	l3, err := storageDB.GetIssuerAndDatesFromCache()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(l3) != 1 {
+		t.Errorf("Should have been one issuer: %v", l3)
+	}
+	if len(l3[0].ExpDates) != 2 {
+		t.Errorf("Should have been two expDates %v", l3[0].ExpDates)
 	}
 }
