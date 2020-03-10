@@ -4,7 +4,7 @@ metadata:
   creationTimestamp: null
   name: crlite-generate
 spec:
-  concurrencyPolicy: Allow
+  concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   jobTemplate:
     metadata:
@@ -30,8 +30,8 @@ spec:
             imagePullPolicy: Always
             resources:
               requests:
-                memory: 16Gi
-                cpu: 0.5m
+                memory: 20Gi
+                cpu: 4.0m
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: File
             volumeMounts:
@@ -42,7 +42,7 @@ spec:
             persistentVolumeClaim:
               claimName: crlite-crls
           dnsPolicy: ClusterFirst
-          restartPolicy: OnFailure
+          restartPolicy: Never
           schedulerName: default-scheduler
           securityContext: {}
           terminationGracePeriodSeconds: 30
