@@ -13,12 +13,14 @@ import (
 type MockRemoteCache struct {
 	Data        map[string][]string
 	Expirations map[string]time.Time
+	Duplicate   int
 }
 
 func NewMockRemoteCache() *MockRemoteCache {
 	return &MockRemoteCache{
 		Data:        make(map[string][]string),
 		Expirations: make(map[string]time.Time),
+		Duplicate:   0,
 	}
 }
 
@@ -106,8 +108,10 @@ func (ec *MockRemoteCache) SetList(key string) ([]string, error) {
 func (ec *MockRemoteCache) SetToChan(key string, c chan<- string) error {
 	defer close(c)
 	ec.CleanupExpiry()
-	for _, v := range ec.Data[key] {
-		c <- v
+	for i := 0; i < ec.Duplicate+1; i++ {
+		for _, v := range ec.Data[key] {
+			c <- v
+		}
 	}
 	return nil
 }

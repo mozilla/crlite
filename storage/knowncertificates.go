@@ -76,22 +76,13 @@ func (kc *KnownCertificates) Count() int64 {
 }
 
 func (kc *KnownCertificates) Known() []Serial {
-	var serials []Serial
+	// Redis' scan methods regularly provide duplicates. The duplication
+	// happens at this level, pulling from SetToChan, so we make a hash-set
+	// here to de-duplicate when the memory impacts are the most minimal.
+	serials := make(map[string]struct{})
+	var count int
+
 	for _, key := range kc.allSerialIds() {
-		setLen, err := kc.cache.SetCardinality(key)
-		if err != nil {
-			// Not a fatal, as we can naively double serials (the default for append)
-			// which could happen anyway in the rare event the set changes size during
-			// iteration
-			glog.Errorf("Error determining set length for %s: %s", key, err)
-		}
-
-		if cap(serials) < len(serials)+setLen {
-			tmp := make([]Serial, len(serials), len(serials)+setLen)
-			copy(tmp, serials)
-			serials = tmp
-		}
-
 		strChan := make(chan string)
 		go func() {
 			err := kc.cache.SetToChan(key, strChan)
@@ -101,17 +92,22 @@ func (kc *KnownCertificates) Known() []Serial {
 		}()
 
 		for str := range strChan {
-			bs, err := NewSerialFromBinaryString(str)
-			if err != nil {
-				glog.Errorf("Failed to populate serial str=[%s] %v", str, err)
-				continue
-			}
-
-			serials = append(serials, bs)
+			serials[str] = struct{}{}
+			count += 1
 		}
 	}
 
-	return serials
+	serialList := make([]Serial, 0, count)
+	for str := range serials {
+		bs, err := NewSerialFromBinaryString(str)
+		if err != nil {
+			glog.Errorf("Failed to populate serial str=[%s] %v", str, err)
+			continue
+		}
+		serialList = append(serialList, bs)
+	}
+
+	return serialList
 }
 
 func (kc *KnownCertificates) setExpiryFlag() {

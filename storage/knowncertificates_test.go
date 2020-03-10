@@ -65,14 +65,15 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	}
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	testList := []Serial{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
+	testList := SerialList{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
 		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
 
-	result := kc.Known()
+	result := SerialList(kc.Known())
+	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
 	}
@@ -84,6 +85,7 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 
 func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 	backend := NewMockRemoteCache()
+	backend.Duplicate = 4
 	testIssuer := NewIssuerFromString("test issuer")
 
 	expDate, err := NewExpDate("2029-02-28")
@@ -107,7 +109,7 @@ func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
 	result := SerialList(kc.Known())
 	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
-		t.Errorf("Known should get the data: %+v // %+v", testList, result)
+		t.Errorf("Known should get the data: %+v // got %+v", testList, result)
 	}
 
 	if kc.Count() != 3 {
@@ -139,5 +141,20 @@ func Test_ExpireAt(t *testing.T) {
 	expected := time.Date(2004, 01, 20, 4, 0, 0, 0, time.UTC)
 	if val != expected {
 		t.Errorf("Expected the expiration date to match: %v != %v", val, expected)
+	}
+}
+
+func Test_ExpireWithHourNoDuplicateLookups(t *testing.T) {
+	backend := NewMockRemoteCache()
+	testIssuer := NewIssuerFromString("test issuer")
+
+	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
+	expDate := NewExpDateFromTime(date)
+
+	kc := NewKnownCertificates(expDate, testIssuer, backend)
+
+	if len(kc.allSerialIds()) != 25 {
+		t.Errorf("kc.allSerialIds() should give 25 results (24 hours + the non-specific) got %d: %+v",
+			len(kc.allSerialIds()), kc.allSerialIds())
 	}
 }
