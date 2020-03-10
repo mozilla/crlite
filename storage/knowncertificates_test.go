@@ -2,7 +2,6 @@ package storage
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -83,40 +82,6 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	}
 }
 
-func Test_KnownCertificatesKnownMultipleLists(t *testing.T) {
-	backend := NewMockRemoteCache()
-	backend.Duplicate = 4
-	testIssuer := NewIssuerFromString("test issuer")
-
-	expDate, err := NewExpDate("2029-02-28")
-	if err != nil {
-		t.Error(err)
-	}
-	kc := NewKnownCertificates(expDate, testIssuer, backend)
-
-	testList := SerialList{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
-
-	for i, serial := range testList {
-		id := kc.serialId(fmt.Sprintf("-%02d", i))
-		if id != fmt.Sprintf("serials::2029-02-28-%02d::test issuer", i) {
-			t.Errorf("id=%s didn't match for %d", id, i)
-		}
-		backend.Data[id] = []string{serial.BinaryString()}
-	}
-
-	sort.Sort(testList)
-
-	result := SerialList(kc.Known())
-	sort.Sort(result)
-	if !reflect.DeepEqual(testList, result) {
-		t.Errorf("Known should get the data: %+v // got %+v", testList, result)
-	}
-
-	if kc.Count() != 3 {
-		t.Errorf("Expected 3, got %d", kc.Count())
-	}
-}
-
 func Test_ExpireAt(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := NewIssuerFromString("test issuer")
@@ -141,20 +106,5 @@ func Test_ExpireAt(t *testing.T) {
 	expected := time.Date(2004, 01, 20, 4, 0, 0, 0, time.UTC)
 	if val != expected {
 		t.Errorf("Expected the expiration date to match: %v != %v", val, expected)
-	}
-}
-
-func Test_ExpireWithHourNoDuplicateLookups(t *testing.T) {
-	backend := NewMockRemoteCache()
-	testIssuer := NewIssuerFromString("test issuer")
-
-	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
-	expDate := NewExpDateFromTime(date)
-
-	kc := NewKnownCertificates(expDate, testIssuer, backend)
-
-	if len(kc.allSerialIds()) != 25 {
-		t.Errorf("kc.allSerialIds() should give 25 results (24 hours + the non-specific) got %d: %+v",
-			len(kc.allSerialIds()), kc.allSerialIds())
 	}
 }

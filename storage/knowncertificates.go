@@ -33,15 +33,6 @@ func (kc *KnownCertificates) serialId(params ...string) string {
 	return fmt.Sprintf("%s::%s", kSerials, kc.id(params...))
 }
 
-func (kc *KnownCertificates) allSerialIds() []string {
-	ids := make([]string, 25)
-	ids[0] = kc.serialId()
-	for hour := 0; hour < 24; hour++ {
-		ids[hour+1] = kc.serialId(fmt.Sprintf("-%02d", hour))
-	}
-	return ids
-}
-
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
 func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
@@ -64,15 +55,11 @@ func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
 }
 
 func (kc *KnownCertificates) Count() int64 {
-	var count int64
-	for _, key := range kc.allSerialIds() {
-		setLen, err := kc.cache.SetCardinality(key)
-		if err != nil {
-			glog.Errorf("Couldn't determine count of %s, now at %d: %s", kc.id(), count, err)
-		}
-		count += int64(setLen)
+	count, err := kc.cache.SetCardinality(kc.serialId())
+	if err != nil {
+		glog.Errorf("Couldn't determine count of %s, now at %d: %s", kc.id(), count, err)
 	}
-	return count
+	return int64(count)
 }
 
 func (kc *KnownCertificates) Known() []Serial {
@@ -82,19 +69,17 @@ func (kc *KnownCertificates) Known() []Serial {
 	serials := make(map[string]struct{})
 	var count int
 
-	for _, key := range kc.allSerialIds() {
-		strChan := make(chan string)
-		go func() {
-			err := kc.cache.SetToChan(key, strChan)
-			if err != nil {
-				glog.Fatalf("Error obtaining list of known certificates: %v", err)
-			}
-		}()
-
-		for str := range strChan {
-			serials[str] = struct{}{}
-			count += 1
+	strChan := make(chan string)
+	go func() {
+		err := kc.cache.SetToChan(kc.serialId(), strChan)
+		if err != nil {
+			glog.Fatalf("Error obtaining list of known certificates: %v", err)
 		}
+	}()
+
+	for str := range strChan {
+		serials[str] = struct{}{}
+		count += 1
 	}
 
 	serialList := make([]Serial, 0, count)
