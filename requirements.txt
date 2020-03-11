@@ -1,11 +1,12 @@
 bsdiff4>=1.1
 cryptography>=2.2
 dbx-stopwatch>=1.5
-filtercascade>=0.2.1
+filtercascade>=0.2.2
 glog>=0.3
 google-cloud-storage>=1.2
 kinto-http>=9.1
 progressbar2>=3.40
+psutil>=5
 pyOpenSSL>=17.5
 python-decouple>=3.1
 requests[socks]>=2.10.0

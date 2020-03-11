@@ -27,7 +27,8 @@ class MockFile(object):
 
 
 def make_certid(issuer, hex):
-    return certs_to_crlite.CertId(base64.urlsafe_b64decode(issuer), bytes.fromhex(hex))
+    issuerId = certs_to_crlite.IssuerId(base64.urlsafe_b64decode(issuer))
+    return certs_to_crlite.CertId(issuerId, bytes.fromhex(hex))
 
 
 def static_test_certs():

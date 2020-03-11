@@ -187,8 +187,14 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			paths = append(paths, finalPath)
 		}
 
+		subj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
+		if err != nil {
+			glog.Error(err)
+		}
+
 		resultChan <- types.IssuerCrlPaths{
 			Issuer:   tuple.Issuer,
+			IssuerDN: subj,
 			CrlPaths: paths,
 		}
 
@@ -289,6 +295,9 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
+
+			glog.Infof("[%s] %d total revoked serials for %s (len=%d, cap=%d)", tuple.Issuer.ID(),
+				serialCount, tuple.IssuerDN, len(serials), cap(serials))
 		} else {
 			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 		}

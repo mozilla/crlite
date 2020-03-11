@@ -96,7 +96,7 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 			glog.Fatalf("[%s] Could not save known certificates file: %s", tuple.issuer.ID(), err)
 		}
 
-		glog.Infof("[%s] %d total serials for %s (times=%d, len=%d, cap=%d)", tuple.issuer.ID(),
+		glog.Infof("[%s] %d total known serials for %s (times=%d, len=%d, cap=%d)", tuple.issuer.ID(),
 			serialCount, tuple.issuerDN, len(tuple.expDates), len(serials), cap(serials))
 	}
 }
