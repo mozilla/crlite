@@ -69,10 +69,16 @@ class TestCertLists(unittest.TestCase):
             revoked_path = tmpdirname / Path("revoked.bin")
             nonrevoked_path = tmpdirname / Path("valid.bin")
 
-            certs_to_crlite.saveCertLists(revoked_path=revoked_path,
-                                          nonrevoked_path=nonrevoked_path,
-                                          revoked_certs_by_issuer=revoked,
-                                          nonrevoked_certs_by_issuer=nonrevoked)
+            with open(revoked_path, "wb") as revfile:
+                for issuer in revoked:
+                    certs_to_crlite.writeCertListForIssuer(file=revfile,
+                                                           issuer_base64=issuer,
+                                                           serial_list=revoked[issuer])
+            with open(nonrevoked_path, "wb") as nonrevfile:
+                for issuer in nonrevoked:
+                    certs_to_crlite.writeCertListForIssuer(file=nonrevfile,
+                                                           issuer_base64=issuer,
+                                                           serial_list=nonrevoked[issuer])
 
             self.assertEqual(revoked_path.stat().st_size, 42)
             self.assertEqual(nonrevoked_path.stat().st_size, 44)
