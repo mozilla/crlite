@@ -39,6 +39,7 @@ type IssuerCrlUrls struct {
 
 type IssuerCrlPaths struct {
 	Issuer   storage.Issuer
+	IssuerDN string
 	CrlPaths []string
 }
 

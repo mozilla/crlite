@@ -11,10 +11,12 @@ import json
 import logging
 import math
 import os
+import psutil
 import stopwatch
 import sys
 import struct
 from filtercascade import FilterCascade
+from pathlib import Path
 
 # Structure of the stats object:
 # {
@@ -50,52 +52,85 @@ from filtercascade import FilterCascade
 sw = stopwatch.StopWatch()
 log = logging.getLogger('cert_to_crlite')
 
+issuerCache = {}
 
-class CertId(object):
-    def __init__(self, issuerSpkiHash, serial):
+
+def getIssuerIdFromCache(issuerSpkiHash):
+    if not isinstance(issuerSpkiHash, bytes):
+        raise Exception("issuerSpkiHash must be bytes")
+
+    if issuerSpkiHash not in issuerCache:
+        issuerCache[issuerSpkiHash] = IssuerId(issuerSpkiHash)
+
+    return issuerCache[issuerSpkiHash]
+
+
+class IssuerId(object):
+    def __init__(self, issuerSpkiHash):
         if not isinstance(issuerSpkiHash, bytes):
             raise Exception("issuerSpkiHash must be bytes")
+
+        self.issuerSpkiHash = issuerSpkiHash
+
+    def to_bytes(self):
+        return self.issuerSpkiHash
+
+    def __repr__(self):
+        return f"IssuerId({self.issuerSpkiHash.hex()})"
+
+    def __hash__(self):
+        return hash((self.issuerSpkiHash))
+
+    def __eq__(self, other):
+        return self.issuerSpkiHash == other.issuerSpkiHash
+
+
+class CertId(object):
+    def __init__(self, issuerId, serial):
+        if not isinstance(issuerId, IssuerId):
+            raise Exception("issuerId must be IssuerId")
 
         if not isinstance(serial, bytes):
             raise Exception("serial must be bytes")
 
-        self.issuerSpkiHash = issuerSpkiHash
+        self.issuerId = issuerId
         self.serial = serial
 
     def to_bytes(self):
-        return self.issuerSpkiHash + self.serial
+        return self.issuerId.to_bytes() + self.serial
 
     def __repr__(self):
-        return f"CertID({self.issuerSpkiHash.hex()}-{self.serial.hex()})"
+        return f"CertID({self.issuerId.to_bytes().hex()}-{self.serial.hex()})"
 
     def __hash__(self):
-        return hash((self.issuerSpkiHash, self.serial))
+        return hash((self.issuerId, self.serial))
 
     def __eq__(self, other):
-        return self.issuerSpkiHash == other.issuerSpkiHash and self.serial == other.serial
+        return self.issuerId == other.issuerId and self.serial == other.serial
 
 
 def getCertList(certpath, issuer):
-    issuerSpkiHash = base64.urlsafe_b64decode(issuer)
+    issuerId = getIssuerIdFromCache(base64.urlsafe_b64decode(issuer))
 
-    certlist = None
-    if os.path.isfile(certpath):
-        with open(certpath, "r") as f:
-            try:
-                serials = json.load(f)
-                certlist = set()
-                for sHex in serials:
-                    try:
-                        serial = bytes.fromhex(sHex)
-                        certlist.add(CertId(issuerSpkiHash, serial))
-                    except TypeError as te:
-                        log.error(f"Couldn't decode issuer={issuer} serial "
-                                  + f"hex={sHex} because {te}")
-                        log.error(f"Whole list: {serials}")
-            except Exception as e:
-                log.debug(f"getCertList exception caught: {e}")
-                log.error(f"Failed to load certs for {issuer} from {certpath}")
-                breakpoint()
+    certlist = set()
+    if not os.path.isfile(certpath):
+        raise Exception(f"getCertList: {certpath} not a file")
+
+    log.info(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
+
+    with open(certpath, "r") as f:
+        try:
+            for cnt, sHex in enumerate(f):
+                try:
+                    serial = bytes.fromhex(sHex)
+                    certlist.add(CertId(issuerId, serial))
+                except TypeError as te:
+                    log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
+                              + f"hex={sHex} because {te}")
+        except Exception as e:
+            log.debug(f"getCertList exception caught: {e}")
+            log.error(f"Failed to load certs for {issuer} from {certpath}")
+            breakpoint()
     return certlist
 
 
@@ -127,6 +162,7 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
             issuer = os.path.splitext(filename)[0]
             if issuer in args.excludeIssuer:
                 continue
+            log.info(f"genCertLists Processing issuer {issuer}, memory={psutil.virtual_memory()}")
             issuer_bytes = bytes(issuer, encoding="utf-8")
 
             initIssuerStats(stats, issuer)
@@ -173,6 +209,11 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
                 nonrevoked_certs_by_issuer[issuer_bytes] = set()
             nonrevoked_certs_by_issuer[issuer_bytes].update(knownNotRevoked)
 
+            log.debug(f"getCertLists, file={filename} KNR={len(knownNotRevoked)} "
+                      + f"KR={len(knownRevoked)}")
+
+    log.info(f"Collected revoked_certs_by_issuer and nonrevoked_certs_by_issuer")
+
     # Go through revoked issuers and process any that were not part of known issuers
     for path, dirs, files in os.walk(args.revokedPath):
         for filename in files:
@@ -205,7 +246,7 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
 issuers_struct = struct.Struct(b'<LH')
 
 # bytes 0-1: length of serial field as an unsigned short
-# bytes 2+: ASN.1 DER-encoded serial number
+# bytes 2+: serial number
 serials_struct = struct.Struct(b'<H')
 
 # bytes 0-3: N, number of revoked serials as an unsigned long
@@ -281,11 +322,14 @@ class EOFException(Exception):
 
 
 def expectRead(file, expectedBytes):
-    result = file.read(expectedBytes)
-    if len(result) == 0:
-        raise EOFException()
-    if len(result) < expectedBytes:
-        breakpoint()
+    data = []
+    remaining = expectedBytes
+    while remaining > 0:
+        result = file.read(remaining)
+        if len(result) == 0:
+            raise EOFException()
+        remaining -= len(result)
+        data.extend(result)
     return result
 
 
@@ -296,6 +340,8 @@ def readCertListByIssuer(file, certs_by_issuer):
                                                 expectRead(file, issuers_struct.size))
             issuer_bytes = expectRead(file, issuer_len)
 
+            issuerId = getIssuerIdFromCache(issuer_bytes)
+
             issuer = base64.urlsafe_b64encode(issuer_bytes)
             if issuer not in certs_by_issuer:
                 certs_by_issuer[issuer] = set()
@@ -304,7 +350,7 @@ def readCertListByIssuer(file, certs_by_issuer):
                 (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
                 serial_bytes = expectRead(file, serial_len)
 
-                certs_by_issuer[issuer].add(CertId(issuer_bytes, serial_bytes))
+                certs_by_issuer[issuer].add(CertId(issuerId, serial_bytes))
     except EOFException:
         pass
     return
