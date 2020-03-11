@@ -144,95 +144,96 @@ def initIssuerStats(stats, issuer):
     }
 
 
-def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_issuer):
+class IssuerDataOnDisk(object):
+    def __init__(self, *, issuer, knownPath, revokedPath):
+        self.issuer = issuer
+        self.knownPath = knownPath
+        self.revokedPath = revokedPath
+
+    def __repr__(self):
+        return f"{self.issuer}"
+
+    def load_and_make_sets(self, stats):
+        knownSet = getCertList(self.knownPath, self.issuer)
+        if knownSet:
+            stats['known'] += len(knownSet)
+        else:
+            knownSet = set()
+        stats['Issuers'][self.issuer]['known'] = len(knownSet)
+
+        revSet = getCertList(self.revokedPath, self.issuer)
+        if revSet:
+            stats['revoked'] += len(revSet)
+            stats['Issuers'][self.issuer]['crl'] = True
+        else:
+            stats['nocrl'] += 1
+            revSet = set()
+        stats['Issuers'][self.issuer]['revoked'] = len(revSet)
+
+        knownNotRevoked = knownSet - revSet
+        knownRevoked = knownSet & revSet
+        return {
+            "issuer": self.issuer,
+            "knownNotRevoked": knownNotRevoked,
+            "knownRevoked": knownRevoked,
+        }
+
+
+def genIssuerPathObjects(*, knownPath, revokedPath, excludeIssuer):
+    for path, dirs, files in os.walk(knownPath):
+        for filename in files:
+            issuer = os.path.splitext(filename)[0]
+            if issuer in excludeIssuer:
+                continue
+
+            yield IssuerDataOnDisk(issuer=issuer, knownPath=path / Path(filename),
+                                   revokedPath=revokedPath / Path(issuer))
+
+
+def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonrevoked_path,
+                    exclude_issuer, stats):
     stats['knownrevoked'] = 0
     stats['knownnotrevoked'] = 0
     stats['revoked'] = 0
     stats['known'] = 0
     stats['nocrl'] = 0
     stats['Issuers'] = {}
-    log.info("Generating revoked/nonrevoked list {known} {revoked}".format(
-        known=args.knownPath, revoked=args.revokedPath))
 
-    processedIssuers = set()
-    # Go through known issuers/serials
-    # generate a revoked/nonrevoked master list
-    for path, dirs, files in os.walk(args.knownPath):
-        for filename in files:
-            issuer = os.path.splitext(filename)[0]
-            if issuer in args.excludeIssuer:
-                continue
-            log.info(f"genCertLists Processing issuer {issuer}, memory={psutil.virtual_memory()}")
-            issuer_bytes = bytes(issuer, encoding="utf-8")
+    log.info(f"Generating revoked/nonrevoked lists {known_revoked_path} {known_nonrevoked_path} "
+             + f"from {known_path} and {revoked_path}")
 
+    os.makedirs(os.path.dirname(known_revoked_path), exist_ok=True)
+    os.makedirs(os.path.dirname(known_nonrevoked_path), exist_ok=True)
+
+    with open(known_revoked_path, 'wb') as revfile, open(known_nonrevoked_path,
+                                                         'wb') as nonrevfile:
+        for issuerObj in genIssuerPathObjects(knownPath=known_path, revokedPath=revoked_path,
+                                              excludeIssuer=exclude_issuer):
+            log.info(f"createCertLists Processing issuerObj={issuerObj}, "
+                     + f"memory={psutil.virtual_memory()}")
+
+            issuer = issuerObj.issuer
             initIssuerStats(stats, issuer)
 
-            # Get known serials for the issuer
-            knownpath = os.path.join(path, filename)
-            knownlist = getCertList(knownpath, issuer)
+            sets = issuerObj.load_and_make_sets(stats)
 
-            if knownlist:
-                stats['known'] += len(knownlist)
-            else:
-                knownlist = set()
-            stats['Issuers'][issuer]['known'] = len(knownlist)
+            knownNotRevokedLen = len(sets["knownNotRevoked"])
+            knownRevokedLen = len(sets["knownRevoked"])
 
-            # Get revoked serials for issuer, if any
-            revokedpath = os.path.join(args.revokedPath, issuer)
-            revlist = getCertList(revokedpath, issuer)
+            stats['knownnotrevoked'] += knownNotRevokedLen
+            stats['knownrevoked'] += knownRevokedLen
+            stats['Issuers'][issuer]['knownnotrevoked'] = knownNotRevokedLen
+            stats['Issuers'][issuer]['knownrevoked'] = knownRevokedLen
 
-            if revlist:
-                stats['revoked'] += len(revlist)
-                stats['Issuers'][issuer]['crl'] = True
-            else:
-                stats['nocrl'] += 1
-                revlist = set()
-            stats['Issuers'][issuer]['revoked'] = len(revlist)
+            writeCertListForIssuer(file=revfile, issuer_base64=issuer,
+                                   serial_list=sets["knownRevoked"])
+            writeCertListForIssuer(file=nonrevfile, issuer_base64=issuer,
+                                   serial_list=sets["knownNotRevoked"])
 
-            processedIssuers.add(issuer)
+            log.debug(f"createCertLists issuerObj={issuerObj} KNR={knownNotRevokedLen} "
+                      + f"KR={knownRevokedLen}")
 
-            knownNotRevoked = knownlist - revlist
-            knownRevoked = knownlist & revlist
-            stats['knownnotrevoked'] += len(knownNotRevoked)
-            stats['knownrevoked'] += len(knownRevoked)
-            stats['Issuers'][issuer]['knownnotrevoked'] = len(knownNotRevoked)
-            stats['Issuers'][issuer]['knownrevoked'] = len(knownRevoked)
-
-            # cbw - Don't add all revocations, only add revocations
-            # for known certificates. Revocations for unknown certs
-            # are useless cruft
-            if issuer_bytes not in revoked_certs_by_issuer:
-                revoked_certs_by_issuer[issuer_bytes] = set()
-            revoked_certs_by_issuer[issuer_bytes].update(knownRevoked)
-
-            if issuer_bytes not in nonrevoked_certs_by_issuer:
-                nonrevoked_certs_by_issuer[issuer_bytes] = set()
-            nonrevoked_certs_by_issuer[issuer_bytes].update(knownNotRevoked)
-
-            log.debug(f"getCertLists, file={filename} KNR={len(knownNotRevoked)} "
-                      + f"KR={len(knownRevoked)}")
-
-    log.info(f"Collected revoked_certs_by_issuer and nonrevoked_certs_by_issuer")
-
-    # Go through revoked issuers and process any that were not part of known issuers
-    for path, dirs, files in os.walk(args.revokedPath):
-        for filename in files:
-            issuer = os.path.splitext(filename)[0]
-            if issuer in args.excludeIssuer:
-                continue
-            if issuer not in processedIssuers:
-                initIssuerStats(stats, issuer)
-
-                revokedpath = os.path.join(path, filename)
-                revlist = getCertList(revokedpath, issuer)
-                if revlist is None:
-                    # Skip issuer. No revocations for this issuer.  Not even empty list.
-                    stats['nocrl'] += 1
-                else:
-                    log.debug("Only revoked certs for issuer {}".format(issuer))
-                    stats['revoked'] += len(revlist)
-                    stats['Issuers'][issuer]['crl'] = True
-                    stats['Issuers'][issuer]['revoked'] = len(revlist)
+    # TODO: Verify any revoked issuers that had no known issuers
 
     log.debug("R: %d K: %d KNR: %d KR: %d NOCRL: %d" %
               (stats['revoked'], stats['known'], stats['knownnotrevoked'],
@@ -266,23 +267,21 @@ def writeSerials(file, serial_list):
         file.write(k.serial)
 
 
-def writeCertListByIssuer(file, certs_by_issuer):
-    for issuer_base64 in certs_by_issuer:
-        serial_list = certs_by_issuer[issuer_base64]
-        num_serial_list = len(serial_list)
+def writeCertListForIssuer(*, file, issuer_base64, serial_list):
+    num_serial_list = len(serial_list)
 
-        issuer = base64.urlsafe_b64decode(issuer_base64)
-        issuer_len = len(issuer)
+    issuer = base64.urlsafe_b64decode(issuer_base64)
+    issuer_len = len(issuer)
 
-        if num_serial_list > 0xFFFFFFFF:
-            raise Exception("serial list length > unsigned long")
-        if issuer_len > 0xFFFF:
-            raise Exception("issuer bytes > unsigned short")
+    if num_serial_list > 0xFFFFFFFF:
+        raise Exception("serial list length > unsigned long")
+    if issuer_len > 0xFFFF:
+        raise Exception("issuer bytes > unsigned short")
 
-        file.write(issuers_struct.pack(num_serial_list, issuer_len))
-        file.write(issuer)
+    file.write(issuers_struct.pack(num_serial_list, issuer_len))
+    file.write(issuer)
 
-        writeSerials(file, serial_list)
+    writeSerials(file, serial_list)
 
 
 def save_additions(*, out_path, revoked_by_issuer, nonrevoked_by_issuer):
@@ -354,17 +353,6 @@ def readCertListByIssuer(file, certs_by_issuer):
     except EOFException:
         pass
     return
-
-
-def saveCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
-                  nonrevoked_certs_by_issuer):
-    log.info(f"Saving revoked/nonrevoked list {revoked_path} {nonrevoked_path}")
-    os.makedirs(os.path.dirname(revoked_path), exist_ok=True)
-    os.makedirs(os.path.dirname(nonrevoked_path), exist_ok=True)
-    with open(revoked_path, 'wb') as revfile:
-        writeCertListByIssuer(revfile, revoked_certs_by_issuer)
-    with open(nonrevoked_path, 'wb') as nonrevfile:
-        writeCertListByIssuer(nonrevfile, nonrevoked_certs_by_issuer)
 
 
 def loadCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
@@ -487,8 +475,9 @@ def parseArgs(argv):
         default=[],
         help="Exclude the specified Issuers")
     parser.add_argument(
-        "-cacheKeys",
-        help="Load revoked/non-revoked sorted certs from cache files.",
+        "-onlyUseCache",
+        help="Load revoked/non-revoked sorted certs from cache files, do not read the knownPath " +
+             + "or revokedPath folders",
         action="store_true")
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
@@ -526,35 +515,31 @@ def main():
     stats = {}
 
     sw.start('crlite')
-    if args.cacheKeys is True:
-        if not (os.path.isfile(args.revokedKeys) and os.path.isfile(args.validKeys)):
-            raise Exception(f"Could not load cacheKeys from {args.revokedKeys}"
-                            + f" or {args.validKeys}")
-        sw.start('load certs')
+    sw.start('certs')
+    if args.onlyUseCache is False:
+        sw.start('collate certs')
+        createCertLists(
+            known_path=args.knownPath,
+            revoked_path=args.revokedPath,
+            known_revoked_path=args.revokedKeys,
+            known_nonrevoked_path=args.validKeys,
+            exclude_issuer=args.excludeIssuer,
+            stats=stats,
+        )
+        sw.end('collate certs')
 
-        loadCertLists(
-            revoked_path=args.revokedKeys,
-            nonrevoked_path=args.validKeys,
-            revoked_certs_by_issuer=revoked_certs_by_issuer,
-            nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
-        sw.end('load certs')
-    else:
-        sw.start('certs')
-        sw.start('gen certs')
-        genCertLists(
-            args,
-            stats,
-            revoked_certs_by_issuer=revoked_certs_by_issuer,
-            nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
-        sw.end('gen certs')
-        sw.start('save certs')
-        saveCertLists(
-            revoked_path=args.revokedKeys,
-            nonrevoked_path=args.validKeys,
-            revoked_certs_by_issuer=revoked_certs_by_issuer,
-            nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
-        sw.end('save certs')
-        sw.end('certs')
+    # what needs to happen - after createCertLists, we need to load the small
+    # list into memory, then run the generate methods and figure out the diffs
+    sw.start('load certs')
+    loadCertLists(
+        revoked_path=args.revokedKeys,
+        nonrevoked_path=args.validKeys,
+        revoked_certs_by_issuer=revoked_certs_by_issuer,
+        nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
+    sw.end('load certs')
+    sw.end('certs')
+
+    breakpoint()
 
     # Setup for diff if previous filter specified
     if args.previd is not None:
