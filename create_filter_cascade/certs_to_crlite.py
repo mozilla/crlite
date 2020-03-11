@@ -112,41 +112,6 @@ class CertId(object):
         return self.issuerId == other.issuerId and self.serial == other.serial
 
 
-def getCertList(certpath, issuer):
-    issuerId = getIssuerIdFromCache(base64.urlsafe_b64decode(issuer))
-
-    certlist = set()
-    if not os.path.isfile(certpath):
-        raise Exception(f"getCertList: {certpath} not a file")
-
-    log.info(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
-
-    with open(certpath, "r") as f:
-        try:
-            for cnt, sHex in enumerate(f):
-                try:
-                    serial = bytes.fromhex(sHex)
-                    certlist.add(CertId(issuerId, serial))
-                except TypeError as te:
-                    log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
-                              + f"hex={sHex} because {te}")
-        except Exception as e:
-            log.debug(f"getCertList exception caught: {e}")
-            log.error(f"Failed to load certs for {issuer} from {certpath}")
-            breakpoint()
-    return certlist
-
-
-def initIssuerStats(stats, issuer):
-    stats['Issuers'][issuer] = {
-        'known': 0,
-        'revoked': 0,
-        'knownnotrevoked': 0,
-        'knownrevoked': 0,
-        'crl': False
-    }
-
-
 class IssuerDataOnDisk(object):
     def __init__(self, *, issuer, knownPath, revokedPath):
         self.issuer = issuer
@@ -182,6 +147,41 @@ class IssuerDataOnDisk(object):
         }
 
 
+def getCertList(certpath, issuer):
+    issuerId = getIssuerIdFromCache(base64.urlsafe_b64decode(issuer))
+
+    certlist = set()
+    if not os.path.isfile(certpath):
+        raise Exception(f"getCertList: {certpath} not a file")
+
+    log.info(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
+
+    with open(certpath, "r") as f:
+        try:
+            for cnt, sHex in enumerate(f):
+                try:
+                    serial = bytes.fromhex(sHex)
+                    certlist.add(CertId(issuerId, serial))
+                except TypeError as te:
+                    log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
+                              + f"hex={sHex} because {te}")
+        except Exception as e:
+            log.debug(f"getCertList exception caught: {e}")
+            log.error(f"Failed to load certs for {issuer} from {certpath}")
+            breakpoint()
+    return certlist
+
+
+def initIssuerStats(stats, issuer):
+    stats['Issuers'][issuer] = {
+        'known': 0,
+        'revoked': 0,
+        'knownnotrevoked': 0,
+        'knownrevoked': 0,
+        'crl': False
+    }
+
+
 def genIssuerPathObjects(*, knownPath, revokedPath, excludeIssuer):
     for path, dirs, files in os.walk(knownPath):
         for filename in files:
@@ -210,8 +210,9 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
 
     with open(known_revoked_path, 'wb') as revfile, open(known_nonrevoked_path,
                                                          'wb') as nonrevfile:
-        for issuerObj in genIssuerPathObjects(knownPath=known_path, revokedPath=revoked_path,
-                                              excludeIssuer=exclude_issuer):
+        issuerPathIter = genIssuerPathObjects(knownPath=known_path, revokedPath=revoked_path,
+                                              excludeIssuer=exclude_issuer)
+        for issuerObj in sorted(issuerPathIter, key=lambda i: i.issuer):
             log.info(f"createCertLists Processing issuerObj={issuerObj}, "
                      + f"memory={psutil.virtual_memory()}")
 
@@ -243,8 +244,8 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
                stats['knownrevoked'], stats['nocrl']))
 
     return {
-        "known_nonrevoked_certs_len": known_nonrevoked_certs_len,
-        "known_revoked_certs_len": known_revoked_certs_len,
+        "known_nonrevoked_certs_len": stats['knownnotrevoked'],
+        "known_revoked_certs_len": stats['knownrevoked'],
     }
 
 
@@ -359,12 +360,29 @@ def readFromCertList(file):
     return
 
 
+def readFromCertListByIssuer(file):
+    current_certIds = None
+    current_issuer = None
+
+    for certId in readFromCertList(file):
+        if current_issuer is None:
+            current_issuer = certId.issuerId
+            current_certIds = set()
+
+        elif certId.issuerId != current_issuer:
+            yield (current_issuer.base64(), current_certIds)
+
+            current_issuer = certId.issuerId
+            current_certIds = set()
+
+        current_certIds.add(certId)
+
+    yield (current_issuer.base64(), current_certIds)
+
+
 def readCertListByIssuer(file, certs_by_issuer):
-    for certid in readFromCertList(file):
-        issuer = certid.issuerId.base64()
-        if issuer not in certs_by_issuer:
-            certs_by_issuer[issuer] = set()
-        certs_by_issuer[issuer].add(certid)
+    for issuer, certIds in readFromCertListByIssuer(file):
+        certs_by_issuer[issuer] = certIds
 
 
 def loadCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
@@ -554,7 +572,6 @@ def main():
     #             prior_revoked_certs = set(readFromCertList(fp))
     #         sw.end('load previous revoked filter')
 
-    #         find_additions(old=prior_revoked_certs, new=revoked_certs)
     #         prior_revoked_certs_by_issuer = {}
     #         prior_nonrevoked_certs_by_issuer = {}
 
