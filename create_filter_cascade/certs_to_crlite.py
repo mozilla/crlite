@@ -250,28 +250,28 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
 
 
 # bytes 0-3: N, number of serials as an unsigned long
-# bytes 4-5: L, length of issuer field as a unsigned short
-# bytes 6+: hash of issuer subject public key info of length L
+# bytes 4: L, length of issuer field as a unsigned char
+# bytes 5+: hash of issuer subject public key info of length L
 # then N serials_structs
-issuers_struct = struct.Struct(b'<LH')
+issuers_struct = struct.Struct(b'<LB')
 
-# bytes 0-1: length of serial field as an unsigned short
-# bytes 2+: serial number
-serials_struct = struct.Struct(b'<H')
+# byte 0: length of serial field as an unsigned short
+# bytes 1+: serial number
+serials_struct = struct.Struct(b'<B')
 
 # bytes 0-3: N, number of revoked serials as an unsigned long
 # bytes 4-7: M, number of nonrevoked serials as an unsigned long
-# bytes 8-9: L, length of issuer field as a unsigned short
+# bytes 8-9: L, length of issuer field as a unsigned char
 # bytes 10+: hash of issuer subject public key info of length L
 # then N serials_structs followed by M serials_structs
-additions_struct = struct.Struct(b'<LLH')
+additions_struct = struct.Struct(b'<LLB')
 
 
 def writeSerials(file, serial_list):
     for k in serial_list:
         n = len(k.serial)
-        if n > 0xFFFF:
-            raise Exception("serial bytes > unsigned short")
+        if n > 0xFF:
+            raise ValueError("serial bytes > unsigned short")
         file.write(serials_struct.pack(n))
         file.write(k.serial)
 
@@ -283,9 +283,9 @@ def writeCertListForIssuer(*, file, issuer_base64, serial_list):
     issuer_len = len(issuer)
 
     if num_serial_list > 0xFFFFFFFF:
-        raise Exception("serial list length > unsigned long")
-    if issuer_len > 0xFFFF:
-        raise Exception("issuer bytes > unsigned short")
+        raise ValueError("serial list length > unsigned long")
+    if issuer_len > 0xFF:
+        raise ValueError("issuer bytes > unsigned char")
 
     file.write(issuers_struct.pack(num_serial_list, issuer_len))
     file.write(issuer)
@@ -299,22 +299,22 @@ def save_additions(*, out_path, revoked_by_issuer, nonrevoked_by_issuer):
         for issuer_b64 in all_issuers:
             issuer = base64.urlsafe_b64decode(issuer_b64)
             issuer_len = len(issuer)
-            if issuer_len > 0xFFFF:
-                raise Exception("issuer bytes > unsigned short")
+            if issuer_len > 0xFF:
+                raise ValueError("issuer bytes > unsigned char")
 
             issuer_revocations = []
             if issuer_b64 in revoked_by_issuer:
                 issuer_revocations = revoked_by_issuer[issuer_b64]
             num_issuer_revocations = len(issuer_revocations)
             if num_issuer_revocations > 0xFFFFFFFF:
-                raise Exception("revocation list length > unsigned long")
+                raise ValueError("revocation list length > unsigned long")
 
             issuer_valid = []
             if issuer_b64 in nonrevoked_by_issuer:
                 issuer_valid = nonrevoked_by_issuer[issuer_b64]
             num_issuer_valid = len(issuer_valid)
             if num_issuer_valid > 0xFFFFFFFF:
-                raise Exception("valid list length > unsigned long")
+                raise ValueError("valid list length > unsigned long")
 
             file.write(additions_struct.pack(
                 num_issuer_revocations, num_issuer_valid, issuer_len
@@ -346,18 +346,19 @@ def readFromCertList(file):
         while True:
             (num_serial_list, issuer_len) = issuers_struct.unpack(
                                                 expectRead(file, issuers_struct.size))
+            assert issuer_len <= 64, f"issuer spki hash should be 64 bytes, got {issuer_len}"
             issuer_bytes = expectRead(file, issuer_len)
 
             issuerId = getIssuerIdFromCache(issuer_bytes)
 
             for serial_idx in range(num_serial_list):
                 (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
+                assert serial_len <= 64, f"serial length should be small, got {serial_len}"
                 serial_bytes = expectRead(file, serial_len)
 
                 yield CertId(issuerId, serial_bytes)
     except EOFException:
-        pass
-    return
+        return
 
 
 def readFromCertListByIssuer(file):
@@ -377,23 +378,11 @@ def readFromCertListByIssuer(file):
 
         current_certIds.add(certId)
 
+    if current_issuer is None:
+        # file did not contain any cert IDs
+        return
+
     yield (current_issuer.base64(), current_certIds)
-
-
-def readCertListByIssuer(file, certs_by_issuer):
-    for issuer, certIds in readFromCertListByIssuer(file):
-        certs_by_issuer[issuer] = certIds
-
-
-def loadCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
-                  nonrevoked_certs_by_issuer):
-    log.info(f"Loading revoked/nonrevoked list {revoked_path} {nonrevoked_path}")
-    nonrevoked_certs_by_issuer.clear()
-    revoked_certs_by_issuer.clear()
-    with open(revoked_path, 'rb') as file:
-        readCertListByIssuer(file, revoked_certs_by_issuer)
-    with open(nonrevoked_path, 'rb') as file:
-        readCertListByIssuer(file, nonrevoked_certs_by_issuer)
 
 
 def getFPRs(revoked_certs_len, nonrevoked_certs_len):
@@ -494,7 +483,7 @@ def find_additions(*, old_by_issuer, new_by_issuer):
     if len(old_cache) > 0:
         # We don't care about removals, but log a debug statement if it matters
         log.debug(f"find_additions: old_cache indicates a removal of "
-                  + f"{len(old_cache)} entries: {old_cache}")
+                  + f"{len(old_cache)} entries from keys: {old_cache.keys()}")
     return added
 
 
@@ -587,30 +576,22 @@ def main():
         if not (prior_revoked_path.is_file() and prior_valid_path.is_file()):
             log.warning("Previous ID specified but no filter files found.")
         else:
+            sw.start('make diff')
             with open(prior_revoked_path, "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
                 sw.start('diff revoked filter')
                 revoked_diff_by_isssuer = find_additions(
-                    old_by_issuer=readCertListByIssuer(prior_fp),
-                    new_by_issuer=readCertListByIssuer(fp),
+                    old_by_issuer=readFromCertListByIssuer(prior_fp),
+                    new_by_issuer=readFromCertListByIssuer(fp),
                 )
                 sw.start('diff revoked filter')
 
-            # sw.start('load previous valid filter')
-            # prior_nonrevoked_certs_by_issuer = {}
-            # with open(diff_valid_path, "rb") as diff_fp:
-            #     for issuer, certIds in readFromCertListByIssuer(diff_fp):
-            #         pass
-            # sw.end('load previous valid filter')
-
-            # sw.start('make diff')
-            # revoked_diff_by_isssuer = find_additions(
-            #     old_by_issuer=prior_revoked_certs_by_issuer,
-            #     new_by_issuer=revoked_certs_by_issuer)
-            # nonrevoked_diff_by_issuer = find_additions(
-            #     old_by_issuer=prior_nonrevoked_certs_by_issuer,
-            #     new_by_issuer=nonrevoked_certs_by_issuer)
-
-            nonrevoked_diff_by_issuer = {}
+            with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
+                sw.start('diff valid filter')
+                nonrevoked_diff_by_issuer = find_additions(
+                    old_by_issuer=readFromCertListByIssuer(prior_fp),
+                    new_by_issuer=readFromCertListByIssuer(fp),
+                )
+                sw.start('diff valid filter')
 
             save_additions(
                 out_path=args.diffPath,
@@ -643,7 +624,9 @@ def main():
     sw.start('generate MLBF')
     with open(args.validKeys, "rb") as fp:
         mlbf = generateMLBF(
-            args, stats, revoked_certs=revoked_certs,
+            args,
+            stats,
+            revoked_certs=revoked_certs,
             nonrevoked_certs=readFromCertList(fp),
             nonrevoked_certs_len=known_nonrevoked_certs_len,
         )

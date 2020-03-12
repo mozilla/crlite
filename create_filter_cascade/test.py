@@ -9,6 +9,7 @@ import tempfile
 class MockFile(object):
     def __init__(self):
         self.data = b""
+        self.idx = 0
 
     def __len__(self):
         return len(self.data)
@@ -19,8 +20,10 @@ class MockFile(object):
     def write(self, s):
         self.data = self.data + s
 
-    def read(self):
-        return self.data
+    def read(self, count=0xFFFFFFFF):
+        data = self.data[self.idx: count + self.idx]
+        self.idx += min(count, len(data))
+        return data
 
     def flush(self):
         pass
@@ -53,6 +56,53 @@ def static_test_certs():
     return set1, set2
 
 
+class TestStructs(unittest.TestCase):
+    def test_write_serial(self):
+        f = MockFile()
+
+        with self.assertRaises(Exception):
+            certs_to_crlite.writeSerials(f, [
+                make_certid(b"YQo=", "FF" * 256)
+            ])
+        self.assertEqual(len(f), 0)
+
+        certs_to_crlite.writeSerials(f, [
+            make_certid(b"YQo=", "FF" * 255)
+        ])
+        self.assertEqual(len(f), 256)
+
+    def test_write_issuer(self):
+        f = MockFile()
+
+        issuer_base64 = base64.standard_b64encode(b"FF"*0x20)
+        serial_list = set([make_certid(issuer_base64, "CABF00D0")])
+        certs_to_crlite.writeCertListForIssuer(file=f,
+                                               issuer_base64=issuer_base64,
+                                               serial_list=serial_list)
+        self.assertEqual(len(f), 74)
+
+        loaded = dict(certs_to_crlite.readFromCertListByIssuer(f))
+        self.assertTrue(issuer_base64 in loaded)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[issuer_base64], serial_list)
+
+    def test_read_write_huge_issuer(self):
+        f = MockFile()
+
+        issuer_base64 = base64.standard_b64encode(b"FF"*254)
+        with self.assertRaises(ValueError):
+            certs_to_crlite.writeCertListForIssuer(file=f,
+                                                   issuer_base64=issuer_base64,
+                                                   serial_list=[])
+        self.assertEqual(len(f), 0)
+
+        issuer_base64 = base64.standard_b64encode(b"FF"*0x20)
+        certs_to_crlite.writeCertListForIssuer(file=f,
+                                               issuer_base64=issuer_base64,
+                                               serial_list=[])
+        self.assertEqual(len(f), 69)
+
+
 class TestCertLists(unittest.TestCase):
     def assertCertListEqual(self, a, b):
         self.assertEqual(len(a), len(b))
@@ -80,16 +130,16 @@ class TestCertLists(unittest.TestCase):
                                                            issuer_base64=issuer,
                                                            serial_list=serials)
 
-            self.assertEqual(revoked_path.stat().st_size, 42)
-            self.assertEqual(nonrevoked_path.stat().st_size, 44)
+            self.assertEqual(revoked_path.stat().st_size, 37)
+            self.assertEqual(nonrevoked_path.stat().st_size, 39)
 
             loaded_revoked = {}
             loaded_nonrevoked = {}
 
-            certs_to_crlite.loadCertLists(revoked_path=revoked_path,
-                                          nonrevoked_path=nonrevoked_path,
-                                          revoked_certs_by_issuer=loaded_revoked,
-                                          nonrevoked_certs_by_issuer=loaded_nonrevoked)
+            with open(revoked_path, 'rb') as file:
+                loaded_revoked = dict(certs_to_crlite.readFromCertListByIssuer(file))
+            with open(nonrevoked_path, 'rb') as file:
+                loaded_nonrevoked = dict(certs_to_crlite.readFromCertListByIssuer(file))
 
             self.assertCertListEqual(loaded_revoked, revoked)
             self.assertCertListEqual(loaded_nonrevoked, nonrevoked)
@@ -104,7 +154,7 @@ class TestCertLists(unittest.TestCase):
                                            revoked_by_issuer=revoked,
                                            nonrevoked_by_issuer=nonrevoked)
 
-            self.assertEqual(diff_path.stat().st_size, 83)
+            self.assertEqual(diff_path.stat().st_size, 74)
 
     def test_make_diff_completely_different(self):
         old, new = static_test_certs()
