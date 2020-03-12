@@ -492,22 +492,27 @@ def parseArgs(argv):
     parser.add_argument("id", help="CT baseline identifier", metavar=('ID'))
     parser.add_argument(
         "-previd",
+        type=Path,
         help="Previous identifier to use for diff",
         metavar=('DIFFID'))
     parser.add_argument(
         "-certPath",
+        type=Path,
         help="Directory containing CT data.",
         default="/ct/processing")
     parser.add_argument(
         "-outDirName",
+        type=Path,
         help="Name of the directory to store output in. Default=mlbf/",
         default="mlbf")
     parser.add_argument(
         "-knownPath",
+        type=Path,
         help="Directory containing known unexpired serials. Like ID/known/"
     )
     parser.add_argument(
         "-revokedPath",
+        type=Path,
         help="Directory containing known revoked serials, like ID/revoked/"
     )
     parser.add_argument(
@@ -525,21 +530,20 @@ def parseArgs(argv):
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
     args = parser.parse_args(argv)
-    args.outFile = os.path.join(args.certPath, args.id, args.outDirName, "filter")
-    args.metaFile = os.path.join(args.certPath, args.id, args.outDirName, "filter.meta")
+    args.outFile = args.certPath / args.id / args.outDirName / "filter"
+    args.metaFile = args.certPath / args.id / args.outDirName / "filter.meta"
     if args.knownPath is None:
-        args.knownPath = os.path.join(args.certPath, args.id, "known")
+        args.knownPath = args.certPath / args.id / "known"
     if args.revokedPath is None:
-        args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
-    args.diffPath = os.path.join(args.certPath, args.id, args.outDirName, "filter.stash")
-    args.revokedKeys = os.path.join(args.certPath, args.id,
-                                    args.outDirName, "list-revoked.keys")
-    args.validKeys = os.path.join(args.certPath, args.id, args.outDirName, "list-valid.keys")
+        args.revokedPath = args.certPath / args.id / "revoked"
+    args.diffPath = args.certPath / args.id / args.outDirName / "filter.stash"
+    args.revokedKeys = args.certPath / args.id / args.outDirName / "list-revoked.keys"
+    args.validKeys = args.certPath / args.id / args.outDirName / "list-valid.keys"
     return args
 
 
 def saveStats(args, stats):
-    statsPath = os.path.join(args.certPath, args.id, args.outDirName, "stats.json")
+    statsPath = args.certPath / args.id / args.outDirName / "stats.json"
     os.makedirs(os.path.dirname(statsPath), exist_ok=True)
     with open(statsPath, 'w') as f:
         f.write(json.dumps(stats))
@@ -556,7 +560,7 @@ def main():
     sw.start('crlite')
     if args.onlyUseCache is False:
         sw.start('collate certs')
-        log.debug("constructing known revoked nonrevoked cert sets")
+        log.info("Constructing known revoked and nonrevoked cert sets")
         results = createCertLists(
             known_path=args.knownPath,
             revoked_path=args.revokedPath,
@@ -577,51 +581,55 @@ def main():
             log.warning("Previous ID specified but no filter files found.")
         else:
             sw.start('make diff')
+            log.info("Making diff for known revoked entries")
             with open(prior_revoked_path, "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
                 sw.start('diff revoked filter')
                 revoked_diff_by_isssuer = find_additions(
                     old_by_issuer=readFromCertListByIssuer(prior_fp),
                     new_by_issuer=readFromCertListByIssuer(fp),
                 )
-                sw.start('diff revoked filter')
+                sw.end('diff revoked filter')
 
+            log.info("Making diff for known valid entries")
             with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
                 sw.start('diff valid filter')
                 nonrevoked_diff_by_issuer = find_additions(
                     old_by_issuer=readFromCertListByIssuer(prior_fp),
                     new_by_issuer=readFromCertListByIssuer(fp),
                 )
-                sw.start('diff valid filter')
+                sw.end('diff valid filter')
 
+            log.info("Saving difference stash.")
             save_additions(
                 out_path=args.diffPath,
                 revoked_by_issuer=revoked_diff_by_isssuer,
                 nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
+            log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size}"
+                     + f"memory={psutil.virtual_memory()}")
             sw.end('make diff')
 
-    log.info(f"diffs complete. memory={psutil.virtual_memory()}")
-
     if not known_nonrevoked_certs_len:
-        log.debug("known_nonrevoked_certs_len not calculated, calculating...")
+        log.info("known_nonrevoked_certs_len not calculated, calculating...")
         sw.start('calculate known_nonrevoked_certs_len')
         with open(args.validKeys, "rb") as fp:
             known_nonrevoked_certs_len = len(list(readFromCertList(fp)))
         sw.end('calculate known_nonrevoked_certs_len')
 
-    log.debug("revoked_certs loading...")
+    log.info("revoked_certs loading...")
     sw.start('load revoked certs')
     with open(args.revokedKeys, "rb") as fp:
         revoked_certs = set(readFromCertList(fp))
     num_revoked_certs = len(revoked_certs)
     sw.end('load revoked certs')
 
-    log.debug(f"Cert lists revoked R: {num_revoked_certs} NR: {known_nonrevoked_certs_len}")
+    log.info(f"Ready to produce MLBF, counts are R: {num_revoked_certs} "
+             + f"NR: {known_nonrevoked_certs_len}")
 
     if num_revoked_certs == 0:
         sys.exit(1)
 
     # Generate new filter
-    sw.start('generate MLBF')
+    log.info("Constructing MLBF")
     with open(args.validKeys, "rb") as fp:
         mlbf = generateMLBF(
             args,
@@ -630,11 +638,11 @@ def main():
             nonrevoked_certs=readFromCertList(fp),
             nonrevoked_certs_len=known_nonrevoked_certs_len,
         )
-    sw.end('generate MLBF')
 
-    log.info(f"generateMLBF complete. memory={psutil.virtual_memory()}")
+    log.info(f"MLBF complete. memory={psutil.virtual_memory()}")
 
     if mlbf.bitCount() > 0:
+        log.info(f"Validating MLBF. Bit-count={mlbf.bitCount()}")
         with open(args.validKeys, "rb") as fp:
             verifyMLBF(
                 args,
@@ -642,9 +650,11 @@ def main():
                 revoked_certs=revoked_certs,
                 nonrevoked_certs=readFromCertList(fp))
 
-        saveMLBF(args, stats, mlbf)
+        log.info(f"MLBF validation complete. memory={psutil.virtual_memory()}")
 
-    log.info(f"verifyMLBF complete. memory={psutil.virtual_memory()}")
+        log.info(f"Saving MLBF.")
+        saveMLBF(args, stats, mlbf)
+        log.info(f"MLBF save complete. sz={Path(args.outFile).stat().st_size}")
 
     saveStats(args, stats)
     sw.end('crlite')
