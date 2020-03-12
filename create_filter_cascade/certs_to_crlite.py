@@ -6,7 +6,7 @@
 
 import argparse
 import base64
-import bsdiff4
+import itertools
 import json
 import logging
 import math
@@ -435,35 +435,66 @@ def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
 def saveMLBF(args, stats, cascade):
     sw.start('save')
     os.makedirs(os.path.dirname(args.outFile), exist_ok=True)
+
     with open(args.outFile, 'wb') as mlbf_file:
         log.info("Writing to file {}".format(args.outFile))
         cascade.tofile(mlbf_file)
     stats['mlbf_filesize'] = os.stat(args.outFile).st_size
+
     with open(args.metaFile, 'wb') as mlbf_meta_file:
         log.info("Writing to meta file {}".format(args.metaFile))
         cascade.saveDiffMeta(mlbf_meta_file)
     stats['mlbf_metafilesize'] = os.stat(args.metaFile).st_size
-    if args.diffBaseFile is not None:
-        log.info("Generating patch file {patch} from {base} to {out}".format(
-            patch=args.patchFile, base=args.diffBaseFile, out=args.outFile))
-        bsdiff4.file_diff(args.diffBaseFile, args.outFile, args.patchFile)
-        stats['mlbf_diffsize'] = os.stat(args.patchFile).st_size
     sw.end('save')
 
 
 def find_additions(*, old_by_issuer, new_by_issuer):
     added = {}
-    for issuer_b64 in new_by_issuer:
-        n_set = set(new_by_issuer[issuer_b64])
+    old_cache = {}
+    new_cache = {}
 
-        if issuer_b64 in old_by_issuer:
-            o_set = set(old_by_issuer[issuer_b64])
-            diff_set = n_set - o_set
+    o_issuer_b64, o_set = next(old_by_issuer)
+
+    # Assume the issuers are in the same order
+    try:
+        for n_issuer_b64, n_set in new_by_issuer:
+            if n_issuer_b64 == o_issuer_b64:
+                diff_set = n_set - o_set
+                if diff_set:
+                    added[n_issuer_b64] = diff_set
+
+                o_issuer_b64, o_set = next(old_by_issuer)
+                continue
+
+            new_cache[n_issuer_b64] = n_set
+    except StopIteration:
+        pass
+
+    # If there are any remaining "new" entries, put them in the new_cache.
+    for n_issuer_b64, n_set in new_by_issuer:
+        new_cache[n_issuer_b64] = n_set
+
+    # If there any remaining "old" entries, try and compare them against the
+    # new_cache, otherwise track them for later. Don't forget the leftover
+    # value from the uses of `next` above.
+    for o_issuer_b64, o_set in itertools.chain([(o_issuer_b64, o_set)], old_by_issuer):
+        if o_issuer_b64 in new_cache:
+            diff_set = new_cache[o_issuer_b64] - o_set
             if diff_set:
-                added[issuer_b64] = diff_set
-        elif n_set:
-            added[issuer_b64] = new_by_issuer[issuer_b64]
+                added[o_issuer_b64] = diff_set
+            del new_cache[o_issuer_b64]
+            continue
+        old_cache[o_issuer_b64] = o_set
 
+    # Anything still in new_cache is actually added and new
+    for n_issuer_b64, n_set in new_cache.items():
+        assert n_issuer_b64 not in added, f"{n_issuer_b64} shouldn't be in added!"
+        added[n_issuer_b64] = n_set
+
+    if len(old_cache) > 0:
+        # We don't care about removals, but log a debug statement if it matters
+        log.debug(f"find_additions: old_cache indicates a removal of "
+                  + f"{len(old_cache)} entries: {old_cache}")
     return added
 
 
@@ -505,8 +536,6 @@ def parseArgs(argv):
     parser.add_argument(
         "-noVerify", help="Skip MLBF verification", action="store_true")
     args = parser.parse_args(argv)
-    args.diffBaseFile = None
-    args.patchFile = None
     args.outFile = os.path.join(args.certPath, args.id, args.outDirName, "filter")
     args.metaFile = os.path.join(args.certPath, args.id, args.outDirName, "filter.meta")
     if args.knownPath is None:
@@ -536,7 +565,6 @@ def main():
     known_nonrevoked_certs_len = None
 
     sw.start('crlite')
-    sw.start('certs')
     if args.onlyUseCache is False:
         sw.start('collate certs')
         log.debug("constructing known revoked nonrevoked cert sets")
@@ -551,50 +579,46 @@ def main():
         known_nonrevoked_certs_len = results["known_nonrevoked_certs_len"]
         sw.end('collate certs')
 
-    log.debug("revoked_certs loading...")
-    sw.start('load revoked certs')
-    with open(args.revokedKeys, "rb") as fp:
-        revoked_certs = set(readFromCertList(fp))
-    num_revoked_certs = len(revoked_certs)
-    sw.end('load revoked certs')
-    sw.end('certs')
-
     # Setup for diff if previous filter specified
-    # if args.previd is not None:
-    #     diff_revoked_path = os.path.join(args.certPath, args.previd, "list-revoked.keys")
-    #     diff_valid_path = os.path.join(args.certPath, args.previd, "list-valid.keys")
-    #     if not (os.path.isfile(diff_revoked_path) and os.path.isfile(diff_valid_path)):
-    #         log.warning("Previous ID specified but no filter files found.")
-    #     else:
-    #         prior_revoked_certs = None
-    #         sw.start('load previous revoked filter')
-    #         with open(diff_revoked_path, "rb") as fp:
-    #             prior_revoked_certs = set(readFromCertList(fp))
-    #         sw.end('load previous revoked filter')
+    if args.previd is not None:
+        prior_folder = Path(args.certPath) / Path(args.previd)
+        prior_revoked_path = prior_folder / Path("list-revoked.keys")
+        prior_valid_path = prior_folder / Path("list-valid.keys")
+        if not (prior_revoked_path.is_file() and prior_valid_path.is_file()):
+            log.warning("Previous ID specified but no filter files found.")
+        else:
+            with open(prior_revoked_path, "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
+                sw.start('diff revoked filter')
+                revoked_diff_by_isssuer = find_additions(
+                    old_by_issuer=readCertListByIssuer(prior_fp),
+                    new_by_issuer=readCertListByIssuer(fp),
+                )
+                sw.start('diff revoked filter')
 
-    #         prior_revoked_certs_by_issuer = {}
-    #         prior_nonrevoked_certs_by_issuer = {}
+            # sw.start('load previous valid filter')
+            # prior_nonrevoked_certs_by_issuer = {}
+            # with open(diff_valid_path, "rb") as diff_fp:
+            #     for issuer, certIds in readFromCertListByIssuer(diff_fp):
+            #         pass
+            # sw.end('load previous valid filter')
 
-    #         loadCertLists(
-    #             revoked_path=diff_revoked_path,
-    #             nonrevoked_path=diff_valid_path,
-    #             revoked_certs_by_issuer=prior_revoked_certs_by_issuer,
-    #             nonrevoked_certs_by_issuer=prior_nonrevoked_certs_by_issuer)
-    #         sw.end('load previous filter')
+            # sw.start('make diff')
+            # revoked_diff_by_isssuer = find_additions(
+            #     old_by_issuer=prior_revoked_certs_by_issuer,
+            #     new_by_issuer=revoked_certs_by_issuer)
+            # nonrevoked_diff_by_issuer = find_additions(
+            #     old_by_issuer=prior_nonrevoked_certs_by_issuer,
+            #     new_by_issuer=nonrevoked_certs_by_issuer)
 
-    #         sw.start('make diff')
-    #         revoked_diff_by_isssuer = find_additions(
-    #             old_by_issuer=prior_revoked_certs_by_issuer,
-    #             new_by_issuer=revoked_certs_by_issuer)
-    #         nonrevoked_diff_by_issuer = find_additions(
-    #             old_by_issuer=prior_nonrevoked_certs_by_issuer,
-    #             new_by_issuer=nonrevoked_certs_by_issuer)
+            nonrevoked_diff_by_issuer = {}
 
-    #         save_additions(
-    #             out_path=args.diffPath,
-    #             revoked_by_issuer=revoked_diff_by_isssuer,
-    #             nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
-    #         sw.end('make diff')
+            save_additions(
+                out_path=args.diffPath,
+                revoked_by_issuer=revoked_diff_by_isssuer,
+                nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
+            sw.end('make diff')
+
+    log.info(f"diffs complete. memory={psutil.virtual_memory()}")
 
     if not known_nonrevoked_certs_len:
         log.debug("known_nonrevoked_certs_len not calculated, calculating...")
@@ -603,12 +627,17 @@ def main():
             known_nonrevoked_certs_len = len(list(readFromCertList(fp)))
         sw.end('calculate known_nonrevoked_certs_len')
 
+    log.debug("revoked_certs loading...")
+    sw.start('load revoked certs')
+    with open(args.revokedKeys, "rb") as fp:
+        revoked_certs = set(readFromCertList(fp))
+    num_revoked_certs = len(revoked_certs)
+    sw.end('load revoked certs')
+
     log.debug(f"Cert lists revoked R: {num_revoked_certs} NR: {known_nonrevoked_certs_len}")
 
     if num_revoked_certs == 0:
         sys.exit(1)
-
-    log.info(f"diffs complete. memory={psutil.virtual_memory()}")
 
     # Generate new filter
     sw.start('generate MLBF')
