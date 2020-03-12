@@ -32,25 +32,25 @@ def make_certid(issuer, hex):
 
 
 def static_test_certs():
-    revoked = {
-        b"aG9uZXN0Q0EK": [
+    set1 = {
+        b"aG9uZXN0Q0EK": set([
             make_certid("aG9uZXN0Q0EK", "00AA"),
             make_certid("aG9uZXN0Q0EK", "AA00"),
-        ],
-        b"b3RoZXJDQQo=": [
+        ]),
+        b"b3RoZXJDQQo=": set([
             make_certid("b3RoZXJDQQo=", "FFCCDD")
-        ],
+        ]),
     }
-    nonrevoked = {
-        b"aG9uZXN0Q0EK": [
+    set2 = {
+        b"aG9uZXN0Q0EK": set([
             make_certid("aG9uZXN0Q0EK", "AAAAAA"),
             make_certid("aG9uZXN0Q0EK", "000000"),
-        ],
-        b"dGhpcmRDQQo=": [
+        ]),
+        b"dGhpcmRDQQo=": set([
             make_certid("dGhpcmRDQQo=", "CACACA"),
-        ],
+        ]),
     }
-    return revoked, nonrevoked
+    return set1, set2
 
 
 class TestCertLists(unittest.TestCase):
@@ -70,15 +70,15 @@ class TestCertLists(unittest.TestCase):
             nonrevoked_path = tmpdirname / Path("valid.bin")
 
             with open(revoked_path, "wb") as revfile:
-                for issuer in revoked:
+                for issuer, serials in revoked.items():
                     certs_to_crlite.writeCertListForIssuer(file=revfile,
                                                            issuer_base64=issuer,
-                                                           serial_list=revoked[issuer])
+                                                           serial_list=serials)
             with open(nonrevoked_path, "wb") as nonrevfile:
-                for issuer in nonrevoked:
+                for issuer, serials in nonrevoked.items():
                     certs_to_crlite.writeCertListForIssuer(file=nonrevfile,
                                                            issuer_base64=issuer,
-                                                           serial_list=nonrevoked[issuer])
+                                                           serial_list=serials)
 
             self.assertEqual(revoked_path.stat().st_size, 42)
             self.assertEqual(nonrevoked_path.stat().st_size, 44)
@@ -109,21 +109,51 @@ class TestCertLists(unittest.TestCase):
     def test_make_diff_completely_different(self):
         old, new = static_test_certs()
 
-        diff = certs_to_crlite.find_additions(old_by_issuer=old,
-                                              new_by_issuer=new)
+        diff = certs_to_crlite.find_additions(old_by_issuer=iter(old.items()),
+                                              new_by_issuer=iter(new.items()))
         self.assertCertListEqual(new, diff)
 
     def test_make_diff_one_additional_issuer(self):
         old, _ = static_test_certs()
         addition = {
-            b"bmV3YmllCg==": [make_certid("bmV3YmllCg==", "012345")]
+            b"bmV3YmllCg==": set([make_certid("bmV3YmllCg==", "012345")])
         }
         new = old.copy()
         new.update(addition)
 
-        diff = certs_to_crlite.find_additions(old_by_issuer=old,
-                                              new_by_issuer=new)
+        diff = certs_to_crlite.find_additions(old_by_issuer=iter(old.items()),
+                                              new_by_issuer=iter(new.items()))
         self.assertCertListEqual(addition, diff)
+
+    def test_make_diff_reverse_order(self):
+        set1, _ = static_test_certs()
+
+        diff = certs_to_crlite.find_additions(old_by_issuer=iter(set1.items()),
+                                              new_by_issuer=reversed(list(set1.items())))
+        self.assertEqual(len(diff), 0)
+
+    def test_make_diff_reverse_order_add_one(self):
+        set1, set2 = static_test_certs()
+        combo_set = set1.copy()
+        combo_set.update(set2)
+        addition = {
+            b"bmV3YmllCg==": set([make_certid("bmV3YmllCg==", "012345")]),
+        }
+        new = combo_set.copy()
+        new.update(addition)
+
+        diff = certs_to_crlite.find_additions(old_by_issuer=iter(combo_set.items()),
+                                              new_by_issuer=reversed(list(new.items())))
+        self.assertCertListEqual(addition, diff)
+
+    def test_make_diff_removed_issuer(self):
+        old, _ = static_test_certs()
+        new = old.copy()
+        del new[b"aG9uZXN0Q0EK"]
+
+        diff = certs_to_crlite.find_additions(old_by_issuer=iter(old.items()),
+                                              new_by_issuer=iter(new.items()))
+        self.assertEqual(len(diff), 0)
 
 
 if __name__ == '__main__':
