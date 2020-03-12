@@ -30,4 +30,5 @@
       name: Tests for create-filter-cascade
       language: system
       entry: python3 -m unittest create_filter_cascade/test.py
+      pass_filenames: false
       files: '.py$'
