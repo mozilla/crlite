@@ -87,6 +87,9 @@ class IssuerId(object):
     def __eq__(self, other):
         return self.issuerSpkiHash == other.issuerSpkiHash
 
+    def __len__(self):
+        return len(self.issuerSpkiHash)
+
 
 class CertId(object):
     def __init__(self, issuerId, serial):
