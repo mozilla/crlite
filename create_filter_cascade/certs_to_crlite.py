@@ -127,6 +127,7 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
             issuer = os.path.splitext(filename)[0]
             if issuer in args.excludeIssuer:
                 continue
+            issuer_bytes = bytes(issuer, encoding="utf-8")
 
             initIssuerStats(stats, issuer)
 
@@ -164,13 +165,13 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
             # cbw - Don't add all revocations, only add revocations
             # for known certificates. Revocations for unknown certs
             # are useless cruft
-            if issuer not in revoked_certs_by_issuer:
-                revoked_certs_by_issuer[issuer] = []
-            revoked_certs_by_issuer[issuer].extend(knownRevoked)
+            if issuer_bytes not in revoked_certs_by_issuer:
+                revoked_certs_by_issuer[issuer_bytes] = set()
+            revoked_certs_by_issuer[issuer_bytes].update(knownRevoked)
 
-            if issuer not in nonrevoked_certs_by_issuer:
-                nonrevoked_certs_by_issuer[issuer] = []
-            nonrevoked_certs_by_issuer[issuer].extend(knownNotRevoked)
+            if issuer_bytes not in nonrevoked_certs_by_issuer:
+                nonrevoked_certs_by_issuer[issuer_bytes] = set()
+            nonrevoked_certs_by_issuer[issuer_bytes].update(knownNotRevoked)
 
     # Go through revoked issuers and process any that were not part of known issuers
     for path, dirs, files in os.walk(args.revokedPath):
@@ -197,16 +198,31 @@ def genCertLists(args, stats, *, revoked_certs_by_issuer, nonrevoked_certs_by_is
                stats['knownrevoked'], stats['nocrl']))
 
 
-# bytes 0-4: number of serials as an unsigned long
-# bytes 5-6: length of issuer field as a unsigned short
-# bytes 7+: hash of issuer subject public key info
-ISSUERS_FMT = b'<LH'
-issuers_struct = struct.Struct(ISSUERS_FMT)
+# bytes 0-3: N, number of serials as an unsigned long
+# bytes 4-5: L, length of issuer field as a unsigned short
+# bytes 6+: hash of issuer subject public key info of length L
+# then N serials_structs
+issuers_struct = struct.Struct(b'<LH')
 
 # bytes 0-1: length of serial field as an unsigned short
 # bytes 2+: ASN.1 DER-encoded serial number
-SERIALS_FMT = b'<H'
-serials_struct = struct.Struct(SERIALS_FMT)
+serials_struct = struct.Struct(b'<H')
+
+# bytes 0-3: N, number of revoked serials as an unsigned long
+# bytes 4-7: M, number of nonrevoked serials as an unsigned long
+# bytes 8-9: L, length of issuer field as a unsigned short
+# bytes 10+: hash of issuer subject public key info of length L
+# then N serials_structs followed by M serials_structs
+additions_struct = struct.Struct(b'<LLH')
+
+
+def writeSerials(file, serial_list):
+    for k in serial_list:
+        n = len(k.serial)
+        if n > 0xFFFF:
+            raise Exception("serial bytes > unsigned short")
+        file.write(serials_struct.pack(n))
+        file.write(k.serial)
 
 
 def writeCertListByIssuer(file, certs_by_issuer):
@@ -225,12 +241,39 @@ def writeCertListByIssuer(file, certs_by_issuer):
         file.write(issuers_struct.pack(num_serial_list, issuer_len))
         file.write(issuer)
 
-        for k in serial_list:
-            n = len(k.serial)
-            if n > 0xFFFF:
-                raise Exception("serial bytes > unsigned short")
-            file.write(serials_struct.pack(n))
-            file.write(k.serial)
+        writeSerials(file, serial_list)
+
+
+def save_additions(*, out_path, revoked_by_issuer, nonrevoked_by_issuer):
+    with open(out_path, "wb") as file:
+        all_issuers = set(revoked_by_issuer.keys()) | set(nonrevoked_by_issuer.keys())
+        for issuer_b64 in all_issuers:
+            issuer = base64.urlsafe_b64decode(issuer_b64)
+            issuer_len = len(issuer)
+            if issuer_len > 0xFFFF:
+                raise Exception("issuer bytes > unsigned short")
+
+            issuer_revocations = []
+            if issuer_b64 in revoked_by_issuer:
+                issuer_revocations = revoked_by_issuer[issuer_b64]
+            num_issuer_revocations = len(issuer_revocations)
+            if num_issuer_revocations > 0xFFFFFFFF:
+                raise Exception("revocation list length > unsigned long")
+
+            issuer_valid = []
+            if issuer_b64 in nonrevoked_by_issuer:
+                issuer_valid = nonrevoked_by_issuer[issuer_b64]
+            num_issuer_valid = len(issuer_valid)
+            if num_issuer_valid > 0xFFFFFFFF:
+                raise Exception("valid list length > unsigned long")
+
+            file.write(additions_struct.pack(
+                num_issuer_revocations, num_issuer_valid, issuer_len
+            ))
+            file.write(issuer)
+
+            writeSerials(file, issuer_revocations)
+            writeSerials(file, issuer_valid)
 
 
 class EOFException(Exception):
@@ -255,36 +298,37 @@ def readCertListByIssuer(file, certs_by_issuer):
 
             issuer = base64.urlsafe_b64encode(issuer_bytes)
             if issuer not in certs_by_issuer:
-                certs_by_issuer[issuer] = []
+                certs_by_issuer[issuer] = set()
 
             for serial_idx in range(num_serial_list):
                 (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
                 serial_bytes = expectRead(file, serial_len)
 
-                certs_by_issuer[issuer].append(CertId(issuer_bytes, serial_bytes))
+                certs_by_issuer[issuer].add(CertId(issuer_bytes, serial_bytes))
     except EOFException:
         pass
     return
 
 
-def saveCertLists(args, *, revoked_certs_by_issuer, nonrevoked_certs_by_issuer):
-    log.info("Saving revoked/nonrevoked list {revoked} {valid}".format(
-        revoked=args.revokedKeys, valid=args.validKeys))
-    os.makedirs(os.path.dirname(args.revokedKeys), exist_ok=True)
-    os.makedirs(os.path.dirname(args.validKeys), exist_ok=True)
-    with open(args.revokedKeys, 'wb') as revfile:
+def saveCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
+                  nonrevoked_certs_by_issuer):
+    log.info(f"Saving revoked/nonrevoked list {revoked_path} {nonrevoked_path}")
+    os.makedirs(os.path.dirname(revoked_path), exist_ok=True)
+    os.makedirs(os.path.dirname(nonrevoked_path), exist_ok=True)
+    with open(revoked_path, 'wb') as revfile:
         writeCertListByIssuer(revfile, revoked_certs_by_issuer)
-    with open(args.validKeys, 'wb') as nonrevfile:
+    with open(nonrevoked_path, 'wb') as nonrevfile:
         writeCertListByIssuer(nonrevfile, nonrevoked_certs_by_issuer)
 
 
-def loadCertLists(args, *, revoked_certs_by_issuer, nonrevoked_certs_by_issuer):
-    log.info(f"Loading revoked/nonrevoked list {args.revokedKeys} {args.validKeys}")
+def loadCertLists(*, revoked_path, nonrevoked_path, revoked_certs_by_issuer,
+                  nonrevoked_certs_by_issuer):
+    log.info(f"Loading revoked/nonrevoked list {revoked_path} {nonrevoked_path}")
     nonrevoked_certs_by_issuer.clear()
     revoked_certs_by_issuer.clear()
-    with open(args.revokedKeys, 'rb') as file:
+    with open(revoked_path, 'rb') as file:
         readCertListByIssuer(file, revoked_certs_by_issuer)
-    with open(args.validKeys, 'rb') as file:
+    with open(nonrevoked_path, 'rb') as file:
         readCertListByIssuer(file, nonrevoked_certs_by_issuer)
 
 
@@ -350,6 +394,22 @@ def saveMLBF(args, stats, cascade):
     sw.end('save')
 
 
+def find_additions(*, old_by_issuer, new_by_issuer):
+    added = {}
+    for issuer_b64 in new_by_issuer:
+        n_set = set(new_by_issuer[issuer_b64])
+
+        if issuer_b64 in old_by_issuer:
+            o_set = set(old_by_issuer[issuer_b64])
+            diff_set = n_set - o_set
+            if diff_set:
+                added[issuer_b64] = diff_set
+        elif n_set:
+            added[issuer_b64] = new_by_issuer[issuer_b64]
+
+    return added
+
+
 def parseArgs(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("id", help="CT baseline identifier", metavar=('ID'))
@@ -396,6 +456,7 @@ def parseArgs(argv):
         args.knownPath = os.path.join(args.certPath, args.id, "known")
     if args.revokedPath is None:
         args.revokedPath = os.path.join(args.certPath, args.id, "revoked")
+    args.diffPath = os.path.join(args.certPath, args.id, args.outDirName, "filter.stash")
     args.revokedKeys = os.path.join(args.certPath, args.id,
                                     args.outDirName, "list-revoked.keys")
     args.validKeys = os.path.join(args.certPath, args.id, args.outDirName, "list-valid.keys")
@@ -426,7 +487,8 @@ def main():
         sw.start('load certs')
 
         loadCertLists(
-            args,
+            revoked_path=args.revokedKeys,
+            nonrevoked_path=args.validKeys,
             revoked_certs_by_issuer=revoked_certs_by_issuer,
             nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
         sw.end('load certs')
@@ -441,11 +503,44 @@ def main():
         sw.end('gen certs')
         sw.start('save certs')
         saveCertLists(
-            args,
+            revoked_path=args.revokedKeys,
+            nonrevoked_path=args.validKeys,
             revoked_certs_by_issuer=revoked_certs_by_issuer,
             nonrevoked_certs_by_issuer=nonrevoked_certs_by_issuer)
         sw.end('save certs')
         sw.end('certs')
+
+    # Setup for diff if previous filter specified
+    if args.previd is not None:
+        diff_revoked_path = os.path.join(args.certPath, args.previd, "list-revoked.keys")
+        diff_valid_path = os.path.join(args.certPath, args.previd, "list-valid.keys")
+        if not (os.path.isfile(diff_revoked_path) and os.path.isfile(diff_valid_path)):
+            log.warning("Previous ID specified but no filter files found.")
+        else:
+            sw.start('load previous filter')
+            prior_revoked_certs_by_issuer = {}
+            prior_nonrevoked_certs_by_issuer = {}
+
+            loadCertLists(
+                revoked_path=diff_revoked_path,
+                nonrevoked_path=diff_valid_path,
+                revoked_certs_by_issuer=prior_revoked_certs_by_issuer,
+                nonrevoked_certs_by_issuer=prior_nonrevoked_certs_by_issuer)
+            sw.end('load previous filter')
+
+            sw.start('make diff')
+            revoked_diff_by_isssuer = find_additions(
+                old_by_issuer=prior_revoked_certs_by_issuer,
+                new_by_issuer=revoked_certs_by_issuer)
+            nonrevoked_diff_by_issuer = find_additions(
+                old_by_issuer=prior_nonrevoked_certs_by_issuer,
+                new_by_issuer=nonrevoked_certs_by_issuer)
+
+            save_additions(
+                out_path=args.diffPath,
+                revoked_by_issuer=revoked_diff_by_isssuer,
+                nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
+            sw.end('make diff')
 
     revoked_certs = []
     [revoked_certs.extend(d) for d in revoked_certs_by_issuer.values()]
@@ -465,17 +560,6 @@ def main():
         log.info("No certificates, exiting failure")
         sys.exit(1)
 
-    # Setup for diff if previous filter specified
-    if args.previd is not None:
-        diffMetaPath = os.path.join(args.certPath, args.previd, "filter.meta")
-        diffBasePath = os.path.join(args.certPath, args.previd, "filter")
-        if os.path.isfile(diffMetaPath) and os.path.isfile(diffBasePath):
-            args.diffMetaFile = diffMetaPath
-            args.diffBaseFile = diffBasePath
-            args.patchFile = os.path.join(args.certPath, args.id, args.outDirName,
-                                          "filter.patch")
-        else:
-            log.warning("Previous ID specified but no filter files found.")
     # Generate new filter
     mlbf = generateMLBF(
         args, stats, revoked_certs=revoked_certs, nonrevoked_certs=nonrevoked_certs)

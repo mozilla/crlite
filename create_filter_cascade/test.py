@@ -2,7 +2,6 @@ import create_filter_cascade.certs_to_crlite as certs_to_crlite
 import unittest
 
 from pathlib import Path
-import argparse
 import base64
 import tempfile
 
@@ -66,26 +65,58 @@ class TestCertLists(unittest.TestCase):
         revoked, nonrevoked = static_test_certs()
 
         with tempfile.TemporaryDirectory() as tmpdirname:
-            args = argparse.Namespace()
-            args.revokedKeys = tmpdirname / Path("revoked.bin")
-            args.validKeys = tmpdirname / Path("valid.bin")
+            revoked_path = tmpdirname / Path("revoked.bin")
+            nonrevoked_path = tmpdirname / Path("valid.bin")
 
-            certs_to_crlite.saveCertLists(args,
+            certs_to_crlite.saveCertLists(revoked_path=revoked_path,
+                                          nonrevoked_path=nonrevoked_path,
                                           revoked_certs_by_issuer=revoked,
                                           nonrevoked_certs_by_issuer=nonrevoked)
 
-            self.assertEqual(Path(args.revokedKeys).stat().st_size, 42)
-            self.assertEqual(Path(args.validKeys).stat().st_size, 44)
+            self.assertEqual(revoked_path.stat().st_size, 42)
+            self.assertEqual(nonrevoked_path.stat().st_size, 44)
 
             loaded_revoked = {}
             loaded_nonrevoked = {}
 
-            certs_to_crlite.loadCertLists(args,
+            certs_to_crlite.loadCertLists(revoked_path=revoked_path,
+                                          nonrevoked_path=nonrevoked_path,
                                           revoked_certs_by_issuer=loaded_revoked,
                                           nonrevoked_certs_by_issuer=loaded_nonrevoked)
 
             self.assertCertListEqual(loaded_revoked, revoked)
             self.assertCertListEqual(loaded_nonrevoked, nonrevoked)
+
+    def test_save_diff_file(self):
+        revoked, nonrevoked = static_test_certs()
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            diff_path = tmpdirname / Path("diff.bin")
+
+            certs_to_crlite.save_additions(out_path=diff_path,
+                                           revoked_by_issuer=revoked,
+                                           nonrevoked_by_issuer=nonrevoked)
+
+            self.assertEqual(diff_path.stat().st_size, 83)
+
+    def test_make_diff_completely_different(self):
+        old, new = static_test_certs()
+
+        diff = certs_to_crlite.find_additions(old_by_issuer=old,
+                                              new_by_issuer=new)
+        self.assertCertListEqual(new, diff)
+
+    def test_make_diff_one_additional_issuer(self):
+        old, _ = static_test_certs()
+        addition = {
+            b"bmV3YmllCg==": [make_certid("bmV3YmllCg==", "012345")]
+        }
+        new = old.copy()
+        new.update(addition)
+
+        diff = certs_to_crlite.find_additions(old_by_issuer=old,
+                                              new_by_issuer=new)
+        self.assertCertListEqual(addition, diff)
 
 
 if __name__ == '__main__':
