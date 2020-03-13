@@ -243,14 +243,16 @@ def readFromCertList(file):
         while True:
             (num_serial_list, issuer_len) = issuers_struct.unpack(
                                                 expectRead(file, issuers_struct.size))
-            assert issuer_len <= 64, f"issuer spki hash should be 64 bytes, got {issuer_len}"
+            assert issuer_len <= 64, (f"issuer spki hash should be 64 bytes, got {issuer_len} "
+                                      + f"at offset {file.tell()} of {file.name}")
             issuer_bytes = expectRead(file, issuer_len)
 
             issuerId = getIssuerIdFromCache(issuer_bytes)
 
             for serial_idx in range(num_serial_list):
                 (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
-                assert serial_len <= 64, f"serial length should be small, got {serial_len}"
+                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
+                                          + f"at offset {file.tell()} of {file.name}")
                 serial_bytes = expectRead(file, serial_len)
 
                 yield CertId(issuerId, serial_bytes)

@@ -344,7 +344,8 @@ def main():
                 log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size}"
                          + f"memory={psutil.virtual_memory()}")
             except Exception as e:
-                log.error("Failed to make a diff, proceeding without one", e)
+                log.error(f"Failed to make a diff, proceeding without one: {e}",
+                          exc_info=sys.exc_info())
             sw.end('make diff')
 
     if not known_nonrevoked_certs_len:
