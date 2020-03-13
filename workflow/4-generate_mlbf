@@ -41,9 +41,9 @@ def main():
             dest = Path(tempfile.mkdtemp()) / Path(latest)
             dest.mkdir()
 
-            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter",
+            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/list-revoked.keys",
                                                 dest / Path("list-revoked.keys"))
-            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/filter.meta",
+            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/list-valid.key",
                                                 dest / Path("list-valid.keys"))
 
             cmdline = cmdline + ["-previd", dest]
