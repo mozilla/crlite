@@ -1,10 +1,26 @@
 language: go
 
+go:
+    - "1.13.x"
+
+env:
+  - GO111MODULE=on
+
+before_install:
+  - pyenv install -l
+  - pyenv install --skip-existing 3.7.1
+  - pyenv global 3.7.1
+  - pip install pytest
+
 script:
   - export GOROOT=$(go env GOROOT)
-  - cd go
+  - pushd go
   - if [ -n "$(gofmt -l .)" ]; then
       echo "Go code is not formatted:"; gofmt -d .; exit 1;
     fi
   - go test ./...
   - go test -race -short ./...
+  - popd
+  - pip install -r requirements.txt
+  - pip install --editable create_filter_cascade
+  - pytest create_filter_cascade/test*.py
