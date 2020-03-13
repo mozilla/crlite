@@ -4,11 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import argparse
+import crlite
+import logging
+
 from collections import Counter
 from pathlib import Path
-import argparse
-import certs_to_crlite
-import logging
 
 
 def read_keys(path, emit=False):
@@ -18,7 +19,7 @@ def read_keys(path, emit=False):
     serialLen = Counter()
 
     with open(path, "rb") as fp:
-        for certId in certs_to_crlite.readFromCertList(fp):
+        for certId in crlite.readFromCertList(fp):
             cnt["serials"] += 1
 
             issuers[certId.issuerId] += 1

@@ -1,9 +1,9 @@
-import create_filter_cascade.certs_to_crlite as certs_to_crlite
-import unittest
-
-from pathlib import Path
 import base64
 import tempfile
+import unittest
+
+from create_filter_cascade import crlite, certs_to_crlite
+from pathlib import Path
 
 
 class MockFile(object):
@@ -30,8 +30,8 @@ class MockFile(object):
 
 
 def make_certid(issuer, hex):
-    issuerId = certs_to_crlite.IssuerId(base64.urlsafe_b64decode(issuer))
-    return certs_to_crlite.CertId(issuerId, bytes.fromhex(hex))
+    issuerId = crlite.IssuerId(base64.urlsafe_b64decode(issuer))
+    return crlite.CertId(issuerId, bytes.fromhex(hex))
 
 
 def static_test_certs():
@@ -61,12 +61,12 @@ class TestStructs(unittest.TestCase):
         f = MockFile()
 
         with self.assertRaises(Exception):
-            certs_to_crlite.writeSerials(f, [
+            crlite.writeSerials(f, [
                 make_certid(b"YQo=", "FF" * 256)
             ])
         self.assertEqual(len(f), 0)
 
-        certs_to_crlite.writeSerials(f, [
+        crlite.writeSerials(f, [
             make_certid(b"YQo=", "FF" * 255)
         ])
         self.assertEqual(len(f), 256)
@@ -76,12 +76,12 @@ class TestStructs(unittest.TestCase):
 
         issuer_base64 = base64.standard_b64encode(b"FF"*0x20)
         serial_list = set([make_certid(issuer_base64, "CABF00D0")])
-        certs_to_crlite.writeCertListForIssuer(file=f,
-                                               issuer_base64=issuer_base64,
-                                               serial_list=serial_list)
+        crlite.writeCertListForIssuer(file=f,
+                                      issuer_base64=issuer_base64,
+                                      serial_list=serial_list)
         self.assertEqual(len(f), 74)
 
-        loaded = dict(certs_to_crlite.readFromCertListByIssuer(f))
+        loaded = dict(crlite.readFromCertListByIssuer(f))
         self.assertTrue(issuer_base64 in loaded)
         self.assertEqual(len(loaded), 1)
         self.assertEqual(loaded[issuer_base64], serial_list)
@@ -91,15 +91,15 @@ class TestStructs(unittest.TestCase):
 
         issuer_base64 = base64.standard_b64encode(b"FF"*254)
         with self.assertRaises(ValueError):
-            certs_to_crlite.writeCertListForIssuer(file=f,
-                                                   issuer_base64=issuer_base64,
-                                                   serial_list=[])
+            crlite.writeCertListForIssuer(file=f,
+                                          issuer_base64=issuer_base64,
+                                          serial_list=[])
         self.assertEqual(len(f), 0)
 
         issuer_base64 = base64.standard_b64encode(b"FF"*0x20)
-        certs_to_crlite.writeCertListForIssuer(file=f,
-                                               issuer_base64=issuer_base64,
-                                               serial_list=[])
+        crlite.writeCertListForIssuer(file=f,
+                                      issuer_base64=issuer_base64,
+                                      serial_list=[])
         self.assertEqual(len(f), 69)
 
 
@@ -121,14 +121,14 @@ class TestCertLists(unittest.TestCase):
 
             with open(revoked_path, "wb") as revfile:
                 for issuer, serials in revoked.items():
-                    certs_to_crlite.writeCertListForIssuer(file=revfile,
-                                                           issuer_base64=issuer,
-                                                           serial_list=serials)
+                    crlite.writeCertListForIssuer(file=revfile,
+                                                  issuer_base64=issuer,
+                                                  serial_list=serials)
             with open(nonrevoked_path, "wb") as nonrevfile:
                 for issuer, serials in nonrevoked.items():
-                    certs_to_crlite.writeCertListForIssuer(file=nonrevfile,
-                                                           issuer_base64=issuer,
-                                                           serial_list=serials)
+                    crlite.writeCertListForIssuer(file=nonrevfile,
+                                                  issuer_base64=issuer,
+                                                  serial_list=serials)
 
             self.assertEqual(revoked_path.stat().st_size, 37)
             self.assertEqual(nonrevoked_path.stat().st_size, 39)
@@ -137,9 +137,9 @@ class TestCertLists(unittest.TestCase):
             loaded_nonrevoked = {}
 
             with open(revoked_path, 'rb') as file:
-                loaded_revoked = dict(certs_to_crlite.readFromCertListByIssuer(file))
+                loaded_revoked = dict(crlite.readFromCertListByIssuer(file))
             with open(nonrevoked_path, 'rb') as file:
-                loaded_nonrevoked = dict(certs_to_crlite.readFromCertListByIssuer(file))
+                loaded_nonrevoked = dict(crlite.readFromCertListByIssuer(file))
 
             self.assertCertListEqual(loaded_revoked, revoked)
             self.assertCertListEqual(loaded_nonrevoked, nonrevoked)
@@ -150,9 +150,9 @@ class TestCertLists(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdirname:
             diff_path = tmpdirname / Path("diff.bin")
 
-            certs_to_crlite.save_additions(out_path=diff_path,
-                                           revoked_by_issuer=revoked,
-                                           nonrevoked_by_issuer=nonrevoked)
+            crlite.save_additions(out_path=diff_path,
+                                  revoked_by_issuer=revoked,
+                                  nonrevoked_by_issuer=nonrevoked)
 
             self.assertEqual(diff_path.stat().st_size, 74)
 

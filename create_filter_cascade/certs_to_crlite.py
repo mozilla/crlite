@@ -5,7 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import argparse
-import base64
+import crlite
 import itertools
 import json
 import logging
@@ -14,7 +14,7 @@ import os
 import psutil
 import stopwatch
 import sys
-import struct
+
 from filtercascade import FilterCascade
 from pathlib import Path
 
@@ -52,128 +52,6 @@ from pathlib import Path
 sw = stopwatch.StopWatch()
 log = logging.getLogger('cert_to_crlite')
 
-issuerCache = {}
-
-
-def getIssuerIdFromCache(issuerSpkiHash):
-    if not isinstance(issuerSpkiHash, bytes):
-        raise Exception("issuerSpkiHash must be bytes")
-
-    if issuerSpkiHash not in issuerCache:
-        issuerCache[issuerSpkiHash] = IssuerId(issuerSpkiHash)
-
-    return issuerCache[issuerSpkiHash]
-
-
-class IssuerId(object):
-    def __init__(self, issuerSpkiHash):
-        if not isinstance(issuerSpkiHash, bytes):
-            raise Exception("issuerSpkiHash must be bytes")
-
-        self.issuerSpkiHash = issuerSpkiHash
-
-    def to_bytes(self):
-        return self.issuerSpkiHash
-
-    def base64(self):
-        return base64.urlsafe_b64encode(self.issuerSpkiHash)
-
-    def __repr__(self):
-        return f"IssuerId({self.issuerSpkiHash.hex()})"
-
-    def __hash__(self):
-        return hash((self.issuerSpkiHash))
-
-    def __eq__(self, other):
-        return self.issuerSpkiHash == other.issuerSpkiHash
-
-    def __len__(self):
-        return len(self.issuerSpkiHash)
-
-
-class CertId(object):
-    def __init__(self, issuerId, serial):
-        if not isinstance(issuerId, IssuerId):
-            raise Exception("issuerId must be IssuerId")
-
-        if not isinstance(serial, bytes):
-            raise Exception("serial must be bytes")
-
-        self.issuerId = issuerId
-        self.serial = serial
-
-    def to_bytes(self):
-        return self.issuerId.to_bytes() + self.serial
-
-    def __repr__(self):
-        return f"CertID({self.issuerId.to_bytes().hex()}-{self.serial.hex()})"
-
-    def __hash__(self):
-        return hash((self.issuerId, self.serial))
-
-    def __eq__(self, other):
-        return self.issuerId == other.issuerId and self.serial == other.serial
-
-
-class IssuerDataOnDisk(object):
-    def __init__(self, *, issuer, knownPath, revokedPath):
-        self.issuer = issuer
-        self.knownPath = knownPath
-        self.revokedPath = revokedPath
-
-    def __repr__(self):
-        return f"{self.issuer}"
-
-    def load_and_make_sets(self, stats):
-        knownSet = getCertList(self.knownPath, self.issuer)
-        if knownSet:
-            stats['known'] += len(knownSet)
-        else:
-            knownSet = set()
-        stats['Issuers'][self.issuer]['known'] = len(knownSet)
-
-        revSet = getCertList(self.revokedPath, self.issuer)
-        if revSet:
-            stats['revoked'] += len(revSet)
-            stats['Issuers'][self.issuer]['crl'] = True
-        else:
-            stats['nocrl'] += 1
-            revSet = set()
-        stats['Issuers'][self.issuer]['revoked'] = len(revSet)
-
-        knownNotRevoked = knownSet - revSet
-        knownRevoked = knownSet & revSet
-        return {
-            "issuer": self.issuer,
-            "knownNotRevoked": knownNotRevoked,
-            "knownRevoked": knownRevoked,
-        }
-
-
-def getCertList(certpath, issuer):
-    issuerId = getIssuerIdFromCache(base64.urlsafe_b64decode(issuer))
-
-    certlist = set()
-    if not os.path.isfile(certpath):
-        raise Exception(f"getCertList: {certpath} not a file")
-
-    log.info(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
-
-    with open(certpath, "r") as f:
-        try:
-            for cnt, sHex in enumerate(f):
-                try:
-                    serial = bytes.fromhex(sHex)
-                    certlist.add(CertId(issuerId, serial))
-                except TypeError as te:
-                    log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
-                              + f"hex={sHex} because {te}")
-        except Exception as e:
-            log.debug(f"getCertList exception caught: {e}")
-            log.error(f"Failed to load certs for {issuer} from {certpath}")
-            breakpoint()
-    return certlist
-
 
 def initIssuerStats(stats, issuer):
     stats['Issuers'][issuer] = {
@@ -183,17 +61,6 @@ def initIssuerStats(stats, issuer):
         'knownrevoked': 0,
         'crl': False
     }
-
-
-def genIssuerPathObjects(*, knownPath, revokedPath, excludeIssuer):
-    for path, dirs, files in os.walk(knownPath):
-        for filename in files:
-            issuer = os.path.splitext(filename)[0]
-            if issuer in excludeIssuer:
-                continue
-
-            yield IssuerDataOnDisk(issuer=issuer, knownPath=path / Path(filename),
-                                   revokedPath=revokedPath / Path(issuer))
 
 
 def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonrevoked_path,
@@ -213,8 +80,9 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
 
     with open(known_revoked_path, 'wb') as revfile, open(known_nonrevoked_path,
                                                          'wb') as nonrevfile:
-        issuerPathIter = genIssuerPathObjects(knownPath=known_path, revokedPath=revoked_path,
-                                              excludeIssuer=exclude_issuer)
+        issuerPathIter = crlite.genIssuerPathObjects(knownPath=known_path,
+                                                     revokedPath=revoked_path,
+                                                     excludeIssuer=exclude_issuer)
         for issuerObj in sorted(issuerPathIter, key=lambda i: i.issuer):
             log.info(f"createCertLists Processing issuerObj={issuerObj}, "
                      + f"memory={psutil.virtual_memory()}")
@@ -232,10 +100,10 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
             stats['Issuers'][issuer]['knownnotrevoked'] = known_nonrevoked_certs_len
             stats['Issuers'][issuer]['knownrevoked'] = known_revoked_certs_len
 
-            writeCertListForIssuer(file=revfile, issuer_base64=issuer,
-                                   serial_list=sets["knownRevoked"])
-            writeCertListForIssuer(file=nonrevfile, issuer_base64=issuer,
-                                   serial_list=sets["knownNotRevoked"])
+            crlite.writeCertListForIssuer(file=revfile, issuer_base64=issuer,
+                                          serial_list=sets["knownRevoked"])
+            crlite.writeCertListForIssuer(file=nonrevfile, issuer_base64=issuer,
+                                          serial_list=sets["knownNotRevoked"])
 
             log.debug(f"createCertLists issuerObj={issuerObj} KNR={known_nonrevoked_certs_len} "
                       + f"KR={known_revoked_certs_len}")
@@ -250,142 +118,6 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
         "known_nonrevoked_certs_len": stats['knownnotrevoked'],
         "known_revoked_certs_len": stats['knownrevoked'],
     }
-
-
-# bytes 0-3: N, number of serials as an unsigned long
-# bytes 4: L, length of issuer field as a unsigned char
-# bytes 5+: hash of issuer subject public key info of length L
-# then N serials_structs
-issuers_struct = struct.Struct(b'<LB')
-
-# byte 0: length of serial field as an unsigned short
-# bytes 1+: serial number
-serials_struct = struct.Struct(b'<B')
-
-# bytes 0-3: N, number of revoked serials as an unsigned long
-# bytes 4-7: M, number of nonrevoked serials as an unsigned long
-# bytes 8-9: L, length of issuer field as a unsigned char
-# bytes 10+: hash of issuer subject public key info of length L
-# then N serials_structs followed by M serials_structs
-additions_struct = struct.Struct(b'<LLB')
-
-
-def writeSerials(file, serial_list):
-    for k in serial_list:
-        n = len(k.serial)
-        if n > 0xFF:
-            raise ValueError("serial bytes > unsigned short")
-        file.write(serials_struct.pack(n))
-        file.write(k.serial)
-
-
-def writeCertListForIssuer(*, file, issuer_base64, serial_list):
-    num_serial_list = len(serial_list)
-
-    issuer = base64.urlsafe_b64decode(issuer_base64)
-    issuer_len = len(issuer)
-
-    if num_serial_list > 0xFFFFFFFF:
-        raise ValueError("serial list length > unsigned long")
-    if issuer_len > 0xFF:
-        raise ValueError("issuer bytes > unsigned char")
-
-    file.write(issuers_struct.pack(num_serial_list, issuer_len))
-    file.write(issuer)
-
-    writeSerials(file, serial_list)
-
-
-def save_additions(*, out_path, revoked_by_issuer, nonrevoked_by_issuer):
-    with open(out_path, "wb") as file:
-        all_issuers = set(revoked_by_issuer.keys()) | set(nonrevoked_by_issuer.keys())
-        for issuer_b64 in all_issuers:
-            issuer = base64.urlsafe_b64decode(issuer_b64)
-            issuer_len = len(issuer)
-            if issuer_len > 0xFF:
-                raise ValueError("issuer bytes > unsigned char")
-
-            issuer_revocations = []
-            if issuer_b64 in revoked_by_issuer:
-                issuer_revocations = revoked_by_issuer[issuer_b64]
-            num_issuer_revocations = len(issuer_revocations)
-            if num_issuer_revocations > 0xFFFFFFFF:
-                raise ValueError("revocation list length > unsigned long")
-
-            issuer_valid = []
-            if issuer_b64 in nonrevoked_by_issuer:
-                issuer_valid = nonrevoked_by_issuer[issuer_b64]
-            num_issuer_valid = len(issuer_valid)
-            if num_issuer_valid > 0xFFFFFFFF:
-                raise ValueError("valid list length > unsigned long")
-
-            file.write(additions_struct.pack(
-                num_issuer_revocations, num_issuer_valid, issuer_len
-            ))
-            file.write(issuer)
-
-            writeSerials(file, issuer_revocations)
-            writeSerials(file, issuer_valid)
-
-
-class EOFException(Exception):
-    pass
-
-
-def expectRead(file, expectedBytes):
-    data = []
-    remaining = expectedBytes
-    while remaining > 0:
-        result = file.read(remaining)
-        if len(result) == 0:
-            raise EOFException()
-        remaining -= len(result)
-        data.extend(result)
-    return result
-
-
-def readFromCertList(file):
-    try:
-        while True:
-            (num_serial_list, issuer_len) = issuers_struct.unpack(
-                                                expectRead(file, issuers_struct.size))
-            assert issuer_len <= 64, f"issuer spki hash should be 64 bytes, got {issuer_len}"
-            issuer_bytes = expectRead(file, issuer_len)
-
-            issuerId = getIssuerIdFromCache(issuer_bytes)
-
-            for serial_idx in range(num_serial_list):
-                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
-                assert serial_len <= 64, f"serial length should be small, got {serial_len}"
-                serial_bytes = expectRead(file, serial_len)
-
-                yield CertId(issuerId, serial_bytes)
-    except EOFException:
-        return
-
-
-def readFromCertListByIssuer(file):
-    current_certIds = None
-    current_issuer = None
-
-    for certId in readFromCertList(file):
-        if current_issuer is None:
-            current_issuer = certId.issuerId
-            current_certIds = set()
-
-        elif certId.issuerId != current_issuer:
-            yield (current_issuer.base64(), current_certIds)
-
-            current_issuer = certId.issuerId
-            current_certIds = set()
-
-        current_certIds.add(certId)
-
-    if current_issuer is None:
-        # file did not contain any cert IDs
-        return
-
-    yield (current_issuer.base64(), current_certIds)
 
 
 def getFPRs(revoked_certs_len, nonrevoked_certs_len):
@@ -588,8 +320,8 @@ def main():
             with open(prior_revoked_path, "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
                 sw.start('diff revoked filter')
                 revoked_diff_by_isssuer = find_additions(
-                    old_by_issuer=readFromCertListByIssuer(prior_fp),
-                    new_by_issuer=readFromCertListByIssuer(fp),
+                    old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
+                    new_by_issuer=crlite.readFromCertListByIssuer(fp),
                 )
                 sw.end('diff revoked filter')
 
@@ -597,13 +329,13 @@ def main():
             with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
                 sw.start('diff valid filter')
                 nonrevoked_diff_by_issuer = find_additions(
-                    old_by_issuer=readFromCertListByIssuer(prior_fp),
-                    new_by_issuer=readFromCertListByIssuer(fp),
+                    old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
+                    new_by_issuer=crlite.readFromCertListByIssuer(fp),
                 )
                 sw.end('diff valid filter')
 
             log.info("Saving difference stash.")
-            save_additions(
+            crlite.save_additions(
                 out_path=args.diffPath,
                 revoked_by_issuer=revoked_diff_by_isssuer,
                 nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
@@ -615,13 +347,13 @@ def main():
         log.info("known_nonrevoked_certs_len not calculated, calculating...")
         sw.start('calculate known_nonrevoked_certs_len')
         with open(args.validKeys, "rb") as fp:
-            known_nonrevoked_certs_len = len(list(readFromCertList(fp)))
+            known_nonrevoked_certs_len = len(list(crlite.readFromCertList(fp)))
         sw.end('calculate known_nonrevoked_certs_len')
 
     log.info("revoked_certs loading...")
     sw.start('load revoked certs')
     with open(args.revokedKeys, "rb") as fp:
-        revoked_certs = set(readFromCertList(fp))
+        revoked_certs = set(crlite.readFromCertList(fp))
     num_revoked_certs = len(revoked_certs)
     sw.end('load revoked certs')
 
@@ -638,7 +370,7 @@ def main():
             args,
             stats,
             revoked_certs=revoked_certs,
-            nonrevoked_certs=readFromCertList(fp),
+            nonrevoked_certs=crlite.readFromCertList(fp),
             nonrevoked_certs_len=known_nonrevoked_certs_len,
         )
 
@@ -651,7 +383,7 @@ def main():
                 args,
                 mlbf,
                 revoked_certs=revoked_certs,
-                nonrevoked_certs=readFromCertList(fp))
+                nonrevoked_certs=crlite.readFromCertList(fp))
 
         log.info(f"MLBF validation complete. memory={psutil.virtual_memory()}")
 
