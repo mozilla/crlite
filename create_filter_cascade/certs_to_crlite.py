@@ -316,31 +316,35 @@ def main():
             log.warning("Previous ID specified but no filter files found.")
         else:
             sw.start('make diff')
-            log.info("Making diff for known revoked entries")
-            with open(prior_revoked_path, "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
-                sw.start('diff revoked filter')
-                revoked_diff_by_isssuer = find_additions(
-                    old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
-                    new_by_issuer=crlite.readFromCertListByIssuer(fp),
-                )
-                sw.end('diff revoked filter')
+            try:
+                log.info("Making diff for known revoked entries")
+                with open(prior_revoked_path,
+                          "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
+                    sw.start('diff revoked filter')
+                    revoked_diff_by_isssuer = find_additions(
+                        old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
+                        new_by_issuer=crlite.readFromCertListByIssuer(fp),
+                    )
+                    sw.end('diff revoked filter')
 
-            log.info("Making diff for known valid entries")
-            with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
-                sw.start('diff valid filter')
-                nonrevoked_diff_by_issuer = find_additions(
-                    old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
-                    new_by_issuer=crlite.readFromCertListByIssuer(fp),
-                )
-                sw.end('diff valid filter')
+                log.info("Making diff for known valid entries")
+                with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
+                    sw.start('diff valid filter')
+                    nonrevoked_diff_by_issuer = find_additions(
+                        old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
+                        new_by_issuer=crlite.readFromCertListByIssuer(fp),
+                    )
+                    sw.end('diff valid filter')
 
-            log.info("Saving difference stash.")
-            crlite.save_additions(
-                out_path=args.diffPath,
-                revoked_by_issuer=revoked_diff_by_isssuer,
-                nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
-            log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size}"
-                     + f"memory={psutil.virtual_memory()}")
+                log.info("Saving difference stash.")
+                crlite.save_additions(
+                    out_path=args.diffPath,
+                    revoked_by_issuer=revoked_diff_by_isssuer,
+                    nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
+                log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size}"
+                         + f"memory={psutil.virtual_memory()}")
+            except Exception as e:
+                log.error("Failed to make a diff, proceeding without one", e)
             sw.end('make diff')
 
     if not known_nonrevoked_certs_len:
