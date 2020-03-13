@@ -43,7 +43,7 @@ def main():
 
             workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/list-revoked.keys",
                                                 dest / Path("list-revoked.keys"))
-            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/list-valid.key",
+            workflow.download_from_google_cloud(bucket_name, f"{latest}/mlbf/list-valid.keys",
                                                 dest / Path("list-valid.keys"))
 
             cmdline = cmdline + ["-previd", dest]

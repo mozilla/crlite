@@ -139,7 +139,7 @@ def getCertList(certpath, issuer):
     if not os.path.isfile(certpath):
         raise Exception(f"getCertList: {certpath} not a file")
 
-    log.info(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
+    log.debug(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
 
     with open(certpath, "r") as f:
         try:
