@@ -238,6 +238,39 @@ def expectRead(file, expectedBytes):
     return result
 
 
+def readFromAdditionsList(file):
+    try:
+        while True:
+            (num_issuer_revocations, num_issuer_valid, issuer_len) = additions_struct.unpack(
+                                                expectRead(file, additions_struct.size))
+            assert issuer_len <= 64, (f"issuer spki hash should be 64 bytes, got {issuer_len} "
+                                      + f"at offset {file.tell()} of {file.name}")
+            issuer_bytes = expectRead(file, issuer_len)
+
+            issuerId = getIssuerIdFromCache(issuer_bytes)
+
+            revSet = set()
+            for serial_idx in range(num_issuer_revocations):
+                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
+                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
+                                          + f"at offset {file.tell()} of {file.name}")
+                serial_bytes = expectRead(file, serial_len)
+                revSet.add(CertId(issuerId, serial_bytes))
+
+            validSet = set()
+            for serial_idx in range(num_issuer_valid):
+                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
+                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
+                                          + f"at offset {file.tell()} of {file.name}")
+                serial_bytes = expectRead(file, serial_len)
+                validSet.add(CertId(issuerId, serial_bytes))
+
+            yield {"issuerId": issuerId, "revocations": revSet, "valid": validSet}
+
+    except EOFException:
+        return
+
+
 def readFromCertList(file):
     try:
         while True:
