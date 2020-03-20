@@ -145,16 +145,15 @@ class TestCertLists(unittest.TestCase):
             self.assertCertListEqual(loaded_nonrevoked, nonrevoked)
 
     def test_save_diff_file(self):
-        revoked, nonrevoked = static_test_certs()
+        revoked, _ = static_test_certs()
 
         with tempfile.TemporaryDirectory() as tmpdirname:
             diff_path = tmpdirname / Path("diff.bin")
 
             crlite.save_additions(out_path=diff_path,
-                                  revoked_by_issuer=revoked,
-                                  nonrevoked_by_issuer=nonrevoked)
+                                  revoked_by_issuer=revoked)
 
-            self.assertEqual(diff_path.stat().st_size, 74)
+            self.assertEqual(diff_path.stat().st_size, 37)
 
     def test_make_diff_completely_different(self):
         old, new = static_test_certs()

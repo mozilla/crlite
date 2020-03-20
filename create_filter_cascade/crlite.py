@@ -14,7 +14,7 @@ from pathlib import Path
 log = logging.getLogger('create_filter_cascade')
 
 # bytes 0-3: N, number of serials as an unsigned long
-# bytes 4: L, length of issuer field as a unsigned char
+# byte 4: L, length of issuer field as a unsigned char
 # bytes 5+: hash of issuer subject public key info of length L
 # then N serials_structs
 issuers_struct = struct.Struct(b'<LB')
@@ -24,11 +24,10 @@ issuers_struct = struct.Struct(b'<LB')
 serials_struct = struct.Struct(b'<B')
 
 # bytes 0-3: N, number of revoked serials as an unsigned long
-# bytes 4-7: M, number of nonrevoked serials as an unsigned long
-# bytes 8-9: L, length of issuer field as a unsigned char
-# bytes 10+: hash of issuer subject public key info of length L
+# byte 4: L, length of issuer field as a unsigned char
+# bytes 5+: hash of issuer subject public key info of length L
 # then N serials_structs followed by M serials_structs
-additions_struct = struct.Struct(b'<LLB')
+additions_struct = struct.Struct(b'<LB')
 
 issuerCache = {}
 
@@ -194,36 +193,24 @@ def writeCertListForIssuer(*, file, issuer_base64, serial_list):
     writeSerials(file, serial_list)
 
 
-def save_additions(*, out_path, revoked_by_issuer, nonrevoked_by_issuer):
+def save_additions(*, out_path, revoked_by_issuer):
     with open(out_path, "wb") as file:
-        all_issuers = set(revoked_by_issuer.keys()) | set(nonrevoked_by_issuer.keys())
-        for issuer_b64 in all_issuers:
+        for issuer_b64, issuer_revocations in revoked_by_issuer.items():
             issuer = base64.urlsafe_b64decode(issuer_b64)
             issuer_len = len(issuer)
             if issuer_len > 0xFF:
                 raise ValueError("issuer bytes > unsigned char")
 
-            issuer_revocations = []
-            if issuer_b64 in revoked_by_issuer:
-                issuer_revocations = revoked_by_issuer[issuer_b64]
             num_issuer_revocations = len(issuer_revocations)
             if num_issuer_revocations > 0xFFFFFFFF:
                 raise ValueError("revocation list length > unsigned long")
 
-            issuer_valid = []
-            if issuer_b64 in nonrevoked_by_issuer:
-                issuer_valid = nonrevoked_by_issuer[issuer_b64]
-            num_issuer_valid = len(issuer_valid)
-            if num_issuer_valid > 0xFFFFFFFF:
-                raise ValueError("valid list length > unsigned long")
-
             file.write(additions_struct.pack(
-                num_issuer_revocations, num_issuer_valid, issuer_len
+                num_issuer_revocations, issuer_len
             ))
             file.write(issuer)
 
             writeSerials(file, issuer_revocations)
-            writeSerials(file, issuer_valid)
 
 
 def expectRead(file, expectedBytes):
@@ -241,7 +228,7 @@ def expectRead(file, expectedBytes):
 def readFromAdditionsList(file):
     try:
         while True:
-            (num_issuer_revocations, num_issuer_valid, issuer_len) = additions_struct.unpack(
+            (num_issuer_revocations, issuer_len) = additions_struct.unpack(
                                                 expectRead(file, additions_struct.size))
             assert issuer_len <= 64, (f"issuer spki hash should be 64 bytes, got {issuer_len} "
                                       + f"at offset {file.tell()} of {file.name}")
@@ -257,15 +244,7 @@ def readFromAdditionsList(file):
                 serial_bytes = expectRead(file, serial_len)
                 revSet.add(CertId(issuerId, serial_bytes))
 
-            validSet = set()
-            for serial_idx in range(num_issuer_valid):
-                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
-                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
-                                          + f"at offset {file.tell()} of {file.name}")
-                serial_bytes = expectRead(file, serial_len)
-                validSet.add(CertId(issuerId, serial_bytes))
-
-            yield {"issuerId": issuerId, "revocations": revSet, "valid": validSet}
+            yield {"issuerId": issuerId, "revocations": revSet}
 
     except EOFException:
         return

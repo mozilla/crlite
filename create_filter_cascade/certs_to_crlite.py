@@ -311,8 +311,7 @@ def main():
     if args.previd is not None:
         prior_folder = Path(args.certPath) / Path(args.previd)
         prior_revoked_path = prior_folder / Path("list-revoked.keys")
-        prior_valid_path = prior_folder / Path("list-valid.keys")
-        if not (prior_revoked_path.is_file() and prior_valid_path.is_file()):
+        if not prior_revoked_path.is_file():
             log.warning("Diff: Previous ID specified but no filter files found.")
         else:
             sw.start('make diff')
@@ -327,21 +326,11 @@ def main():
                     )
                     sw.end('diff revoked filter')
 
-                log.info("Diff: Making diff for known valid entries")
-                with open(prior_valid_path, "rb") as prior_fp, open(args.validKeys, "rb") as fp:
-                    sw.start('diff valid filter')
-                    nonrevoked_diff_by_issuer = find_additions(
-                        old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
-                        new_by_issuer=crlite.readFromCertListByIssuer(fp),
-                    )
-                    sw.end('diff valid filter')
-
                 log.info("Diff: Saving difference stash.")
                 crlite.save_additions(
                     out_path=args.diffPath,
-                    revoked_by_issuer=revoked_diff_by_isssuer,
-                    nonrevoked_by_issuer=nonrevoked_diff_by_issuer)
-                log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size}"
+                    revoked_by_issuer=revoked_diff_by_isssuer)
+                log.info(f"Difference stash complete. sz={Path(args.diffPath).stat().st_size} "
                          + f"memory={psutil.virtual_memory()}")
             except Exception as e:
                 log.error(f"Diff: Failed to make a diff, proceeding without one: {e}",

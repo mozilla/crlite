@@ -38,7 +38,6 @@ def read_stash(path, emit=False):
     cnt = Counter()
     issuers = Counter()
     revocations = Counter()
-    valid = Counter()
     serialLen = Counter()
 
     with open(path, "rb") as fp:
@@ -47,23 +46,17 @@ def read_stash(path, emit=False):
 
             issuers[data["issuerId"]] += 1
             revocations[data["issuerId"]] += len(data["revocations"])
-            valid[data["issuerId"]] += len(data["valid"])
 
             cnt["revocations"] += len(data["revocations"])
-            cnt["valid"] += len(data["valid"])
 
             for certId in data["revocations"]:
                 serialLen[len(certId.serial)] += 1
-            for certId in data["valid"]:
-                serialLen[len(certId.serial)] += 1
 
             if emit:
-                print(f"{data['issuerId']} new revocations: {len(data['revocations'])}, "
-                      + f"new valids: {len(data['valid'])}")
+                print(f"{data['issuerId']} new revocations: {len(data['revocations'])}")
 
     print(f"Issuers Affected: {cnt['issuers']}")
     print(f"Number of New Revocations: {cnt['revocations']}")
-    print(f"Number of New Valid: {cnt['valid']}")
 
     totalBytes = 0
     for l, qty in serialLen.items():
