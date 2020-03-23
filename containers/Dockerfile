@@ -34,8 +34,11 @@ RUN pip3 install -r /app/requirements.txt
 COPY --from=builder /build/bin /app/
 COPY --from=builder /build/gopath/bin /app/
 
+COPY moz_crlite_lib /app/moz_crlite_lib
+RUN pip3 install /app/moz_crlite_lib
+
 COPY create_filter_cascade /app/create_filter_cascade
-COPY kinto-publisher /app/kinto-publisher
+COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY system /app/system
 COPY workflow /app/workflow
 

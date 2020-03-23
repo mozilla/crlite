@@ -5,10 +5,10 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import argparse
-import crlite
 import itertools
 import json
 import logging
+import moz_crlite_lib as crlite
 import os
 import psutil
 import stopwatch

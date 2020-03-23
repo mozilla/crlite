@@ -1,8 +1,8 @@
 import base64
 import tempfile
 import unittest
+import moz_crlite_lib as crlite
 
-from create_filter_cascade import crlite, certs_to_crlite
 from pathlib import Path
 
 
@@ -146,59 +146,6 @@ class TestCertLists(unittest.TestCase):
             crlite.save_additions(out_path=diff_path, revoked_by_issuer=revoked)
 
             self.assertEqual(diff_path.stat().st_size, 37)
-
-    def test_make_diff_completely_different(self):
-        old, new = static_test_certs()
-
-        diff = certs_to_crlite.find_additions(
-            old_by_issuer=iter(old.items()), new_by_issuer=iter(new.items())
-        )
-        self.assertCertListEqual(new, diff)
-
-    def test_make_diff_one_additional_issuer(self):
-        old, _ = static_test_certs()
-        addition = {b"bmV3YmllCg==": set([make_certid("bmV3YmllCg==", "012345")])}
-        new = old.copy()
-        new.update(addition)
-
-        diff = certs_to_crlite.find_additions(
-            old_by_issuer=iter(old.items()), new_by_issuer=iter(new.items())
-        )
-        self.assertCertListEqual(addition, diff)
-
-    def test_make_diff_reverse_order(self):
-        set1, _ = static_test_certs()
-
-        diff = certs_to_crlite.find_additions(
-            old_by_issuer=iter(set1.items()), new_by_issuer=reversed(list(set1.items()))
-        )
-        self.assertEqual(len(diff), 0)
-
-    def test_make_diff_reverse_order_add_one(self):
-        set1, set2 = static_test_certs()
-        combo_set = set1.copy()
-        combo_set.update(set2)
-        addition = {
-            b"bmV3YmllCg==": set([make_certid("bmV3YmllCg==", "012345")]),
-        }
-        new = combo_set.copy()
-        new.update(addition)
-
-        diff = certs_to_crlite.find_additions(
-            old_by_issuer=iter(combo_set.items()),
-            new_by_issuer=reversed(list(new.items())),
-        )
-        self.assertCertListEqual(addition, diff)
-
-    def test_make_diff_removed_issuer(self):
-        old, _ = static_test_certs()
-        new = old.copy()
-        del new[b"aG9uZXN0Q0EK"]
-
-        diff = certs_to_crlite.find_additions(
-            old_by_issuer=iter(old.items()), new_by_issuer=iter(new.items())
-        )
-        self.assertEqual(len(diff), 0)
 
 
 if __name__ == "__main__":
