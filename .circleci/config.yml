@@ -10,14 +10,33 @@ jobs:
       - checkout
       - python/load-cache
       - python/install-deps
-      - python/save-cache
-      - run: pip install --editable create_filter_cascade
       - run: pip install pytest
       - run: pip install black
-      - run: pytest create_filter_cascade/test*.py
+      - python/save-cache
+
+      - run:
+          name: Install Package
+          command: |
+            pip install --editable .
+            pip install --editable create_filter_cascade
+            pip install --editable moz_crlite_lib
+      - run:
+          name: Run Tests
+          command: |
+            pip install pytest
+            mkdir test-results
+            python -m pytest --junitxml=test-results/junit.xml
+
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: test-results
+
       - run:
          name: Check format with Black
-         command: black --check .
+         command: |
+            pip install black
+            black --check .
 
   golang-build-and-test:
     docker:

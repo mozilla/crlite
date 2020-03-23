@@ -5,8 +5,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import argparse
-import crlite
 import logging
+import moz_crlite_lib as crlite
 
 from collections import Counter
 from pathlib import Path

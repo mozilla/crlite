@@ -20,4 +20,4 @@ fi
 path=${1}
 shift
 
-python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --intermediates --in ${path}/revoked/knownIssuers.json --delete $@
+python3 ${crlite_bin:-~/crlite}/moz_kinto_publisher/main.py --intermediates --in ${path}/revoked/knownIssuers.json --delete $@

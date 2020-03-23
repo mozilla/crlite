@@ -52,4 +52,4 @@ echo "  1) This is a cheating way to get around firewall restrictions, bouncing 
 echo "  2) You'll need to have the VPN connected."
 echo "  3) You'll need OpenSSH 6.7 or later."
 
-python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --stash "${stashMLBF}" --filter "${currentMLBF}" --timestamp "${filterIsoTime}"
+python3 ${crlite_bin:-~/crlite}/moz_kinto_publisher/main.py --crlite --stash "${stashMLBF}" --filter "${currentMLBF}" --timestamp "${filterIsoTime}"
