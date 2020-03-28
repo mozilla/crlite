@@ -131,14 +131,17 @@ def getIssuerIdFromCache(issuerSpkiHash):
     return issuerCache[issuerSpkiHash]
 
 
-def getCertList(certpath, issuer):
+def getCertList(certpath_str, issuer):
     issuerId = getIssuerIdFromCache(base64.urlsafe_b64decode(issuer))
 
-    certlist = set()
-    if not os.path.isfile(certpath):
-        raise Exception(f"getCertList: {certpath} not a file")
+    certpath = Path(certpath_str)
 
-    log.debug(f"getCertList opening {Path(certpath)} (sz={Path(certpath).stat().st_size})")
+    certlist = set()
+    if not certpath.is_file():
+        log.error(f"getCertList couldn't find file {certpath}")
+        return None
+
+    log.debug(f"getCertList opening {certpath} (sz={certpath.stat().st_size})")
 
     with open(certpath, "r") as f:
         try:
@@ -146,11 +149,11 @@ def getCertList(certpath, issuer):
                 try:
                     serial = bytes.fromhex(sHex)
                     certlist.add(CertId(issuerId, serial))
-                except TypeError as te:
+                except ValueError as te:
                     log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
                               + f"hex={sHex} because {te}")
         except Exception as e:
-            log.debug(f"getCertList exception caught: {e}")
+            log.debug(f"getCertList exception caught: {type(e)} {e}")
             log.error(f"Failed to load certs for {issuer} from {certpath}")
             breakpoint()
     return certlist

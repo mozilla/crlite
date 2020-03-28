@@ -9,13 +9,12 @@ import crlite
 import itertools
 import json
 import logging
-import math
 import os
 import psutil
 import stopwatch
 import sys
 
-from filtercascade import FilterCascade
+from filtercascade import FilterCascade, fileformats
 from pathlib import Path
 
 # Structure of the stats object:
@@ -31,7 +30,6 @@ from pathlib import Path
 #   "mlbf_layers"        : Int, Number of layers in the MLBF
 #   "mlbf_bits"          : Int, Total bits used by the MLBF filters
 #   "mlbf_filesize"      : Int, Size of the MLBF file in bytes
-#   "mlbf_metafilesize"  : Int, Size of the MLBF metafile in bytes
 #   "mlbf_diffsize"      : Int, Size of the MLBF diff file (if it was produced,
 #                          otherwise this field is omitted)
 #   "Issuers"            : {
@@ -120,23 +118,18 @@ def createCertLists(*, known_path, revoked_path, known_revoked_path, known_nonre
     }
 
 
-def getFPRs(revoked_certs_len, nonrevoked_certs_len):
-    return [revoked_certs_len / (math.sqrt(2) * nonrevoked_certs_len), 0.5]
-
-
 def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_certs_len):
     sw.start('mlbf')
-    fprs = getFPRs(len(revoked_certs), nonrevoked_certs_len)
+    revoked_certs_len = len(revoked_certs)
 
     log.info("Generating filter")
-    cascade = FilterCascade.cascade_with_characteristics(
-        int(len(revoked_certs) * args.capacity),
-        fprs)
-
-    cascade.version = 1
+    cascade = FilterCascade([], version=1,
+                            defaultHashAlg=fileformats.HashAlgorithm.MURMUR3)
+    cascade.set_crlite_error_rates(include_len=revoked_certs_len,
+                                   exclude_len=nonrevoked_certs_len)
     cascade.initialize(include=revoked_certs, exclude=nonrevoked_certs)
 
-    stats['mlbf_fprs'] = fprs
+    stats['mlbf_fprs'] = cascade.error_rates
     stats['mlbf_version'] = cascade.version
     stats['mlbf_layers'] = cascade.layerCount()
     stats['mlbf_bits'] = cascade.bitCount()
@@ -152,7 +145,7 @@ def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
     if args.noVerify is False:
         sw.start('verify')
         log.info("Checking/verifying certs against MLBF")
-        cascade.check(entries=revoked_certs, exclusions=nonrevoked_certs)
+        cascade.verify(include=revoked_certs, exclude=nonrevoked_certs)
         sw.end('verify')
 
 
@@ -165,10 +158,6 @@ def saveMLBF(args, stats, cascade):
         cascade.tofile(mlbf_file)
     stats['mlbf_filesize'] = os.stat(args.outFile).st_size
 
-    with open(args.metaFile, 'wb') as mlbf_meta_file:
-        log.info("Writing to meta file {}".format(args.metaFile))
-        cascade.saveDiffMeta(mlbf_meta_file)
-    stats['mlbf_metafilesize'] = os.stat(args.metaFile).st_size
     sw.end('save')
 
 
@@ -266,7 +255,6 @@ def parseArgs(argv):
         "-noVerify", help="Skip MLBF verification", action="store_true")
     args = parser.parse_args(argv)
     args.outFile = args.certPath / args.id / args.outDirName / "filter"
-    args.metaFile = args.certPath / args.id / args.outDirName / "filter.meta"
     if args.knownPath is None:
         args.knownPath = args.certPath / args.id / "known"
     if args.revokedPath is None:
@@ -319,12 +307,10 @@ def main():
                 log.info("Diff: Making diff for known revoked entries")
                 with open(prior_revoked_path,
                           "rb") as prior_fp, open(args.revokedKeys, "rb") as fp:
-                    sw.start('diff revoked filter')
                     revoked_diff_by_isssuer = find_additions(
                         old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
                         new_by_issuer=crlite.readFromCertListByIssuer(fp),
                     )
-                    sw.end('diff revoked filter')
 
                 log.info("Diff: Saving difference stash.")
                 crlite.save_additions(
