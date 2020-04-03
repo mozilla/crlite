@@ -854,6 +854,12 @@ def timestamp_from_record(record):
     return datetime.fromisoformat(iso_string)
 
 
+def timestamp_from_path(path):
+    parts = path.name.split("-")
+    time_string = f"{parts[0]}-{int(parts[1])*6}"
+    return datetime.strptime(time_string, "%Y%m%d-%H")
+
+
 def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
     if current_filter is None:
         return False
@@ -880,10 +886,7 @@ def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
 
     # Now confirm that the stash_path's filename is logically the next after previous
     previous_timestamp = timestamp_from_record(previous)
-
-    stash_time_parts = stash_path.name.split("-")
-    stash_time_string = f"{stash_time_parts[0]}-{int(stash_time_parts[1])*6}"
-    stash_timestamp = datetime.strptime(stash_time_string, "%Y%m%d-%H")
+    stash_timestamp = timestamp_from_path(stash_path)
 
     delta = stash_timestamp - previous_timestamp
 
@@ -930,8 +933,20 @@ def publish_crlite(*, args, client):
     )
 
     # Check whether we've already uploaded this identifier
-    if any(map(lambda x: args.filter.name in x["attachment"]["filename"], existing_records)):
-        log.info("Already uploaded.")
+    if any(
+        map(lambda x: args.filter.name in x["attachment"]["filename"], existing_records)
+    ):
+        log.error("Already uploaded.")
+        return
+
+    # Check whether this identifier is older than the existing records
+    if any(
+        map(
+            lambda x: timestamp_from_record(x) > timestamp_from_path(args.filter),
+            existing_records,
+        )
+    ):
+        log.error(f"Filter {args.filter} is older than the existing records.")
         return
 
     # Heuristic: If the new filter is smaller than the sum of all current stashes and the next
