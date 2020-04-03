@@ -930,6 +930,9 @@ def publish_crlite(*, args, client):
     )
 
     # Check whether we've already uploaded this identifier
+    if any(map(lambda x: args.filter.name in x["attachment"]["filename"], existing_records)):
+        log.info("Already uploaded.")
+        return
 
     # Heuristic: If the new filter is smaller than the sum of all current stashes and the next
     # stash, then replace the old filter and stashes with only the new filter.
