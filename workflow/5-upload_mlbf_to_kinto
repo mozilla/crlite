@@ -1,16 +1,12 @@
 #!/bin/bash
 
-validateMLBF() {
-  mlbf="${1}"
-  if [ ! -r "${mlbf}" ] ; then
-    echo "MLBF not found at ${mlbf}"
+ensureExists() {
+  file="${1}"
+  if [ ! -r "${file}" ] ; then
+    echo "MLBF not found at ${file}"
     exit 1
   fi
-
-  if [ ! -r "${mlbf}.meta" ] ; then
-    echo "MLBF metadata not found at ${mlbf}.meta"
-    exit 1
-  fi
+  ls -la "${file}"
 }
 
 if [ "$KINTO_AUTH_USER" == "" ] ; then
@@ -30,38 +26,25 @@ if [ ! -d ${1} ] ; then
   exit 1
 fi
 
-force=0
-if [ $# -gt 1 ] ; then
-  echo "Forcing a complete file"
-  force=1
-fi
-
 identifier="$(basename ${1})"
+
 currentMLBF="${crlite_processing:-/ct/processing}/${identifier}/mlbf/filter"
-validateMLBF "${currentMLBF}"
+ensureExists "${currentMLBF}"
 
-previousIdentifier=$(basename $(find /ct/processing -maxdepth 1 -type d | grep -v "${identifier}" | tail -n 1))
-previousMLBF="${crlite_processing:-/ct/processing}/${previousIdentifier}/mlbf/filter"
-validateMLBF "${previousMLBF}"
-
-patchMLBF="$(ls ${crlite_processing:-/ct/processing}/${identifier}/mlbf/filter*patch | head -n1)"
-
-ls -la "${patchMLBF}" "${currentMLBF}"
+stashMLBF="${crlite_processing:-/ct/processing}/${identifier}/mlbf/filter.stash"
+ensureExists "${stashMLBF}"
 
 filterSize=$(stat --printf="%s" "${currentMLBF}")
-patchSize=$(stat --printf="%s" "${patchMLBF}")
-ratio=$(echo ${patchSize}/${filterSize} | bc -l)
+stashSize=$(stat --printf="%s" "${stashMLBF}")
 
-if [[ ${force} -gt 0 ]] ; then
-  ratio=2
-fi
+filterEpochTime=$(stat --printf="%W" "${crlite_processing:-/ct/processing}/${identifier}")
+filterIsoTime=$(date --utc --iso-8601=seconds --date="@${filterEpochTime}")
 
 echo "Filter size: ${filterSize}"
-echo "Patch size: ${patchSize}"
-echo "Ratio: ${ratio}"
+echo "Stash size: ${stashSize}"
+echo "Filter timestamp: ${filterIsoTime}"
 
-
-echo "Auth token: $KINTO_AUTH_TOKEN"
+echo "Auth token: (var is KINTO_AUTH_TOKEN, not shown)"
 echo "Proxy: $HTTPS_PROXY"
 echo "Remember, you needed to SSH into here with 'ssh -R 32547 <hostname>' to set up the reverse proxy. "
 echo "Also note:"
@@ -69,11 +52,4 @@ echo "  1) This is a cheating way to get around firewall restrictions, bouncing 
 echo "  2) You'll need to have the VPN connected."
 echo "  3) You'll need OpenSSH 6.7 or later."
 
-if (( $(echo "${ratio} > 0.4" | bc -l) )) ; then
-  echo "Making a new base filter."
-  python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --in "${currentMLBF}"
-
-else
-  echo "Posting a new incremental filter patch."
-  python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --diff --in "${patchMLBF}"
-fi
+python3 ${crlite_bin:-~/crlite}/kinto-publisher/main.py --crlite --stash "${stashMLBF}" --filter "${currentMLBF}" --timestamp "${filterIsoTime}"

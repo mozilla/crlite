@@ -4,12 +4,11 @@ import base64
 import glog as log
 import hashlib
 import json
-import os
 import re
 import requests
 import settings
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 from pathlib import Path
@@ -82,29 +81,38 @@ class PublisherClient(Client):
 
 def main():
     parser = argparse.ArgumentParser(description='Upload MLBF files to Kinto as records')
-    parser.add_argument('--in', help="file to upload", dest="inpath", required=True)
-    parser.add_argument('--crlite', action='store_true',
-                        help="True if this is a CRLite update")
-    parser.add_argument('--diff', action='store_true',
-                        help="True if incremental (only valid for CRLite)")
-    parser.add_argument('--intermediates', action='store_true',
-                        help="True if this is an update of Intermediates")
-    parser.add_argument('--debug', action='store_true',
-                        help="Enter a debugger during processing (only valid for Intermediates)")
-    parser.add_argument('--delete', action='store_true',
-                        help="Delete entries that are now missing (only valid for Intermediates)")
-    parser.add_argument('--export', help="Export intermediate set inspection files to this folder")
+
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--crlite', action='store_true',
+                       help="Perform a CRLite update")
+    group.add_argument('--intermediates', action='store_true',
+                       help="Perform an Intermediate CA update")
+
+    crlite_group = parser.add_argument_group('crlite', 'crlite upload arguments')
+    crlite_group.add_argument('--stash', type=Path,
+                              help="CRLite incremental stash file")
+    crlite_group.add_argument('--filter', type=Path,
+                              help="CRLite multi-level Bloom filter")
+    crlite_group.add_argument('--timestamp', type=datetime.fromisoformat,
+                              help="CRLite filter timestamp in ISO format")
+    crlite_group.add_argument('--noop', action='store_true',
+                              help="Don't update Kinto")
+
+    int_group = parser.add_argument_group('intermediates', 'intermediates upload arguments')
+    int_group.add_argument('--in', help="file to upload", dest="intermediates_file",
+                           type=Path)
+    int_group.add_argument('--debug', action='store_true',
+                           help="Enter a debugger during processing")
+    int_group.add_argument('--delete', action='store_true',
+                           help="Delete entries that are now missing")
+    int_group.add_argument('--export',
+                           help="Export intermediate set inspection files to this folder")
+
+    parser.add_argument("--noreview", help="Do not automatically trigger a review at Kinto",
+                        action="store_true")
     parser.add_argument('--verbose', '-v', help="Be more verbose", action='store_true')
 
     args = parser.parse_args()
-
-    if not args.intermediates ^ args.crlite:
-        parser.print_help()
-        raise Exception("You must select either --intermediates or --crlite")
-
-    if not os.path.exists(args.inpath):
-        parser.print_help()
-        raise Exception("You must provide an input file as the --in argument.")
 
     if args.verbose:
         log.setLevel("DEBUG")
@@ -131,10 +139,10 @@ def main():
 
     try:
         if args.crlite:
-            publish_crlite(args=args, auth=auth, client=client)
+            publish_crlite(args=args, client=client)
 
         elif args.intermediates:
-            publish_intermediates(args=args, auth=auth, client=client)
+            publish_intermediates(args=args, client=client)
 
         else:
             parser.print_help()
@@ -386,12 +394,12 @@ def export_intermediates(writer, keys, intermediates, *, old=None):
             writer.write("\n---------------\n\n")
 
 
-def publish_intermediates(*, args=None, auth=None, client=None):
+def publish_intermediates(*, args, client):
     local_intermediates = {}
     remote_intermediates = {}
     remote_error_records = []
 
-    with open(args.inpath) as f:
+    with open(args.intermediates_file, "r") as f:
         for entry in json.load(f):
             try:
                 intObj = Intermediate(**entry, debug=args.debug)
@@ -611,7 +619,7 @@ def publish_intermediates(*, args=None, auth=None, client=None):
                 raise KintoException(
                                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id))
 
-    if to_update or to_upload or to_delete:
+    if to_update or to_upload or to_delete and not args.noop and not args.noreview:
         log.info(f"Set for review, {len(to_update)} updates, {len(to_upload)} uploads, "
                  + f"{len(to_delete)} deletions.")
         client.request_review_of_collection(
@@ -627,71 +635,204 @@ def publish_intermediates(*, args=None, auth=None, client=None):
     # )
 
 
-def publish_crlite(*, args=None, auth=None, client=None):
-    stale_records = []
+def clear_crlite_filters(*, client, noop):
+    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
+    for filter_record in existing_filters:
+        log.info(f"Cleaning up stale filter record {filter_record['id']}.")
+        if not noop:
+            client.delete_record(
+              collection=settings.KINTO_CRLITE_COLLECTION,
+              id=filter_record["id"],
+            )
 
-    if not args.diff:
-        # New base image, so we need to clear out the old records when we're done
-        for record in client.get_records(collection=settings.KINTO_CRLITE_COLLECTION):
-            stale_records.append(record['id'])
-        log.info("New base image indicated.")
-        log.info("The following MLBF records will be cleaned up at the end: {}".format(
-                 stale_records))
 
-    identifier = "{}Z-{}".format(
-      datetime.utcnow().isoformat(timespec="seconds"),
-      "diff" if args.diff else "full",
-    )
+def clear_crlite_stashes(*, client, noop):
+    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
+    for stash in existing_stashes:
+        log.info(f"Cleaning up stale stash record {stash['id']}.")
+        if not noop:
+            client.delete_record(
+              collection=settings.KINTO_CRLITE_COLLECTION,
+              id=stash["id"],
+            )
+
+
+def publish_crlite_record(*, path, timestamp, client, incremental, noop, previous_id=None):
+    record_type = "diff" if incremental else "full"
+    record_time = timestamp.isoformat(timespec="seconds")
+    identifier = f"{record_time}Z-{record_type}"
 
     attributes = {
         'details': {'name': identifier},
-        'incremental': args.diff
+        'incremental': incremental
     }
     perms = {"read": ["system.Everyone"]}
+    if incremental:
+        assert previous_id, "Incremental records must have a previous record ID"
+        attributes["details"]["previous"] = previous_id
 
-    record = client.create_record(
-      collection=settings.KINTO_CRLITE_COLLECTION,
-      data=attributes,
-      permissions=perms,
-    )
-    recordid = record['data']['id']
+    log.info(f"Publishing {path} {timestamp} incremental={incremental} (previous={previous_id})")
+    if noop:
+        log.info("NoOp mode enabled")
 
-    try:
-        client.attach_file(
+    if not noop:
+        record = client.create_record(
           collection=settings.KINTO_CRLITE_COLLECTION,
-          fileName=os.path.basename(args.inpath),
-          filePath=args.inpath,
-          recordId=recordid,
+          data=attributes,
+          permissions=perms,
         )
-    except KintoException as ke:
-        log.error("Failed to upload attachment. Removing stale MLBF record {}.".format(recordid))
-        client.delete_record(
+        recordid = record['data']['id']
+
+        try:
+            client.attach_file(
+              collection=settings.KINTO_CRLITE_COLLECTION,
+              fileName=path.name,
+              filePath=path,
+              recordId=recordid,
+            )
+        except KintoException as ke:
+            log.error(f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}")
+            client.delete_record(
+              collection=settings.KINTO_CRLITE_COLLECTION,
+              id=recordid,
+            )
+            log.error("Stale record deleted.")
+            raise ke
+
+        record = client.get_record(
           collection=settings.KINTO_CRLITE_COLLECTION,
           id=recordid,
         )
-        log.error("Stale record deleted.")
-        raise ke
+    else:
+        recordid = "fake-noop-id"
+        record = {"fake": True}
 
-    record = client.get_record(
-      collection=settings.KINTO_CRLITE_COLLECTION,
-      id=recordid,
-    )
     log.info("Successfully uploaded MLBF record.")
-    log.info(json.dumps(record, indent=" "))
+    log.debug(json.dumps(record, indent=" "))
+    return record
 
-    for recordid in stale_records:
-        log.info("Cleaning up stale MLBF record {}.".format(recordid))
-        client.delete_record(
-          collection=settings.KINTO_CRLITE_COLLECTION,
-          id=recordid,
-        )
+
+def publish_crlite_main_filter(*, filter_path, client, timestamp, noop):
+    return publish_crlite_record(path=filter_path, timestamp=timestamp, client=client,
+                                 noop=noop, incremental=False)
+
+
+def publish_crlite_stash(*, stash_path, client, previous_id, timestamp, noop):
+    return publish_crlite_record(path=stash_path, timestamp=timestamp,  client=client,
+                                 previous_id=previous_id, noop=noop, incremental=True)
+
+
+def timestamp_from_record(record):
+    iso_string = record["details"]["name"].split("Z-")[0]
+    return datetime.fromisoformat(iso_string)
+
+
+def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
+    if current_filter is None:
+        return False
+
+    if current_filter["incremental"] is not False:
+        raise ValueError(f"current filter should be non-incremental: {current_filter}")
+
+    previous = current_filter
+    for stash in reversed(current_stashes):
+        if stash["details"]["previous"] != previous["id"]:
+            log.warning(f"Stash {stash} does not reference the previous entry {previous}")
+            return False
+
+        delta = timestamp_from_record(stash) - timestamp_from_record(previous)
+        if delta < timedelta(0) or delta > timedelta(hours=24):
+            log.warning(f"Stash chain has a time delta of {delta} between {previous} and {stash}")
+            return False
+
+        previous = stash
+
+    # Now confirm that the stash_path's filename is logically the next after previous
+    previous_timestamp = timestamp_from_record(previous)
+
+    stash_time_parts = stash_path.name.split("-")
+    stash_time_string = f"{stash_time_parts[0]}-{int(stash_time_parts[1])*6}"
+    stash_timestamp = datetime.strptime(stash_time_string, "%Y%m%d-%H")
+
+    delta = stash_timestamp - previous_timestamp
+
+    log.debug(f"previous timestamp={previous_timestamp}, stash={stash_timestamp}, "
+              + f"delta={delta}")
+
+    # TODO: use the {-1,2,3...} to try and get 6 hour resolution
+    if delta < timedelta(0) or delta > timedelta(hours=24):
+        log.warning(f"Stash is not recent enough compared to the previous (delta={delta})")
+        return False
+
+    return True
+
+
+def publish_crlite(*, args, client):
+    if not args.filter:
+        raise ValueError("Filter must be specified")
+
+    if not args.timestamp:
+        raise ValueError("Timestamp must be specified")
+
+    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+
+    current_filters = list(filter(lambda x: x["incremental"] is False, existing_records))
+    if len(current_filters) == 0:
+        log.warning("No current filter")
+        current_filter = None
+    else:
+        current_filter = current_filters.pop()
+
+    if len(current_filters) > 1:
+        log.error(f"More than one current filter: {current_filters}")
+
+    current_stashes = list(filter(lambda x: x["incremental"] is True, existing_records))
+
+    total_size_of_current_stashes = sum(map(lambda x: x["attachment"]["size"], current_stashes))
+
+    # Check whether we've already uploaded this identifier
+
+    # Heuristic: If the new filter is smaller than the sum of all current stashes and the next
+    # stash, then replace the old filter and stashes with only the new filter.
+
+    filter_sz = args.filter.stat().st_size
+    if args.stash and verify_unbroken_stash_chain(current_filter=current_filter,
+                                                  current_stashes=current_stashes,
+                                                  stash_path=args.stash):
+        stash_sz = args.stash.stat().st_size
+        log.info(f"Filter={filter_sz}, stash_sz={stash_sz} "
+                 + f"total_size_of_current_stashes={total_size_of_current_stashes}")
+        if filter_sz < total_size_of_current_stashes + stash_sz:
+            log.info(f"Filter is {total_size_of_current_stashes + stash_sz - filter_sz} bytes "
+                     + "smaller than what the stash collection would be. "
+                     + "Choosing to upload a new filter.")
+            clear_crlite_filters(client=client, noop=args.noop)
+            clear_crlite_stashes(client=client, noop=args.noop)
+            publish_crlite_main_filter(filter_path=args.filter, client=client,
+                                       timestamp=args.timestamp, noop=args.noop)
+        else:
+            log.info(f"Choosing to upload a stash, total stash size will be "
+                     + f"{total_size_of_current_stashes + stash_sz} bytes")
+            last_record = ([current_filter] + current_stashes).pop()
+            publish_crlite_stash(stash_path=args.stash, client=client,
+                                 previous_id=last_record["id"],
+                                 timestamp=args.timestamp, noop=args.noop)
+    else:
+        log.info(f"Falling back to uploading a full filter, {filter_sz} bytes.")
+        clear_crlite_filters(client=client, noop=args.noop)
+        clear_crlite_stashes(client=client, noop=args.noop)
+        publish_crlite_main_filter(filter_path=args.filter, client=client,
+                                   timestamp=args.timestamp, noop=args.noop)
 
     log.info("Set for review")
-    client.request_review_of_collection(
-      collection=settings.KINTO_CRLITE_COLLECTION,
-    )
+    if not args.noop and not args.noreview:
+        client.request_review_of_collection(
+          collection=settings.KINTO_CRLITE_COLLECTION,
+        )
 
-    # Todo - use different credentials, as editor cannot review.
+    # TODO - use different credentials, as editor cannot review.
     # log.info("Requesting signature")
     # client.sign_collection(
     #   collection = settings.KINTO_CRLITE_COLLECTION,
