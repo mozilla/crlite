@@ -11,23 +11,23 @@ import struct
 
 from pathlib import Path
 
-log = logging.getLogger('create_filter_cascade')
+log = logging.getLogger("create_filter_cascade")
 
 # bytes 0-3: N, number of serials as an unsigned long
 # byte 4: L, length of issuer field as a unsigned char
 # bytes 5+: hash of issuer subject public key info of length L
 # then N serials_structs
-issuers_struct = struct.Struct(b'<LB')
+issuers_struct = struct.Struct(b"<LB")
 
 # byte 0: length of serial field as an unsigned short
 # bytes 1+: serial number
-serials_struct = struct.Struct(b'<B')
+serials_struct = struct.Struct(b"<B")
 
 # bytes 0-3: N, number of revoked serials as an unsigned long
 # byte 4: L, length of issuer field as a unsigned char
 # bytes 5+: hash of issuer subject public key info of length L
 # then N serials_structs followed by M serials_structs
-additions_struct = struct.Struct(b'<LB')
+additions_struct = struct.Struct(b"<LB")
 
 issuerCache = {}
 
@@ -98,19 +98,19 @@ class IssuerDataOnDisk(object):
     def load_and_make_sets(self, stats):
         knownSet = getCertList(self.knownPath, self.issuer)
         if knownSet:
-            stats['known'] += len(knownSet)
+            stats["known"] += len(knownSet)
         else:
             knownSet = set()
-        stats['Issuers'][self.issuer]['known'] = len(knownSet)
+        stats["Issuers"][self.issuer]["known"] = len(knownSet)
 
         revSet = getCertList(self.revokedPath, self.issuer)
         if revSet:
-            stats['revoked'] += len(revSet)
-            stats['Issuers'][self.issuer]['crl'] = True
+            stats["revoked"] += len(revSet)
+            stats["Issuers"][self.issuer]["crl"] = True
         else:
-            stats['nocrl'] += 1
+            stats["nocrl"] += 1
             revSet = set()
-        stats['Issuers'][self.issuer]['revoked'] = len(revSet)
+        stats["Issuers"][self.issuer]["revoked"] = len(revSet)
 
         knownNotRevoked = knownSet - revSet
         knownRevoked = knownSet & revSet
@@ -150,8 +150,10 @@ def getCertList(certpath_str, issuer):
                     serial = bytes.fromhex(sHex)
                     certlist.add(CertId(issuerId, serial))
                 except ValueError as te:
-                    log.error(f"Couldn't decode line={cnt} issuer={issuer} serial "
-                              + f"hex={sHex} because {te}")
+                    log.error(
+                        f"Couldn't decode line={cnt} issuer={issuer} serial "
+                        + f"hex={sHex} because {te}"
+                    )
         except Exception as e:
             log.debug(f"getCertList exception caught: {type(e)} {e}")
             log.error(f"Failed to load certs for {issuer} from {certpath}")
@@ -166,8 +168,11 @@ def genIssuerPathObjects(*, knownPath, revokedPath, excludeIssuer):
             if issuer in excludeIssuer:
                 continue
 
-            yield IssuerDataOnDisk(issuer=issuer, knownPath=path / Path(filename),
-                                   revokedPath=revokedPath / Path(issuer))
+            yield IssuerDataOnDisk(
+                issuer=issuer,
+                knownPath=path / Path(filename),
+                revokedPath=revokedPath / Path(issuer),
+            )
 
 
 def writeSerials(file, serial_list):
@@ -208,9 +213,7 @@ def save_additions(*, out_path, revoked_by_issuer):
             if num_issuer_revocations > 0xFFFFFFFF:
                 raise ValueError("revocation list length > unsigned long")
 
-            file.write(additions_struct.pack(
-                num_issuer_revocations, issuer_len
-            ))
+            file.write(additions_struct.pack(num_issuer_revocations, issuer_len))
             file.write(issuer)
 
             writeSerials(file, issuer_revocations)
@@ -232,18 +235,25 @@ def readFromAdditionsList(file):
     try:
         while True:
             (num_issuer_revocations, issuer_len) = additions_struct.unpack(
-                                                expectRead(file, additions_struct.size))
-            assert issuer_len <= 64, (f"issuer spki hash should be 64 bytes, got {issuer_len} "
-                                      + f"at offset {file.tell()} of {file.name}")
+                expectRead(file, additions_struct.size)
+            )
+            assert issuer_len <= 64, (
+                f"issuer spki hash should be 64 bytes, got {issuer_len} "
+                + f"at offset {file.tell()} of {file.name}"
+            )
             issuer_bytes = expectRead(file, issuer_len)
 
             issuerId = getIssuerIdFromCache(issuer_bytes)
 
             revSet = set()
             for serial_idx in range(num_issuer_revocations):
-                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
-                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
-                                          + f"at offset {file.tell()} of {file.name}")
+                (serial_len,) = serials_struct.unpack(
+                    expectRead(file, serials_struct.size)
+                )
+                assert serial_len <= 64, (
+                    f"serial length should be small, got {serial_len} "
+                    + f"at offset {file.tell()} of {file.name}"
+                )
                 serial_bytes = expectRead(file, serial_len)
                 revSet.add(CertId(issuerId, serial_bytes))
 
@@ -257,17 +267,24 @@ def readFromCertList(file):
     try:
         while True:
             (num_serial_list, issuer_len) = issuers_struct.unpack(
-                                                expectRead(file, issuers_struct.size))
-            assert issuer_len <= 64, (f"issuer spki hash should be 64 bytes, got {issuer_len} "
-                                      + f"at offset {file.tell()} of {file.name}")
+                expectRead(file, issuers_struct.size)
+            )
+            assert issuer_len <= 64, (
+                f"issuer spki hash should be 64 bytes, got {issuer_len} "
+                + f"at offset {file.tell()} of {file.name}"
+            )
             issuer_bytes = expectRead(file, issuer_len)
 
             issuerId = getIssuerIdFromCache(issuer_bytes)
 
             for serial_idx in range(num_serial_list):
-                (serial_len,) = serials_struct.unpack(expectRead(file, serials_struct.size))
-                assert serial_len <= 64, (f"serial length should be small, got {serial_len} "
-                                          + f"at offset {file.tell()} of {file.name}")
+                (serial_len,) = serials_struct.unpack(
+                    expectRead(file, serials_struct.size)
+                )
+                assert serial_len <= 64, (
+                    f"serial length should be small, got {serial_len} "
+                    + f"at offset {file.tell()} of {file.name}"
+                )
                 serial_bytes = expectRead(file, serial_len)
 
                 yield CertId(issuerId, serial_bytes)

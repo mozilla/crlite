@@ -5,7 +5,7 @@ setup(
     version="0.1",
     description="Construct multi-level bloom filters for CRLite",
     long_description="This project changes raw serial number files from the 'crlite' "
-                     + "project into a multi-level bloom filter.",
+    + "project into a multi-level bloom filter.",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",

@@ -6,7 +6,6 @@
 - repo: git://github.com/pre-commit/pre-commit-hooks
   sha: HEAD
   hooks:
-    - id: flake8
     - id: check-ast
     - id: detect-private-key
     - id: detect-aws-credentials
@@ -14,6 +13,10 @@
     - id: end-of-file-fixer
     - id: requirements-txt-fixer
     - id: trailing-whitespace
+- repo: https://gitlab.com/pycqa/flake8
+  sha: HEAD
+  hooks:
+    - id: flake8
 - repo: local
   hooks:
     - id: go-unit-tests
@@ -32,3 +35,7 @@
       entry: python3 -m unittest create_filter_cascade/test.py
       pass_filenames: false
       files: '.py$'
+- repo:  git://github.com/psf/black
+  rev: HEAD
+  hooks:
+    - id: black

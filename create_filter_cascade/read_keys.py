@@ -30,8 +30,12 @@ def read_keys(path, emit=False):
             if emit:
                 print(f"{certId}")
 
-    print(f"Issuers: {len(issuers)} Most Common: {issuers.most_common(5)} Serials: {cnt}")
-    print(f"Issuer Lengths: {issuerLen.most_common(5)} Serial Lengths: {serialLen.most_common(5)}")
+    print(
+        f"Issuers: {len(issuers)} Most Common: {issuers.most_common(5)} Serials: {cnt}"
+    )
+    print(
+        f"Issuer Lengths: {issuerLen.most_common(5)} Serial Lengths: {serialLen.most_common(5)}"
+    )
 
 
 def read_stash(path, emit=False):
@@ -70,22 +74,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "-keys",
-        type=Path,
-        help="Path to a .keys binary file"
-    )
-    group.add_argument(
-        "-stash",
-        type=Path,
-        help="Path to a .stash binary file"
-    )
+    group.add_argument("-keys", type=Path, help="Path to a .keys binary file")
+    group.add_argument("-stash", type=Path, help="Path to a .stash binary file")
 
-    parser.add_argument(
-        "-print",
-        help="Print the values",
-        action="store_true"
-    )
+    parser.add_argument("-print", help="Print the values", action="store_true")
     args = parser.parse_args()
 
     if args.keys:

@@ -3,7 +3,7 @@ import logging
 from google.api_core import exceptions, page_iterator
 from google.cloud import storage
 
-kIdentifierFormat = re.compile(r'(\d{8}-\d+)/?')
+kIdentifierFormat = re.compile(r"(\d{8}-\d+)/?")
 
 
 def _item_to_value(iterator, item):
@@ -11,14 +11,11 @@ def _item_to_value(iterator, item):
 
 
 def list_google_storage_directories(bucket_name, *, prefix=None):
-    extra_params = {
-        "projection": "noAcl",
-        "delimiter": '/'
-    }
+    extra_params = {"projection": "noAcl", "delimiter": "/"}
 
     if prefix is not None:
-        if not prefix.endswith('/'):
-            prefix += '/'
+        if not prefix.endswith("/"):
+            prefix += "/"
         extra_params["prefix"] = prefix
 
     gcs = storage.Client()
@@ -29,7 +26,7 @@ def list_google_storage_directories(bucket_name, *, prefix=None):
         client=gcs,
         api_request=gcs._connection.api_request,
         path=path,
-        items_key='prefixes',
+        items_key="prefixes",
         item_to_value=_item_to_value,
         extra_params=extra_params,
     )
@@ -43,7 +40,7 @@ def normalize_identifier(s):
         single digit, but in a degenerate case could end up with multiple, so
         we pad it here.
     """
-    parts = s.rstrip('/').split('-')
+    parts = s.rstrip("/").split("-")
     return f"{parts[0]}{int(parts[1]):06d}"
 
 
