@@ -13,7 +13,11 @@ jobs:
       - python/save-cache
       - run: pip install --editable create_filter_cascade
       - run: pip install pytest
+      - run: pip install black
       - run: pytest create_filter_cascade/test*.py
+      - run:
+         name: Check format with Black
+         command: black --check .
 
   golang-build-and-test:
     docker:
