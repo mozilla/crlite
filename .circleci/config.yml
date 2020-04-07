@@ -1,0 +1,55 @@
+version: 2.1
+
+orbs:
+  python: circleci/python@0.2.1
+
+jobs:
+  python-build-and-test:
+    executor: python/default
+    steps:
+      - checkout
+      - python/load-cache
+      - python/install-deps
+      - python/save-cache
+      - run: pip install --editable create_filter_cascade
+      - run: pip install pytest
+      - run: pytest create_filter_cascade/test*.py
+
+  golang-build-and-test:
+    docker:
+      # specify the version
+      - image: circleci/golang:1.13
+
+
+    working_directory: /go/src/github.com/mozilla.com/crlite
+    steps:
+      - checkout
+
+      # specify any bash command here prefixed with `run: `
+      - run:
+          name: Download and build
+          command: go get -v -t -d ./...
+          working_directory: /go/src/github.com/mozilla.com/crlite/go
+      - run:
+          name: gofmt
+          command: >
+            if [ -n "$(gofmt -l .)" ]; then
+              echo "Go code is not formatted:"; gofmt -d .; exit 1;
+            fi
+
+          working_directory: /go/src/github.com/mozilla.com/crlite/go
+      - run:
+          name: Test
+          command: go test -v ./...
+          working_directory: /go/src/github.com/mozilla.com/crlite/go
+
+      - run:
+          name: Test with race-finder
+          command: go test -race -short ./...
+          working_directory: /go/src/github.com/mozilla.com/crlite/go
+
+workflows:
+  main:
+    jobs:
+      - python-build-and-test
+      - golang-build-and-test
