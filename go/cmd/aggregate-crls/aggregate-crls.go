@@ -27,8 +27,8 @@ import (
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/vbauerster/mpb/v4"
-	"github.com/vbauerster/mpb/v4/decor"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 )
 
 const (
@@ -74,8 +74,6 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 	issuerChan <-chan storage.Issuer, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
 	defer wg.Done()
 
-	lastTime := time.Now()
-
 	issuerCrls := make(types.IssuerCrlMap)
 
 	for issuer := range issuerChan {
@@ -110,8 +108,7 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 			}
 			issuerCrls[issuer.ID()] = crls
 
-			progBar.IncrBy(1, time.Since(lastTime))
-			lastTime = time.Now()
+			progBar.Increment()
 		}
 	}
 
@@ -121,8 +118,6 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGroup,
 	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
-
-	lastTime := time.Now()
 
 	for tuple := range crlsChan {
 		paths := make([]string, 0)
@@ -198,8 +193,7 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			CrlPaths: paths,
 		}
 
-		progBar.IncrBy(1, time.Since(lastTime))
-		lastTime = time.Now()
+		progBar.Increment()
 	}
 }
 
@@ -245,8 +239,6 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 	defer wg.Done()
 
 	for tuple := range workChan {
-		cycleTime := time.Now()
-
 		issuerEnrolled := false
 
 		cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
@@ -302,7 +294,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 		}
 
-		progBar.IncrBy(1, time.Since(cycleTime))
+		progBar.Increment()
 	}
 }
 

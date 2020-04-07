@@ -11,11 +11,11 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
-	github.com/jcjones/ct-mapreduce v1.0.4-0.20200310234721-f398af1ba10b
+	github.com/jcjones/ct-mapreduce v1.0.4-0.20200407183047-a691f52d40b1
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
-	github.com/vbauerster/mpb/v4 v4.11.0
+	github.com/vbauerster/mpb/v5 v5.0.3
 	go.opencensus.io v0.22.1 // indirect
 	golang.org/x/exp v0.0.0-20191002040644-a1355ae1e2c3 // indirect
 	golang.org/x/lint v0.0.0-20190930215403-16217165b5de // indirect

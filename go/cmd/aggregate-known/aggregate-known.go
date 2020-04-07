@@ -15,8 +15,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/vbauerster/mpb/v4"
-	"github.com/vbauerster/mpb/v4/decor"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 )
 
 const (
@@ -88,7 +88,7 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 						tuple.issuer.ID(), serialCount, len(serials))
 				}
 
-				kw.progBar.IncrBy(1)
+				kw.progBar.Increment()
 			}
 		}
 
