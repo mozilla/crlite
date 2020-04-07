@@ -16,8 +16,7 @@ require (
 	github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d // indirect
 	github.com/smartystreets/goconvey v0.0.0-20181108003508-044398e4856c // indirect
 	github.com/vbauerster/mpb/v4 v4.11.0
-	golang.org/x/crypto v0.0.0-20191028145041-f83a4685e152 // indirect
-	golang.org/x/sys v0.0.0-20191028164358-195ce5e7f934 // indirect
+	github.com/vbauerster/mpb/v5 v5.0.3
 	google.golang.org/api v0.7.0
 	google.golang.org/grpc v1.21.1
 	gopkg.in/ini.v1 v1.38.3

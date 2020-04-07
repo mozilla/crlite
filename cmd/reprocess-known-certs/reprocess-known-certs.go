@@ -23,8 +23,8 @@ import (
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jpillora/backoff"
-	"github.com/vbauerster/mpb/v4"
-	"github.com/vbauerster/mpb/v4/decor"
+	"github.com/vbauerster/mpb/v5"
+	"github.com/vbauerster/mpb/v5/decor"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -132,7 +132,7 @@ func issuerAndDateWorker(ctx context.Context, wg *sync.WaitGroup, serialChan cha
 
 		ctxCancel()
 		metrics.MeasureSince([]string{"ReconstructIssuerMetadata"}, startTime)
-		issuerDateProgressBar.IncrBy(1, time.Since(startTime))
+		issuerDateProgressBar.Increment()
 
 		_, err = extCache.SetRemove(kIssuerExpdateInProcessQueueName, tupleStr)
 		if err != nil {
@@ -272,7 +272,7 @@ func certProcessingWorker(ctx context.Context, wg *sync.WaitGroup,
 			glog.Errorf("Couldn't complete our in-progress work [%s]: %s", tuple, err)
 		}
 
-		serialProgressBar.IncrBy(1)
+		serialProgressBar.Increment()
 	}
 }
 
@@ -392,10 +392,8 @@ func main() {
 			}
 			metrics.MeasureSince([]string{"ListIssuersForExpirationDate"}, listIssuersTime)
 
-			lastTime := time.Now()
 			for _, issuer := range issuers {
-				fetchingJobs.IncrBy(1, time.Since(lastTime))
-				lastTime = time.Now()
+				fetchingJobs.Increment()
 
 				if shouldProcess(expDate.ID(), issuer.ID()) {
 					tuple := storage.IssuerAndDate{
