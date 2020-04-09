@@ -7,6 +7,8 @@ import json
 import re
 import requests
 import settings
+import tempfile
+import workflow
 
 from datetime import datetime, timedelta
 from kinto_http import Client
@@ -15,6 +17,10 @@ from pathlib import Path
 from requests.auth import HTTPBasicAuth
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+
+
+class SanityException(Exception):
+    pass
 
 
 class BearerTokenAuth(requests.auth.AuthBase):
@@ -39,6 +45,12 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
         flags=re.DOTALL,
     )
     return base64.b64decode(matches.group(0))
+
+
+def get_attachments_base_url():
+    return requests.get(settings.KINTO_SERVER_URL).json()["capabilities"][
+        "attachments"
+    ]["base_url"]
 
 
 class PublisherClient(Client):
@@ -119,24 +131,17 @@ def main():
     )
 
     crlite_group = parser.add_argument_group("crlite", "crlite upload arguments")
-    crlite_group.add_argument(
-        "--stash", type=Path, help="CRLite incremental stash file"
-    )
-    crlite_group.add_argument(
-        "--filter", type=Path, help="CRLite multi-level Bloom filter"
-    )
-    crlite_group.add_argument(
-        "--timestamp",
-        type=datetime.fromisoformat,
-        help="CRLite filter timestamp in ISO format",
-    )
     crlite_group.add_argument("--noop", action="store_true", help="Don't update Kinto")
+    crlite_group.add_argument("--filter-bucket", default="crlite_filters")
+    crlite_group.add_argument(
+        "--download-path",
+        type=Path,
+        default=Path(tempfile.TemporaryDirectory().name),
+        help="Path to temporarily store CRLite downloaded artifacts",
+    )
 
     int_group = parser.add_argument_group(
         "intermediates", "intermediates upload arguments"
-    )
-    int_group.add_argument(
-        "--in", help="file to upload", dest="intermediates_file", type=Path
     )
     int_group.add_argument(
         "--debug", action="store_true", help="Enter a debugger during processing"
@@ -149,9 +154,9 @@ def main():
     )
 
     parser.add_argument(
-        "--noreview",
-        help="Do not automatically trigger a review at Kinto",
+        "--request-sign",
         action="store_true",
+        help="Mark the Kinto collection for signature when done",
     )
     parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
 
@@ -206,10 +211,6 @@ class IntermediateRecordError(KintoException):
 
 
 class AttachedPem:
-    attachments_base_url = requests.get(settings.KINTO_SERVER_URL).json()[
-        "capabilities"
-    ]["attachments"]["base_url"]
-
     def __init__(self, **kwargs):
         self.filename = kwargs["filename"]
         self.size = kwargs["size"]
@@ -363,9 +364,7 @@ class Intermediate:
     def download_pem(self):
         if not self.pemAttachment:
             raise Exception("pemAttachment not set")
-        r = requests.get(
-            f"{AttachedPem.attachments_base_url}{self.pemAttachment.location}"
-        )
+        r = requests.get(f"{get_attachments_base_url()}{self.pemAttachment.location}")
         r.raise_for_status()
         self.set_pem(r.text)
 
@@ -732,7 +731,7 @@ def publish_intermediates(*, args, client):
                     "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
                 )
 
-    if to_update or to_upload or to_delete and not args.noop and not args.noreview:
+    if to_update or to_upload or to_delete and not args.noop and args.request_sign:
         log.info(
             f"Set for review, {len(to_update)} updates, {len(to_upload)} uploads, "
             + f"{len(to_delete)} deletions."
@@ -751,25 +750,29 @@ def publish_intermediates(*, args, client):
 
 
 def clear_crlite_filters(*, client, noop):
+    if noop:
+        log.info("Would clean up CRLite filters, but no-op set")
+        return
     existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
         log.info(f"Cleaning up stale filter record {filter_record['id']}.")
-        if not noop:
-            client.delete_record(
-                collection=settings.KINTO_CRLITE_COLLECTION, id=filter_record["id"],
-            )
+        client.delete_record(
+            collection=settings.KINTO_CRLITE_COLLECTION, id=filter_record["id"],
+        )
 
 
 def clear_crlite_stashes(*, client, noop):
+    if noop:
+        log.info("Would clean up CRLite stashes, but no-op set")
+        return
     existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
     existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
     for stash in existing_stashes:
         log.info(f"Cleaning up stale stash record {stash['id']}.")
-        if not noop:
-            client.delete_record(
-                collection=settings.KINTO_CRLITE_COLLECTION, id=stash["id"],
-            )
+        client.delete_record(
+            collection=settings.KINTO_CRLITE_COLLECTION, id=stash["id"],
+        )
 
 
 def publish_crlite_record(
@@ -815,17 +818,13 @@ def publish_crlite_record(
             )
             log.error("Stale record deleted.")
             raise ke
-
-        record = client.get_record(
-            collection=settings.KINTO_CRLITE_COLLECTION, id=recordid,
-        )
     else:
         recordid = "fake-noop-id"
         record = {"fake": True}
 
     log.info("Successfully uploaded MLBF record.")
     log.debug(json.dumps(record, indent=" "))
-    return record
+    return recordid
 
 
 def publish_crlite_main_filter(*, filter_path, client, timestamp, noop):
@@ -854,10 +853,14 @@ def timestamp_from_record(record):
     return datetime.fromisoformat(iso_string)
 
 
-def timestamp_from_path(path):
-    parts = path.name.split("-")
+def timestamp_from_run_id(run_id):
+    parts = run_id.split("-")
     time_string = f"{parts[0]}-{int(parts[1])*6}"
     return datetime.strptime(time_string, "%Y%m%d-%H")
+
+
+def timestamp_from_path(path):
+    return timestamp_from_run_id(path.name)
 
 
 def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
@@ -905,113 +908,169 @@ def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
     return True
 
 
-def publish_crlite(*, args, client):
-    if not args.filter:
-        raise ValueError("Filter must be specified")
-
-    if not args.timestamp:
-        raise ValueError("Timestamp must be specified")
-
-    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
-
+def crlite_verify_record_sanity(*, existing_records):
     current_filters = list(
         filter(lambda x: x["incremental"] is False, existing_records)
     )
-    if len(current_filters) == 0:
-        log.warning("No current filter")
-        current_filter = None
-    else:
-        current_filter = current_filters.pop()
+    if len(current_filters) == 0 and len(existing_records) > 0:
+        raise SanityException(f"Only diff records")
 
     if len(current_filters) > 1:
-        log.error(f"More than one current filter: {current_filters}")
+        raise SanityException(f"More than one current filter: {current_filters}")
 
-    current_stashes = list(filter(lambda x: x["incremental"] is True, existing_records))
+    allowed_delta = timedelta(hours=8)
 
-    total_size_of_current_stashes = sum(
-        map(lambda x: x["attachment"]["size"], current_stashes)
-    )
+    last_timestamp = None
+    for r in existing_records:
+        ts = timestamp_from_record(r)
+        if last_timestamp:
+            if ts < last_timestamp:
+                raise SanityException(f"Out-of-order timestamp: {ts}")
+            if ts - last_timestamp > allowed_delta:
+                raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
+        last_timestamp = ts
 
-    # Check whether we've already uploaded this identifier
-    if any(
-        map(lambda x: args.filter.name in x["attachment"]["filename"], existing_records)
-    ):
-        log.error("Already uploaded.")
-        return
 
-    # Check whether this identifier is older than the existing records
-    if any(
-        map(
-            lambda x: timestamp_from_record(x) > timestamp_from_path(args.filter),
-            existing_records,
-        )
-    ):
-        log.error(f"Filter {args.filter} is older than the existing records.")
-        return
+def crlite_verify_run_id_sanity(*, run_identifiers):
+    allowed_delta = timedelta(hours=8)
 
-    # Heuristic: If the new filter is smaller than the sum of all current stashes and the next
-    # stash, then replace the old filter and stashes with only the new filter.
+    last_timestamp = None
+    for r in run_identifiers:
+        ts = timestamp_from_run_id(r)
+        if last_timestamp:
+            if ts < last_timestamp:
+                raise SanityException(f"Out-of-order timestamp: {ts}")
+            if ts - last_timestamp > allowed_delta:
+                raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
+        last_timestamp = ts
 
-    filter_sz = args.filter.stat().st_size
-    if args.stash and verify_unbroken_stash_chain(
-        current_filter=current_filter,
-        current_stashes=current_stashes,
-        stash_path=args.stash,
-    ):
-        stash_sz = args.stash.stat().st_size
-        log.info(
-            f"Filter={filter_sz}, stash_sz={stash_sz} "
-            + f"total_size_of_current_stashes={total_size_of_current_stashes}"
-        )
-        if filter_sz < total_size_of_current_stashes + stash_sz:
-            log.info(
-                f"Filter is {total_size_of_current_stashes + stash_sz - filter_sz} bytes "
-                + "smaller than what the stash collection would be. "
-                + "Choosing to upload a new filter."
-            )
-            clear_crlite_filters(client=client, noop=args.noop)
-            clear_crlite_stashes(client=client, noop=args.noop)
-            publish_crlite_main_filter(
-                filter_path=args.filter,
-                client=client,
-                timestamp=args.timestamp,
-                noop=args.noop,
-            )
-        else:
-            log.info(
-                f"Choosing to upload a stash, total stash size will be "
-                + f"{total_size_of_current_stashes + stash_sz} bytes"
-            )
-            last_record = ([current_filter] + current_stashes).pop()
-            publish_crlite_stash(
-                stash_path=args.stash,
-                client=client,
-                previous_id=last_record["id"],
-                timestamp=args.timestamp,
-                noop=args.noop,
-            )
-    else:
-        log.info(f"Falling back to uploading a full filter, {filter_sz} bytes.")
+
+def crlite_determine_publish(*, existing_records, run_identifiers):
+    assert len(run_identifiers) > 0, "There must be run identifiers"
+
+    # First, if there are no existing records, then we upload the most recent
+    # run.
+    if not existing_records:
+        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+
+    # verify sanity of the run_identifiers
+    try:
+        crlite_verify_run_id_sanity(run_identifiers=run_identifiers)
+    except SanityException as se:
+        log.error(f"Failed to verify run ID sanity: {se}")
+        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+
+    # First, match the most recent filter-or-stash with its run identifier.
+    # If we don't find any published run identifiers, just upload the most
+    # recent run.
+    published_run_ids = []
+    unpublished_run_ids = []
+
+    for idx, run_id in enumerate(run_identifiers):
+        if run_id in existing_records[-1]["attachment"]["filename"]:
+            published_run_ids = run_identifiers[: idx + 1]
+            unpublished_run_ids = run_identifiers[idx + 1 :]
+            break
+
+    if not published_run_ids:
+        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+
+    return {"upload": unpublished_run_ids}
+
+
+def publish_crlite(*, args, client):
+    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
+
+    try:
+        crlite_verify_record_sanity(existing_records=existing_records)
+    except SanityException as se:
+        log.error(f"Failed to verify existing record sanity: {se}")
         clear_crlite_filters(client=client, noop=args.noop)
         clear_crlite_stashes(client=client, noop=args.noop)
+
+    result = crlite_determine_publish(
+        existing_records=existing_records, run_identifiers=run_identifiers
+    )
+
+    if "clear_all" in result:
+        clear_crlite_filters(client=client, noop=args.noop)
+        clear_crlite_stashes(client=client, noop=args.noop)
+
+    args.download_path.mkdir()
+
+    existing_size = sum(map(lambda x: x["attachment"]["size"], existing_records))
+    log.info(f"Total size of existing published records: {existing_size} bytes")
+    total_size = existing_size
+
+    for run_id in result["upload"]:
+        run_id_path = args.download_path / Path(run_id)
+        run_id_path.mkdir()
+        timestamp_path = run_id_path / Path("timestamp")
+        stash_path = run_id_path / Path("stash")
+
+        workflow.download_from_google_cloud(
+            args.filter_bucket, f"{run_id}/mlbf/timestamp", timestamp_path
+        )
+        workflow.download_from_google_cloud(
+            args.filter_bucket, f"{run_id}/mlbf/filter.stash", stash_path
+        )
+
+        total_size += stash_path.stat().st_size
+
+    log.info(
+        f"Total size would be {total_size} after uploading stashes for {result['upload']}"
+    )
+
+    final_run_id = result["upload"][-1]
+    filter_path = args.download_path / Path(final_run_id) / Path("filter")
+    workflow.download_from_google_cloud(
+        args.filter_bucket, f"{final_run_id}/mlbf/filter", filter_path
+    )
+
+    if total_size > filter_path.stat().st_size:
+        log.info(
+            f"Total size {total_size} > {filter_path} ({filter_path.stat().st_size})"
+        )
+
+        clear_crlite_filters(client=client, noop=args.noop)
+        clear_crlite_stashes(client=client, noop=args.noop)
+
+        timestamp_path = args.download_path / Path(final_run_id) / Path("timestamp")
+
         publish_crlite_main_filter(
-            filter_path=args.filter,
+            filter_path=filter_path,
             client=client,
-            timestamp=args.timestamp,
+            timestamp=timestamp_path.read_text("utf-8"),
+            noop=args.noop,
+        )
+        return
+
+    previous_id = existing_records[-1]["id"]
+
+    for run_id in result["upload"]:
+        run_id_path = args.download_path / Path(run_id)
+        timestamp_path = run_id_path / Path("timestamp")
+        stash_path = run_id_path / Path("stash")
+        assert (
+            timestamp_path.is_file() and stash_path.is_file()
+        ), "files must have been downloaded"
+
+        previous_id = publish_crlite_stash(
+            stash_path=stash_path,
+            client=client,
+            previous_id=previous_id,
+            timestamp=timestamp_path.read_text("utf-8"),
             noop=args.noop,
         )
 
+    breakpoint()
+
     log.info("Set for review")
-    if not args.noop and not args.noreview:
+    if not args.noop and args.request_sign:
         client.request_review_of_collection(
             collection=settings.KINTO_CRLITE_COLLECTION,
         )
-
-    # TODO - use different credentials, as editor cannot review.
-    # log.info("Requesting signature")
-    # client.sign_collection(
-    #   collection = settings.KINTO_CRLITE_COLLECTION,
-    # )
 
 
 if __name__ == "__main__":
