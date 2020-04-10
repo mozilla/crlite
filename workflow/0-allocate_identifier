@@ -1,14 +1,15 @@
 #!/usr/local/bin/python3
 
-import os
 import sys
 import argparse
 import __init__ as workflow
 
+from pathlib import Path
+
 from datetime import datetime
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--path", help="Path to folder on disk to store certs")
+parser.add_argument("--path", help="Path to folder on disk to store certs", type=Path)
 
 args = parser.parse_args()
 
@@ -19,7 +20,7 @@ if not args.path:
 dateprefix = datetime.utcnow().date().strftime("%Y%m%d")
 next_idx = 0
 
-all_identifiers = workflow.get_run_identifiers('crlite_filters')
+all_identifiers = workflow.get_run_identifiers("crlite_filters")
 if all_identifiers:
     most_recent_identifier = all_identifiers.pop()
     (date_part, idx_part) = most_recent_identifier.split("-")
@@ -27,7 +28,13 @@ if all_identifiers:
         next_idx = int(idx_part) + 1
 
 allocatedName = "{}-{}".format(dateprefix, next_idx)
-allocatedPath = os.path.join(args.path, allocatedName)
+allocatedPath = args.path / Path(allocatedName)
 
-os.mkdir(allocatedPath)
+allocatedPath.mkdir()
+
+timestamp_file = allocatedPath / Path("timestamp")
+timestamp_file.write_text(
+    datetime.utcnow().isoformat(timespec="seconds"), encoding="utf-8"
+)
+
 print(allocatedPath)
