@@ -168,3 +168,42 @@ class TestPublishDecisions(unittest.TestCase):
         self.assertEqual(
             result, {"upload": ["20500101-0", "20500101-1", "20500101-2", "20500101-3"]}
         )
+
+    def test_up_to_date_single_entry(self):
+        existing_records = [
+            make_record("20491231-3", diff=False),
+        ]
+        run_identifiers = [
+            "20491230-1",
+            "20491230-2",
+            "20491230-3",
+            "20491231-0",
+            "20491231-1",
+            "20491231-2",
+            "20491231-3",
+        ]
+        result = main.crlite_determine_publish(
+            existing_records=existing_records, run_identifiers=run_identifiers
+        )
+        self.assertEqual(result, {"upload": []})
+
+    def test_up_to_date(self):
+        existing_records = [
+            make_record("20491231-0", diff=False),
+            make_record("20491231-1", diff=True),
+            make_record("20491231-2", diff=True),
+            make_record("20491231-3", diff=True),
+        ]
+        run_identifiers = [
+            "20491230-1",
+            "20491230-2",
+            "20491230-3",
+            "20491231-0",
+            "20491231-1",
+            "20491231-2",
+            "20491231-3",
+        ]
+        result = main.crlite_determine_publish(
+            existing_records=existing_records, run_identifiers=run_identifiers
+        )
+        self.assertEqual(result, {"upload": []})

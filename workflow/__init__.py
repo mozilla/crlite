@@ -1,9 +1,17 @@
-import re
 import logging
+import re
+import time
+from datetime import datetime, timedelta
 from google.api_core import exceptions, page_iterator
 from google.cloud import storage
 
 kIdentifierFormat = re.compile(r"(\d{8}-\d+)/?")
+
+log = logging.getLogger("workflow")
+
+
+class FileNotFoundException(exceptions.NotFound):
+    pass
 
 
 def _item_to_value(iterator, item):
@@ -57,7 +65,25 @@ def download_from_google_cloud(bucket_name, remote, local):
 
     blob = storage.blob.Blob(remote, bucket)
     if not blob.exists():
-        raise exceptions.NotFound(f"{remote} does not exist")
+        raise FileNotFoundException(f"{remote} does not exist")
     with open(local, "wb") as file_obj:
         blob.download_to_file(file_obj)
         logging.info(f"Downloaded {blob.public_url} to {local}")
+
+
+def download_and_retry_from_google_cloud(
+    bucket_name, remote, local, *, timeout=timedelta(minutes=5)
+):
+    time_start = datetime.now()
+    while True:
+        try:
+            return download_from_google_cloud(bucket_name, remote, local)
+        except FileNotFoundException as fnfe:
+            time_waiting = datetime.now() - time_start
+            if time_waiting >= timeout:
+                raise fnfe
+            log.warning(
+                f"File {remote} not found, retrying (wating={time_waiting}, "
+                + f"deadline={timeout-time_waiting})"
+            )
+            time.sleep(30)
