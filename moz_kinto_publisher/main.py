@@ -84,16 +84,36 @@ class PublisherClient(Client):
         )
         if response.status_code > 200:
             raise KintoException(
-                "Couldn't attach file at endpoint {}: {}".format(
-                    self.session.server_url + attachmentEndpoint,
-                    response.content.decode("utf-8"),
-                )
+                f"Couldn't attach file at endpoint {self.session.server_url}{attachmentEndpoint}: "
+                + f"{response.content.decode('utf-8')}"
             )
 
-    def request_review_of_collection(self, *, collection=None):
+    def collection_needs_review(self, *, collection=None):
         collectionEnd = "buckets/{}/collections/{}".format(
             self._bucket_name, collection or self._collection_name
         )
+
+        response = requests.get(
+            self.session.server_url + collectionEnd, auth=self.session.auth,
+        )
+        if response.status_code > 200:
+            raise KintoException(
+                f"Couldn't determine review status: {response.content.decode('utf-8')}"
+            )
+
+        status = response.json()["data"]["status"]
+        log.debug(f"Collection review status: {status}")
+        return status == "work-in-progress"
+
+    def request_review_of_collection(self, *, collection=None):
+        if not self.collection_needs_review(collection=collection):
+            log.info("Collection does not require review. Skipping.")
+            return
+
+        collectionEnd = "buckets/{}/collections/{}".format(
+            self._bucket_name, collection or self._collection_name
+        )
+
         response = requests.patch(
             self.session.server_url + collectionEnd,
             json={"data": {"status": "to-review"}},
@@ -101,7 +121,7 @@ class PublisherClient(Client):
         )
         if response.status_code > 200:
             raise KintoException(
-                "Couldn't request review: {}".format(response.content.decode("utf-8"))
+                f"Couldn't request review: {response.content.decode('utf-8')}"
             )
 
     def sign_collection(self, *, collection=None):
@@ -114,9 +134,7 @@ class PublisherClient(Client):
             auth=self.session.auth,
         )
         if response.status_code > 200:
-            raise KintoException(
-                "Couldn't sign: {}".format(response.content.decode("utf-8"))
-            )
+            raise KintoException(f"Couldn't sign: {response.content.decode('utf-8')}")
 
 
 def main():
@@ -191,6 +209,12 @@ def main():
     try:
         if args.crlite:
             publish_crlite(args=args, client=client)
+
+            if not args.noop and args.request_review:
+                log.info("Set for review")
+                client.request_review_of_collection(
+                    collection=settings.KINTO_CRLITE_COLLECTION,
+                )
 
         elif args.intermediates:
             publish_intermediates(args=args, client=client)
@@ -982,6 +1006,7 @@ def crlite_determine_publish(*, existing_records, run_identifiers):
 
 def publish_crlite(*, args, client):
     existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
     run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
 
     try:
@@ -990,6 +1015,7 @@ def publish_crlite(*, args, client):
         log.error(f"Failed to verify existing record sanity: {se}")
         clear_crlite_filters(client=client, noop=args.noop)
         clear_crlite_stashes(client=client, noop=args.noop)
+        existing_records = []
 
     result = crlite_determine_publish(
         existing_records=existing_records, run_identifiers=run_identifiers
@@ -1101,12 +1127,6 @@ def publish_crlite(*, args, client):
                 timestamp=datetime.fromisoformat(timestamp_path.read_text()),
                 noop=args.noop,
             )
-
-    if not args.noop and args.request_review:
-        log.info("Set for review")
-        client.request_review_of_collection(
-            collection=settings.KINTO_CRLITE_COLLECTION,
-        )
 
 
 if __name__ == "__main__":
