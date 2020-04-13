@@ -11,10 +11,10 @@ import logging
 parser = argparse.ArgumentParser()
 parser.add_argument("identifier", help="Path to folder to upload", nargs=1)
 
+log = logging.getLogger("upload_artifacts_to_storage")
+
 
 def uploadFiles(files, localFolder, remoteFolder, bucket):
-    log = logging.getLogger('upload_artifacts_to_storage')
-
     log.info(f"Uploading {len(files)} files from {localFolder} to {remoteFolder}")
     for item in files:
         localFilePath = localFolder.joinpath(item)
@@ -23,10 +23,19 @@ def uploadFiles(files, localFolder, remoteFolder, bucket):
         if localFilePath.is_symlink():
             continue
 
-        log.debug(f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
-                  + f"from {localFilePath}")
+        log.debug(
+            f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
+            + f"from {localFilePath}"
+        )
         blob = bucket.blob(str(remoteFilePath))
         blob.upload_from_filename(str(localFilePath))
+
+
+def ensureFileOrAbort(idPath, path):
+    filePath = idPath / Path(path)
+    if not filePath.exists():
+        log.error(f"{filePath} does not exist, aborting.")
+        sys.exit(1)
 
 
 def main():
@@ -37,10 +46,13 @@ def main():
         sys.exit(0)
 
     storage_client = storage.Client()
-    bucket_name = 'crlite_filters'
+    bucket_name = "crlite_filters"
     bucket = storage_client.get_bucket(bucket_name)
 
     idPath = Path(args.identifier[0]).resolve()
+
+    ensureFileOrAbort(idPath, Path("mlbf/filter"))
+    ensureFileOrAbort(idPath, Path("mlbf/filter.stash"))
 
     for path, dirs, files in os.walk(idPath):
         localFolder = Path(path)
