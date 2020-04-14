@@ -59,6 +59,24 @@ def get_run_identifiers(bucket_name):
     return sorted(identifiers, key=normalize_identifier)
 
 
+def google_cloud_file_exists(bucket_name, remote):
+    gcs = storage.Client()
+    bucket = gcs.get_bucket(bucket_name)
+
+    blob = storage.blob.Blob(remote, bucket)
+    return blob.exists()
+
+
+def download_from_google_cloud_to_string(bucket_name, remote):
+    gcs = storage.Client()
+    bucket = gcs.get_bucket(bucket_name)
+
+    blob = storage.blob.Blob(remote, bucket)
+    if not blob.exists():
+        raise FileNotFoundException(f"{remote} does not exist")
+    return blob.download_as_string()
+
+
 def download_from_google_cloud(bucket_name, remote, local):
     gcs = storage.Client()
     bucket = gcs.get_bucket(bucket_name)

@@ -23,6 +23,47 @@ class SanityException(Exception):
     pass
 
 
+class PublishedRunDB(object):
+    def __init__(self, filter_bucket):
+        self.filter_bucket = filter_bucket
+        self.run_identifiers = workflow.get_run_identifiers(self.filter_bucket)
+        self.cached_run_times = {}
+
+    def __len__(self):
+        return len(self.run_identifiers)
+
+    def is_run_valid(self, run_id):
+        is_valid = workflow.google_cloud_file_exists(
+            self.filter_bucket, f"{run_id}/mlbf/filter"
+        ) and workflow.google_cloud_file_exists(
+            self.filter_bucket, f"{run_id}/mlbf/filter.stash"
+        )
+        log.debug(f"{run_id} {'Is Valid' if is_valid else 'Is Not Valid'}")
+        return is_valid
+
+    def most_recent_id(self):
+        return self.run_identifiers[-1]
+
+    def get_timestamp_for_run_id(self, run_id):
+        if run_id not in self.cached_run_times:
+            byte_str = workflow.download_from_google_cloud_to_string(
+                self.filter_bucket, f"{run_id}/timestamp"
+            )
+            self.cached_run_times[run_id] = datetime.fromisoformat(
+                byte_str.decode("utf-8")
+            )
+
+        return self.cached_run_times[run_id]
+
+    def split_run_ids_by(self, split_func):
+        for idx, run_id in enumerate(self.run_identifiers):
+            if split_func(run_id):
+                published_run_ids = self.run_identifiers[: idx + 1]
+                unpublished_run_ids = self.run_identifiers[idx + 1 :]
+                return (published_run_ids, unpublished_run_ids)
+        return (None, self.run_identifiers)
+
+
 class BearerTokenAuth(requests.auth.AuthBase):
     def __init__(self, token):
         self.token = token
@@ -150,7 +191,6 @@ def main():
 
     crlite_group = parser.add_argument_group("crlite", "crlite upload arguments")
     crlite_group.add_argument("--noop", action="store_true", help="Don't update Kinto")
-    crlite_group.add_argument("--filter-bucket", default="crlite_filters")
     crlite_group.add_argument(
         "--download-path",
         type=Path,
@@ -171,6 +211,7 @@ def main():
         "--export", help="Export intermediate set inspection files to this folder"
     )
 
+    parser.add_argument("--filter-bucket", default="crlite_filters")
     parser.add_argument(
         "--request-review",
         action="store_true",
@@ -493,7 +534,25 @@ def publish_intermediates(*, args, client):
     remote_intermediates = {}
     remote_error_records = []
 
-    with open(args.intermediates_file, "r") as f:
+    run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
+    if not run_identifiers:
+        log.warning("No run identifiers found")
+        return
+
+    run_id = run_identifiers[-1]
+
+    run_id_path = args.download_path / Path(run_id)
+    run_id_path.mkdir()
+    intermediates_path = run_id_path / Path("enrolled.json")
+
+    workflow.download_and_retry_from_google_cloud(
+        args.filter_bucket,
+        f"{run_id}/mlbf/enrolled.json",
+        intermediates_path,
+        timeout=timedelta(minutes=5),
+    )
+
+    with intermediates_path.open("r") as f:
         for entry in json.load(f):
             try:
                 intObj = Intermediate(**entry, debug=args.debug)
@@ -882,6 +941,7 @@ def timestamp_from_record(record):
 def timestamp_from_run_id(run_id):
     parts = run_id.split("-")
     time_string = f"{parts[0]}-{int(parts[1])*6}"
+    log.info(f"timestamp_from_run_id: {run_id} [{time_string}]")
     return datetime.strptime(time_string, "%Y%m%d-%H")
 
 
@@ -957,12 +1017,14 @@ def crlite_verify_record_sanity(*, existing_records):
         last_timestamp = ts
 
 
-def crlite_verify_run_id_sanity(*, run_identifiers):
+def crlite_verify_run_id_sanity(*, run_db, identifiers_to_check):
     allowed_delta = timedelta(hours=8)
 
     last_timestamp = None
-    for r in run_identifiers:
-        ts = timestamp_from_run_id(r)
+    for r in identifiers_to_check:
+        if not run_db.is_run_valid(r):
+            raise SanityException(f"Not a valid run: {r}")
+        ts = run_db.get_timestamp_for_run_id(r)
         if last_timestamp:
             if ts < last_timestamp:
                 raise SanityException(f"Out-of-order timestamp: {ts}")
@@ -971,13 +1033,13 @@ def crlite_verify_run_id_sanity(*, run_identifiers):
         last_timestamp = ts
 
 
-def crlite_determine_publish(*, existing_records, run_identifiers):
-    assert len(run_identifiers) > 0, "There must be run identifiers"
+def crlite_determine_publish(*, existing_records, run_db):
+    assert len(run_db) > 0, "There must be run identifiers"
 
     # First, if there are no existing records, then we upload the most recent
     # run.
     if not existing_records:
-        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
 
     # First, match the most recent filter-or-stash with its run identifier.
     # If we don't find any published run identifiers, just upload the most
@@ -985,21 +1047,21 @@ def crlite_determine_publish(*, existing_records, run_identifiers):
     published_run_ids = []
     unpublished_run_ids = []
 
-    for idx, run_id in enumerate(run_identifiers):
-        if run_id in existing_records[-1]["attachment"]["filename"]:
-            published_run_ids = run_identifiers[: idx + 1]
-            unpublished_run_ids = run_identifiers[idx + 1 :]
-            break
+    published_run_ids, unpublished_run_ids = run_db.split_run_ids_by(
+        lambda run_id: run_id in existing_records[-1]["attachment"]["filename"]
+    )
 
     if not published_run_ids:
-        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
 
     # verify sanity of the run_identifiers
     try:
-        crlite_verify_run_id_sanity(run_identifiers=unpublished_run_ids)
+        crlite_verify_run_id_sanity(
+            run_db=run_db, identifiers_to_check=unpublished_run_ids
+        )
     except SanityException as se:
         log.error(f"Failed to verify run ID sanity: {se}")
-        return {"clear_all": True, "upload": [run_identifiers[-1]]}
+        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
 
     return {"upload": unpublished_run_ids}
 
@@ -1007,7 +1069,6 @@ def crlite_determine_publish(*, existing_records, run_identifiers):
 def publish_crlite(*, args, client):
     existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
-    run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
 
     try:
         crlite_verify_record_sanity(existing_records=existing_records)
@@ -1017,8 +1078,10 @@ def publish_crlite(*, args, client):
         clear_crlite_stashes(client=client, noop=args.noop)
         existing_records = []
 
+    published_run_db = PublishedRunDB(args.filter_bucket)
+
     result = crlite_determine_publish(
-        existing_records=existing_records, run_identifiers=run_identifiers
+        existing_records=existing_records, run_db=published_run_db
     )
 
     log.debug(f"crlite_determine_publish results={result}")
@@ -1044,7 +1107,6 @@ def publish_crlite(*, args, client):
     for run_id in result["upload"]:
         run_id_path = args.download_path / Path(run_id)
         run_id_path.mkdir()
-        timestamp_path = run_id_path / Path("timestamp")
         stash_path = run_id_path / Path("stash")
 
         workflow.download_and_retry_from_google_cloud(
@@ -1053,18 +1115,6 @@ def publish_crlite(*, args, client):
             stash_path,
             timeout=timedelta(minutes=5),
         )
-
-        try:
-            workflow.download_from_google_cloud(
-                args.filter_bucket, f"{run_id}/mlbf/timestamp", timestamp_path
-            )
-        except Exception:
-            # If there's no timestamp, then we can derive it. This code should
-            # not be necessary for release, remove it before then.
-            timestamp_path.write_text(
-                timestamp_from_run_id(run_id).isoformat(timespec="seconds")
-            )
-            pass
 
         upload_size += stash_path.stat().st_size
 
@@ -1094,13 +1144,11 @@ def publish_crlite(*, args, client):
         clear_crlite_filters(client=client, noop=args.noop)
         clear_crlite_stashes(client=client, noop=args.noop)
 
-        timestamp_path = args.download_path / Path(final_run_id) / Path("timestamp")
-
         publish_crlite_main_filter(
             filter_path=filter_path,
             filename=f"{final_run_id}-filter",
             client=client,
-            timestamp=datetime.fromisoformat(timestamp_path.read_text()),
+            timestamp=published_run_db.get_timestamp_for_run_id(final_run_id),
             noop=args.noop,
         )
 
@@ -1108,11 +1156,8 @@ def publish_crlite(*, args, client):
         previous_id = existing_records[-1]["id"]
         for run_id in result["upload"]:
             run_id_path = args.download_path / Path(run_id)
-            timestamp_path = run_id_path / Path("timestamp")
             stash_path = run_id_path / Path("stash")
-            assert (
-                timestamp_path.is_file() and stash_path.is_file()
-            ), "files must have been downloaded"
+            assert stash_path.is_file(), "stash must have been downloaded"
 
             log.info(
                 f"Adding this stash will increase {existing_stash_size} to {total_size}, "
@@ -1121,10 +1166,10 @@ def publish_crlite(*, args, client):
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
-                filename=f"{final_run_id}-filter.stash",
+                filename=f"{run_id}-filter.stash",
                 client=client,
                 previous_id=previous_id,
-                timestamp=datetime.fromisoformat(timestamp_path.read_text()),
+                timestamp=published_run_db.get_timestamp_for_run_id(run_id),
                 noop=args.noop,
             )
 

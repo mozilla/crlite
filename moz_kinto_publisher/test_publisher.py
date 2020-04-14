@@ -28,6 +28,17 @@ def make_record(run_id, *, diff):
     }
 
 
+class MockRunDB(main.PublishedRunDB):
+    def __init__(self, runs):
+        self.run_identifiers = runs
+
+    def get_timestamp_for_run_id(self, run_id):
+        return main.timestamp_from_run_id(run_id)
+
+    def is_run_valid(self, run_id):
+        return run_id in self.run_identifiers
+
+
 class TestTimestampMethods(unittest.TestCase):
     def test_from_run_id(self):
         with self.assertRaises(ValueError):
@@ -87,42 +98,49 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_run_id_sanity_not_sequential(self):
         with self.assertRaises(main.SanityException):
+            db = MockRunDB([])
             main.crlite_verify_run_id_sanity(
-                run_identifiers=[
+                run_db=db,
+                identifiers_to_check=[
                     "20491230-3",
                     "20491231-0",
                     "20491231-1",
                     "20491231-3",
                     "20500101-0",
-                ]
+                ],
             )
 
     def test_run_id_sanity_out_of_order(self):
         with self.assertRaises(main.SanityException):
+            db = MockRunDB([])
             main.crlite_verify_run_id_sanity(
-                run_identifiers=["20491230-3", "20491231-1", "20491231-0"]
+                run_db=db,
+                identifiers_to_check=["20491230-3", "20491231-1", "20491231-0"],
             )
 
     def test_run_id_sanity_okay(self):
+        identifiers = [
+            "20491230-3",
+            "20491231-0",
+            "20491231-1",
+            "20491231-2",
+            "20491231-3",
+            "20500101-0",
+        ]
+        db = MockRunDB(identifiers)
         main.crlite_verify_run_id_sanity(
-            run_identifiers=[
-                "20491230-3",
-                "20491231-0",
-                "20491231-1",
-                "20491231-2",
-                "20491231-3",
-                "20500101-0",
-            ]
+            run_db=db, identifiers_to_check=identifiers,
         )
 
     def test_run_id_sanity_empty(self):
-        main.crlite_verify_run_id_sanity(run_identifiers=[])
+        db = MockRunDB([])
+        main.crlite_verify_run_id_sanity(run_db=db, identifiers_to_check=[])
 
     def test_initial_conditions(self):
         existing_records = []
-        run_identifiers = ["20500101-1"]
+        db = MockRunDB(["20500101-1"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(result, {"clear_all": True, "upload": ["20500101-1"]})
 
@@ -131,9 +149,9 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-2", diff=False),
             make_record("20491231-3", diff=True),
         ]
-        run_identifiers = ["20500101-0"]
+        db = MockRunDB(["20500101-0"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(result, {"clear_all": True, "upload": ["20500101-0"]})
 
@@ -142,9 +160,9 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-2", diff=False),
             make_record("20491231-3", diff=True),
         ]
-        run_identifiers = ["20491231-3", "20500101-0"]
+        db = MockRunDB(["20491231-3", "20500101-0"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(result, {"upload": ["20500101-0"]})
 
@@ -155,15 +173,11 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-2", diff=True),
             make_record("20491231-3", diff=True),
         ]
-        run_identifiers = [
-            "20491231-3",
-            "20500101-0",
-            "20500101-1",
-            "20500101-2",
-            "20500101-3",
-        ]
+        db = MockRunDB(
+            ["20491231-3", "20500101-0", "20500101-1", "20500101-2", "20500101-3"]
+        )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(
             result, {"upload": ["20500101-0", "20500101-1", "20500101-2", "20500101-3"]}
@@ -173,17 +187,19 @@ class TestPublishDecisions(unittest.TestCase):
         existing_records = [
             make_record("20491231-3", diff=False),
         ]
-        run_identifiers = [
-            "20491230-1",
-            "20491230-2",
-            "20491230-3",
-            "20491231-0",
-            "20491231-1",
-            "20491231-2",
-            "20491231-3",
-        ]
+        db = MockRunDB(
+            [
+                "20491230-1",
+                "20491230-2",
+                "20491230-3",
+                "20491231-0",
+                "20491231-1",
+                "20491231-2",
+                "20491231-3",
+            ]
+        )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(result, {"upload": []})
 
@@ -194,16 +210,18 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-2", diff=True),
             make_record("20491231-3", diff=True),
         ]
-        run_identifiers = [
-            "20491230-1",
-            "20491230-2",
-            "20491230-3",
-            "20491231-0",
-            "20491231-1",
-            "20491231-2",
-            "20491231-3",
-        ]
+        db = MockRunDB(
+            [
+                "20491230-1",
+                "20491230-2",
+                "20491230-3",
+                "20491231-0",
+                "20491231-1",
+                "20491231-2",
+                "20491231-3",
+            ]
+        )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_identifiers=run_identifiers
+            existing_records=existing_records, run_db=db
         )
         self.assertEqual(result, {"upload": []})
