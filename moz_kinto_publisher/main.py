@@ -1134,7 +1134,11 @@ def publish_crlite(*, args, client):
         timeout=timedelta(minutes=5),
     )
 
-    if total_size > filter_path.stat().st_size or not existing_records:
+    if (
+        "clear_all" in result
+        or total_size > filter_path.stat().st_size
+        or not existing_records
+    ):
         if existing_records:
             log.info(
                 f"Total size {total_size} > {filter_path} ({filter_path.stat().st_size}), "
