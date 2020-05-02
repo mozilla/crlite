@@ -1,7 +1,7 @@
 import main
 import unittest
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def make_record(run_id, *, diff):
@@ -48,7 +48,8 @@ class TestTimestampMethods(unittest.TestCase):
             main.timestamp_from_run_id("20500101-4")
 
         self.assertEqual(
-            main.timestamp_from_run_id("20500101-3"), datetime(2050, 1, 1, 18, 0, 0)
+            main.timestamp_from_run_id("20500101-3"),
+            datetime(2050, 1, 1, 18, 0, 0, tzinfo=timezone.utc),
         )
 
 

@@ -4,13 +4,14 @@ import base64
 import glog as log
 import hashlib
 import json
+import math
 import re
 import requests
 import settings
 import tempfile
 import workflow
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 from pathlib import Path
@@ -51,7 +52,7 @@ class PublishedRunDB(object):
             )
             self.cached_run_times[run_id] = datetime.fromisoformat(
                 byte_str.decode("utf-8")
-            )
+            ).replace(tzinfo=timezone.utc)
 
         return self.cached_run_times[run_id]
 
@@ -863,13 +864,18 @@ def publish_crlite_record(
 ):
     record_type = "diff" if incremental else "full"
     record_time = timestamp.isoformat(timespec="seconds")
+    record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
     identifier = f"{record_time}Z-{record_type}"
 
-    attributes = {"details": {"name": identifier}, "incremental": incremental}
+    attributes = {
+        "details": {"name": identifier},
+        "incremental": incremental,
+        "effectiveTimestamp": record_epoch_time_ms,
+    }
     perms = {"read": ["system.Everyone"]}
     if incremental:
         assert previous_id, "Incremental records must have a previous record ID"
-        attributes["details"]["previous"] = previous_id
+        attributes["parent"] = previous_id
 
     log.info(
         f"Publishing {path} {timestamp} incremental={incremental} (previous={previous_id})"
@@ -935,14 +941,14 @@ def publish_crlite_stash(*, stash_path, filename, client, previous_id, timestamp
 
 def timestamp_from_record(record):
     iso_string = record["details"]["name"].split("Z-")[0]
-    return datetime.fromisoformat(iso_string)
+    return datetime.fromisoformat(iso_string).replace(tzinfo=timezone.utc)
 
 
 def timestamp_from_run_id(run_id):
     parts = run_id.split("-")
     time_string = f"{parts[0]}-{int(parts[1])*6}"
     log.info(f"timestamp_from_run_id: {run_id} [{time_string}]")
-    return datetime.strptime(time_string, "%Y%m%d-%H")
+    return datetime.strptime(time_string, "%Y%m%d-%H").replace(tzinfo=timezone.utc)
 
 
 def timestamp_from_path(path):
@@ -958,7 +964,7 @@ def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
 
     previous = current_filter
     for stash in reversed(current_stashes):
-        if stash["details"]["previous"] != previous["id"]:
+        if stash["parent"] != previous["id"]:
             log.warning(
                 f"Stash {stash} does not reference the previous entry {previous}"
             )
