@@ -271,12 +271,6 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					ae.issuers.Enroll(tuple.Issuer)
 				}
 
-				if cap(serials) < revokedCount+serialCount {
-					newSerials := make([]storage.Serial, 0, serialCount+revokedCount)
-					copy(newSerials, serials)
-					serials = newSerials
-				}
-
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
 			}
