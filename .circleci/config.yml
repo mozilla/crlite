@@ -36,7 +36,7 @@ jobs:
          name: Check format with Black
          command: |
             pip install black
-            black --check .
+            python -m black --check .
 
   golang-build-and-test:
     docker:
