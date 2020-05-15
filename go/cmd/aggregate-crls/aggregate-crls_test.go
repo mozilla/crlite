@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,10 +43,9 @@ func Test_makeFilenameFromUrl(t *testing.T) {
 		"http://crl.repository.com/",
 		"http://crl.repository.com/crl"}
 	checkCollision(t, crls2, names)
-
 }
 
-func makeCRL(t *testing.T, thisUpdate time.Time, nextUpdate time.Time) (*x509.Certificate, []byte) {
+func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 	caTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
@@ -74,6 +74,10 @@ func makeCRL(t *testing.T, thisUpdate time.Time, nextUpdate time.Time) (*x509.Ce
 		t.Fatal(err)
 	}
 
+	return ca, caPrivKey
+}
+
+func makeCRL(t *testing.T, ca *x509.Certificate, caPrivKey interface{}, thisUpdate time.Time, nextUpdate time.Time) []byte {
 	revokedCerts := []pkix.RevokedCertificate{}
 
 	crlBytes, err := ca.CreateCRL(rand.Reader, caPrivKey, revokedCerts, thisUpdate, nextUpdate)
@@ -81,14 +85,16 @@ func makeCRL(t *testing.T, thisUpdate time.Time, nextUpdate time.Time) (*x509.Ce
 		t.Fatal(err)
 	}
 
-	return ca, crlBytes
+	return crlBytes
 }
 
 func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 	thisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
 	nextUpdate := time.Date(2020, time.February, 1, 0, 0, 0, 0, time.UTC)
 
-	ca, crlBytes := makeCRL(t, thisUpdate, nextUpdate)
+	ca, caPrivKey := makeCA(t)
+
+	crlBytes := makeCRL(t, ca, caPrivKey, thisUpdate, nextUpdate)
 
 	crlPath, err := ioutil.TempFile("", "loadAndCheckSignatureOfCRL")
 	if err != nil {
@@ -117,10 +123,86 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 		t.Error("This Update didn't match")
 	}
 
-	otherCa, _ := makeCRL(t, thisUpdate, nextUpdate)
+	otherCa, _ := makeCA(t)
 	_, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
-	if err == nil {
-		t.Error("Should have failed")
+	if !strings.Contains(err.Error(), "verification failure") {
+		t.Error(err)
+	}
+}
+
+func Test_verifyCRL(t *testing.T) {
+	todayThisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	todayNextUpdate := time.Date(2020, time.February, 1, 0, 0, 0, 0, time.UTC)
+
+	ca, caPrivKey := makeCA(t)
+
+	todayCrlBytes := makeCRL(t, ca, caPrivKey, todayThisUpdate, todayNextUpdate)
+	todayCrlPath, err := ioutil.TempFile("", "todays_crl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(todayCrlPath.Name())
+	if _, err := todayCrlPath.Write(todayCrlBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := todayCrlPath.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Prompt the case where yesterday's was newer than today's
+	yesterdayThisUpdate := time.Date(2020, time.January, 2, 0, 0, 0, 0, time.UTC)
+	yesterdayNextUpdate := time.Date(2020, time.February, 2, 0, 0, 0, 0, time.UTC)
+
+	yesterdayCrlBytes := makeCRL(t, ca, caPrivKey, yesterdayThisUpdate, yesterdayNextUpdate)
+	yesterdayCrlPath, err := ioutil.TempFile("", "yesterdays_crl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(yesterdayCrlPath.Name())
+	if _, err := yesterdayCrlPath.Write(yesterdayCrlBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := yesterdayCrlPath.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = verifyCRL(todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	if !strings.Contains(err.Error(), "CRL is older than the previous CRL") {
+		t.Error(err)
+	}
+
+	// Should work fine this orientation
+	list, err := verifyCRL(yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
+	if err != nil {
+		t.Error(err)
+	}
+	if list.TBSCertList.ThisUpdate != yesterdayThisUpdate {
+		t.Error("This Update didn't match")
+	}
+
+	if list.TBSCertList.NextUpdate != yesterdayNextUpdate {
+		t.Error("This Update didn't match")
+	}
+
+	_, otherCaPrivKey := makeCA(t)
+
+	// Prompt the case where yesterday's is OK but today's is mis-signed
+	todayOtherSignerCrlBytes := makeCRL(t, ca, otherCaPrivKey, todayThisUpdate, todayNextUpdate)
+	todayOtherSignerCrlPath, err := ioutil.TempFile("", "todays_other_signer_crl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(todayOtherSignerCrlPath.Name())
+	if _, err := todayOtherSignerCrlPath.Write(todayOtherSignerCrlBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := todayOtherSignerCrlPath.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = verifyCRL(todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	if !strings.Contains(err.Error(), "verification failure") {
+		t.Error(err)
 	}
 
 }

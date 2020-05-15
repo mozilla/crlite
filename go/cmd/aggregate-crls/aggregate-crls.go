@@ -237,7 +237,7 @@ func verifyCRL(aPath string, aIssuerCert *x509.Certificate, aPreviousPath string
 		return nil, err
 	}
 
-	if _, err = os.Stat(aPreviousPath); os.IsExist(err) {
+	if _, err = os.Stat(aPreviousPath); err == nil {
 		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
 			return nil, err
