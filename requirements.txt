@@ -4,7 +4,8 @@ dbx-stopwatch>=1.5
 Deprecated >= 1.2
 filtercascade>=0.3.1
 glog>=0.3
-google-cloud-storage>=1.2
+google-cloud-firestore
+google-cloud-storage
 kinto-http>=9.1
 progressbar2>=3.40
 psutil>=5
