@@ -21,6 +21,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/google/certificate-transparency-go/x509/pkix"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/engine"
 	"github.com/jcjones/ct-mapreduce/storage"
@@ -149,10 +150,23 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 				if err != nil {
 					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 				}
-				_, err = processCRL(tmpPath, cert)
+				crl, err := verifyCRL(tmpPath, cert, finalPath)
+				if err != nil {
+					glog.Warningf("[%s] Failed to verify, keeping existing: %s", tuple.Issuer.ID(), err)
+					err = os.Remove(tmpPath)
+					if err != nil {
+						glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", tuple.Issuer.ID(), tmpPath, err)
+					}
+					continue
+				}
+				_, err = processCRL(crl)
 				if err != nil {
 					glog.Warningf("[%s] Downloaded %s to %s but file didn't validate: %s", tuple.Issuer.ID(),
 						crlUrl.String(), tmpPath, err)
+					err = os.Remove(tmpPath)
+					if err != nil {
+						glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", tuple.Issuer.ID(), tmpPath, err)
+					}
 				} else {
 					err = os.Rename(tmpPath, finalPath)
 					if err != nil {
@@ -197,22 +211,42 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 	}
 }
 
-func processCRL(aPath string, aIssuerCert *x509.Certificate) ([]storage.Serial, error) {
-	serials := make([]storage.Serial, 0, 1024*16)
-
-	glog.V(1).Infof("[%s] Proesssing CRL", aPath)
+func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*pkix.CertificateList, error) {
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		return serials, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
+		return nil, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
-		return serials, fmt.Errorf("Error parsing, will not process revocations: %s", err)
+		return nil, fmt.Errorf("Error parsing, will not process revocations: %s", err)
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
-		return serials, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
+		return nil, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
+	}
+
+	return crl, err
+}
+
+func verifyCRL(aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
+	glog.V(1).Infof("[%s] Verifying CRL", aPath)
+
+	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = os.Stat(aPreviousPath); os.IsExist(err) {
+		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
+		if err != nil {
+			return nil, err
+		}
+
+		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
+			return nil, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
+				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
+		}
 	}
 
 	if crl.HasExpired(time.Now()) {
@@ -220,12 +254,16 @@ func processCRL(aPath string, aIssuerCert *x509.Certificate) ([]storage.Serial, 
 			" NextUpdate=%s)", aPath, crl.TBSCertList.ThisUpdate, crl.TBSCertList.NextUpdate)
 	}
 
-	// Decode the raw DER serial numbers
-	revokedList, err := types.DecodeRawTBSCertList(crl.TBSCertList.Raw)
+	return crl, nil
+}
+
+func processCRL(aCRL *pkix.CertificateList) ([]storage.Serial, error) {
+	revokedList, err := types.DecodeRawTBSCertList(aCRL.TBSCertList.Raw)
 	if err != nil {
-		return serials, fmt.Errorf("CRL list couldn't be decoded: %s", err)
+		return []storage.Serial{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
 	}
 
+	serials := make([]storage.Serial, 0, 1024*16)
 	for _, ent := range revokedList.RevokedCertificates {
 		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
 		serials = append(serials, serial)
@@ -254,7 +292,13 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			case <-ctx.Done():
 				return
 			default:
-				revokedSerials, err := processCRL(crlPath, cert)
+				crl, err := verifyCRL(crlPath, cert, "")
+				if err != nil {
+					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
+					continue
+				}
+
+				revokedSerials, err := processCRL(crl)
 				if err != nil {
 					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
 					continue
