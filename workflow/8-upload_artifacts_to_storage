@@ -9,12 +9,21 @@ import sys
 import logging
 
 parser = argparse.ArgumentParser()
-parser.add_argument("identifier", help="Path to folder to upload", nargs=1)
+parser.add_argument("--noop", help="Don't upload", action="store_true")
+parser.add_argument(
+    "results_path",
+    help="Path to folder to upload containing the mlbf folder",
+    nargs=1,
+    type=Path,
+)
+parser.add_argument(
+    "--extra_folders", help="More folders to upload as '/path/:remote_name'", nargs="*"
+)
 
 log = logging.getLogger("upload_artifacts_to_storage")
 
 
-def uploadFiles(files, localFolder, remoteFolder, bucket):
+def uploadFiles(files, localFolder, remoteFolder, bucket, *, args):
     log.info(f"Uploading {len(files)} files from {localFolder} to {remoteFolder}")
     for item in files:
         localFilePath = localFolder.joinpath(item)
@@ -27,6 +36,10 @@ def uploadFiles(files, localFolder, remoteFolder, bucket):
             f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
             + f"from {localFilePath}"
         )
+
+        if args.noop:
+            continue
+
         blob = bucket.blob(str(remoteFilePath))
         blob.upload_from_filename(str(localFilePath))
 
@@ -41,7 +54,7 @@ def ensureFileOrAbort(idPath, path):
 def main():
     args = parser.parse_args()
 
-    if not args.identifier or len(args.identifier) != 1:
+    if not args.results_path or len(args.results_path) != 1:
         parser.print_usage()
         sys.exit(0)
 
@@ -49,7 +62,7 @@ def main():
     bucket_name = "crlite_filters"
     bucket = storage_client.get_bucket(bucket_name)
 
-    idPath = Path(args.identifier[0]).resolve()
+    idPath = args.results_path[0].resolve()
 
     ensureFileOrAbort(idPath, Path("mlbf/filter"))
     ensureFileOrAbort(idPath, Path("mlbf/filter.stash"))
@@ -58,12 +71,20 @@ def main():
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(idPath.parent)
 
-        uploadFiles(files, localFolder, remoteFolder, bucket)
+        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+
+    if args.extra_folders:
+        for extraString in args.extra_folders:
+            localPath, remotePath = extraString.split(":")
+            for path, dirs, files in os.walk(localPath):
+                remoteFolder = (
+                    Path(idPath.name) / remotePath / Path(path).relative_to(localPath)
+                )
+                uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
 
     for path, dirs, files in os.walk(idPath / "mlbf"):
-        localFolder = Path(path)
         remoteFolder = Path("latest")
-        uploadFiles(files, localFolder, remoteFolder, bucket)
+        uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
 
 
 if __name__ == "__main__":
