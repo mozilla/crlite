@@ -5,14 +5,16 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import argparse
+import binascii
 import logging
 import moz_crlite_lib as crlite
+import sys
 
 from collections import Counter
 from pathlib import Path
 
 
-def read_keys(path, emit=False):
+def read_keys(path, *, emit=False, serial=None):
     cnt = Counter()
     issuers = Counter()
     issuerLen = Counter()
@@ -30,6 +32,10 @@ def read_keys(path, emit=False):
             if emit:
                 print(f"{certId}")
 
+            if serial and certId.serial == serial:
+                print(f"{certId} found")
+                sys.exit(0)
+
     print(
         f"Issuers: {len(issuers)} Most Common: {issuers.most_common(5)} Serials: {cnt}"
     )
@@ -37,8 +43,12 @@ def read_keys(path, emit=False):
         f"Issuer Lengths: {issuerLen.most_common(5)} Serial Lengths: {serialLen.most_common(5)}"
     )
 
+    if serial:
+        print(f"{serial.hex()} not found, exiting 1")
+        sys.exit(1)
 
-def read_stash(path, emit=False):
+
+def read_stash(path, *, emit=False, serial=None):
     cnt = Counter()
     issuers = Counter()
     revocations = Counter()
@@ -59,6 +69,10 @@ def read_stash(path, emit=False):
             if emit:
                 print(f"{data['issuerId']} new revocations: {len(data['revocations'])}")
 
+            if serial and certId.serial == serial:
+                print(f"{certId} found")
+                sys.exit(0)
+
     print(f"Issuers Affected: {cnt['issuers']}")
     print(f"Number of New Revocations: {cnt['revocations']}")
 
@@ -69,6 +83,10 @@ def read_stash(path, emit=False):
     print(f"Aggregated Serials in Bytes: {totalBytes} bytes")
     print(f"Stash File Size in Bytes: {path.stat().st_size} bytes")
 
+    if serial:
+        print(f"{serial.hex()} not found, exiting 1")
+        sys.exit(1)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -77,13 +95,20 @@ def main():
     group.add_argument("-keys", type=Path, help="Path to a .keys binary file")
     group.add_argument("-stash", type=Path, help="Path to a .stash binary file")
 
+    parser.add_argument(
+        "-contains-serial", help="Check if this contains a serial (in hex)"
+    )
     parser.add_argument("-print", help="Print the values", action="store_true")
     args = parser.parse_args()
 
+    serial = None
+    if args.contains_serial:
+        serial = binascii.unhexlify(args.contains_serial)
+
     if args.keys:
-        read_keys(args.keys, emit=args.print)
+        read_keys(args.keys, emit=args.print, serial=serial)
     if args.stash:
-        read_stash(args.stash, emit=args.print)
+        read_stash(args.stash, emit=args.print, serial=serial)
 
 
 if __name__ == "__main__":
