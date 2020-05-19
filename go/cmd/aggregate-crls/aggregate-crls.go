@@ -157,21 +157,20 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 					if err != nil {
 						glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", tuple.Issuer.ID(), tmpPath, err)
 					}
-					continue
-				}
-				_, err = processCRL(crl)
-				if err != nil {
-					glog.Warningf("[%s] Downloaded %s to %s but file didn't validate: %s", tuple.Issuer.ID(),
-						crlUrl.String(), tmpPath, err)
-					err = os.Remove(tmpPath)
-					if err != nil {
-						glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", tuple.Issuer.ID(), tmpPath, err)
-					}
 				} else {
 					err = os.Rename(tmpPath, finalPath)
 					if err != nil {
 						glog.Errorf("[%s] Couldn't rename %s to %s: %s", tuple.Issuer.ID(), tmpPath, finalPath, err)
 					}
+				}
+
+				if crl != nil {
+					_, err = processCRL(crl)
+					if err != nil {
+						glog.Warningf("[%s] Processing failed on CRL: %s", tuple.Issuer.ID(), err)
+					}
+				} else {
+					glog.Warningf("[%s] No CRLs available.", tuple.Issuer.ID())
 				}
 			}
 
@@ -244,7 +243,7 @@ func verifyCRL(aPath string, aIssuerCert *x509.Certificate, aPreviousPath string
 		}
 
 		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
-			return nil, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
+			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
 				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 		}
 	}
