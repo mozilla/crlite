@@ -4,15 +4,15 @@ import hashlib
 from datetime import datetime, timezone
 
 
-def make_record(run_id, *, diff):
+def make_record(run_id, *, parent):
     timestamp = main.timestamp_from_run_id(run_id)
-    record_type = "diff" if diff else "full"
+    record_type = "diff" if parent else "full"
     record_time = timestamp.isoformat(timespec="seconds")
     identifier = f"{record_time}Z-{record_type}"
 
-    random_id = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
+    random_id = hashlib.sha256(run_id.encode("utf-8")).hexdigest()
 
-    return {
+    record = {
         "schema": 1,
         "details": {"name": identifier},
         "attachment": {
@@ -22,10 +22,13 @@ def make_record(run_id, *, diff):
             "location": "abc",
             "mimetype": "application/octet-stream",
         },
-        "incremental": diff,
+        "incremental": parent is not None,
         "id": random_id,
         "last_modified": 1,
     }
+    if parent:
+        record["parent"] = hashlib.sha256(parent.encode("utf-8")).hexdigest()
+    return record
 
 
 class MockRunDB(main.PublishedRunDB):
@@ -56,43 +59,52 @@ class TestTimestampMethods(unittest.TestCase):
 class TestPublishDecisions(unittest.TestCase):
     def test_sanity_okay(self):
         existing_records = [
-            make_record("20491230-3", diff=False),
-            make_record("20491231-0", diff=True),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-2", diff=True),
-            make_record("20491231-3", diff=True),
-            make_record("20500101-0", diff=True),
+            make_record("20491230-3", parent=None),
+            make_record("20491231-0", parent="20491230-3"),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-2", parent="20491231-1"),
+            make_record("20491231-3", parent="20491231-2"),
+            make_record("20500101-0", parent="20491231-3"),
         ]
         main.crlite_verify_record_sanity(existing_records=existing_records)
 
     def test_sanity_multiple_filters(self):
         existing_records = [
-            make_record("20491230-3", diff=False),
-            make_record("20491231-0", diff=True),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-2", diff=False),
-            make_record("20491231-3", diff=True),
-            make_record("20500101-0", diff=True),
+            make_record("20491230-3", parent=None),
+            make_record("20491231-0", parent="20491230-3"),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-2", parent=None),
+            make_record("20491231-3", parent="20491231-2"),
+            make_record("20500101-0", parent="20491231-3"),
         ]
         with self.assertRaises(main.SanityException):
             main.crlite_verify_record_sanity(existing_records=existing_records)
 
     def test_sanity_not_sequential(self):
         existing_records = [
-            make_record("20491230-3", diff=False),
-            make_record("20491231-0", diff=True),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-3", diff=True),
-            make_record("20500101-0", diff=True),
+            make_record("20491230-3", parent=None),
+            make_record("20491231-0", parent="20491230-3"),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-3", parent="20491231-1"),
+            make_record("20500101-0", parent="20491231-3"),
         ]
         with self.assertRaises(main.SanityException):
             main.crlite_verify_record_sanity(existing_records=existing_records)
 
     def test_sanity_out_of_order(self):
         existing_records = [
-            make_record("20491230-3", diff=False),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-0", diff=True),
+            make_record("20491230-3", parent=None),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-0", parent="20491230-3"),
+        ]
+        with self.assertRaises(main.SanityException):
+            main.crlite_verify_record_sanity(existing_records=existing_records)
+
+    def test_sanity_unknown_parent(self):
+        existing_records = [
+            make_record("20491230-3", parent=None),
+            make_record("20491231-0", parent="20491230-2"),
+            make_record("20491231-1", parent="20491231-0"),
         ]
         with self.assertRaises(main.SanityException):
             main.crlite_verify_record_sanity(existing_records=existing_records)
@@ -147,8 +159,8 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_no_overlap(self):
         existing_records = [
-            make_record("20491231-2", diff=False),
-            make_record("20491231-3", diff=True),
+            make_record("20491231-2", parent=None),
+            make_record("20491231-3", parent="20491231-2"),
         ]
         db = MockRunDB(["20500101-0"])
         result = main.crlite_determine_publish(
@@ -158,8 +170,8 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_continue_with_single_stash(self):
         existing_records = [
-            make_record("20491231-2", diff=False),
-            make_record("20491231-3", diff=True),
+            make_record("20491231-2", parent=None),
+            make_record("20491231-3", parent="20491231-2"),
         ]
         db = MockRunDB(["20491231-3", "20500101-0"])
         result = main.crlite_determine_publish(
@@ -169,10 +181,10 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_continue_with_four_stashes(self):
         existing_records = [
-            make_record("20491231-0", diff=False),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-2", diff=True),
-            make_record("20491231-3", diff=True),
+            make_record("20491231-0", parent=None),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-2", parent="20491231-1"),
+            make_record("20491231-3", parent="20491231-2"),
         ]
         db = MockRunDB(
             ["20491231-3", "20500101-0", "20500101-1", "20500101-2", "20500101-3"]
@@ -186,7 +198,7 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_up_to_date_single_entry(self):
         existing_records = [
-            make_record("20491231-3", diff=False),
+            make_record("20491231-3", parent=None),
         ]
         db = MockRunDB(
             [
@@ -206,10 +218,10 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_up_to_date(self):
         existing_records = [
-            make_record("20491231-0", diff=False),
-            make_record("20491231-1", diff=True),
-            make_record("20491231-2", diff=True),
-            make_record("20491231-3", diff=True),
+            make_record("20491231-0", parent=None),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-2", parent="20491231-1"),
+            make_record("20491231-3", parent="20491231-2"),
         ]
         db = MockRunDB(
             [
