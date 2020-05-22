@@ -1010,6 +1010,13 @@ def crlite_verify_record_sanity(*, existing_records):
     if len(current_filters) > 1:
         raise SanityException(f"More than one current filter: {current_filters}")
 
+    known_ids = list()
+
+    for r in existing_records:
+        if r["incremental"] and r["parent"] not in known_ids:
+            raise SanityException(f"Unknown parent in record, ID {r['parent']}")
+        known_ids.append(r["id"])
+
     allowed_delta = timedelta(hours=8)
 
     last_timestamp = None
