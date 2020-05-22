@@ -1,19 +1,28 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"io/ioutil"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/certificate-transparency-go/x509/pkix"
+	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go"
+	"github.com/mozilla/crlite/go/rootprogram"
+	"github.com/vbauerster/mpb/v5"
 )
 
 func Test_makeFilenameFromUrl(t *testing.T) {
@@ -204,5 +213,187 @@ func Test_verifyCRL(t *testing.T) {
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}
+}
 
+func hostCRL(t *testing.T, crlBytes []byte) *httptest.Server {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := w.Write(crlBytes)
+		if err != nil {
+			t.Error(err)
+		}
+	})
+
+	return httptest.NewServer(handler)
+}
+
+func Test_crlFetchWorker(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "Test_crlFetchWorker")
+	if err != nil {
+		t.Error(err)
+	}
+	*crlpath = tmpDir
+	defer os.RemoveAll(tmpDir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+
+	issuersObj := rootprogram.NewMozillaIssuers()
+
+	ae := AggregateEngine{
+		loadStorageDB: storageDB,
+		saveStorage:   storage.NewMockBackend(),
+		remoteCache:   storage.NewMockRemoteCache(),
+		issuers:       issuersObj,
+		display:       display,
+	}
+	bar := display.AddBar(1)
+
+	urlChan := make(chan types.IssuerCrlUrls, 16)
+	resultChan := make(chan types.IssuerCrlPaths, 16)
+
+	ca, caPrivKey := makeCA(t)
+	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "")
+
+	thisUpdate := time.Now().UTC()
+	nextUpdate := thisUpdate.AddDate(0, 0, 1)
+
+	crlBytes := makeCRL(t, ca, caPrivKey, thisUpdate, nextUpdate)
+	server := hostCRL(t, crlBytes)
+	defer server.Close()
+
+	wg.Add(1)
+	go ae.crlFetchWorker(ctx, &wg, urlChan, resultChan, bar)
+
+	unavailableUrl, _ := url.Parse("http://localhost:1/file")
+	crl1Url, _ := url.Parse(server.URL + "/crl-1.crl")
+	crl2Url, _ := url.Parse(server.URL + "/crl-2.crl")
+
+	urlChan <- types.IssuerCrlUrls{
+		Issuer: issuer,
+		Urls:   []url.URL{},
+	}
+
+	urlChan <- types.IssuerCrlUrls{
+		Issuer: issuer,
+		Urls:   []url.URL{*unavailableUrl},
+	}
+
+	urlChan <- types.IssuerCrlUrls{
+		Issuer: issuer,
+		Urls:   []url.URL{*unavailableUrl, *crl1Url},
+	}
+
+	urlChan <- types.IssuerCrlUrls{
+		Issuer: issuer,
+		Urls:   []url.URL{*unavailableUrl, *crl1Url, *crl2Url},
+	}
+
+	close(urlChan)
+
+	result := <-resultChan
+	if result.Issuer.ID() != issuer.ID() {
+		t.Error("Unexpected issuer")
+	}
+	if len(result.CrlPaths) != 0 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	}
+
+	result = <-resultChan
+	if result.Issuer.ID() != issuer.ID() {
+		t.Error("Unexpected issuer")
+	}
+	if len(result.CrlPaths) != 0 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	}
+
+	result = <-resultChan
+	if result.Issuer.ID() != issuer.ID() {
+		t.Error("Unexpected issuer")
+	}
+	if len(result.CrlPaths) != 1 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	}
+
+	result = <-resultChan
+	if result.Issuer.ID() != issuer.ID() {
+		t.Error("Unexpected issuer")
+	}
+	if len(result.CrlPaths) != 2 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	}
+
+	select {
+	case msg := <-resultChan:
+		t.Errorf("Unexpected message: %+v", msg)
+	default:
+	}
+}
+
+func Test_crlFetchWorkerProcessOne(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "Test_crlFetchWorkerProcessOne")
+	if err != nil {
+		t.Error(err)
+	}
+	*crlpath = tmpDir
+	defer os.RemoveAll(tmpDir)
+
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+	issuersObj := rootprogram.NewMozillaIssuers()
+
+	ae := AggregateEngine{
+		loadStorageDB: storageDB,
+		saveStorage:   storage.NewMockBackend(),
+		remoteCache:   storage.NewMockRemoteCache(),
+		issuers:       issuersObj,
+		display:       display,
+	}
+
+	ca, caPrivKey := makeCA(t)
+	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "")
+
+	unavailableUrl, _ := url.Parse("http://localhost:1/file")
+
+	path, err := ae.crlFetchWorkerProcessOne(context.TODO(), *unavailableUrl, issuer)
+	if err == nil || !strings.Contains(err.Error(), "no such file or directory") {
+		t.Errorf("expected no such file or directory error, got %v", err)
+	}
+	if path != "" {
+		t.Errorf("Should not have gotten a path for the unavailable URL: %s", path)
+	}
+
+	thisUpdate := time.Now().UTC()
+	nextUpdate := thisUpdate.AddDate(0, 0, 1)
+	crlBytes := makeCRL(t, ca, caPrivKey, thisUpdate, nextUpdate)
+
+	server := hostCRL(t, crlBytes)
+	defer server.Close()
+
+	availableUrl, _ := url.Parse(server.URL + "/crl")
+	path, err = ae.crlFetchWorkerProcessOne(context.TODO(), *availableUrl, issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if !strings.Contains(path, "127.0.0.1-crl") {
+		t.Errorf("Path on disk should be for this host: %s", path)
+	}
+
+	readBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Error(err)
+	}
+	if !bytes.Equal(readBytes, crlBytes) {
+		t.Error("Bytes on disk didn't match what was served")
+	}
 }

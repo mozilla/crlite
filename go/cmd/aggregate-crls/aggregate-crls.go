@@ -116,6 +116,63 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 	resultChan <- issuerCrls
 }
 
+func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl url.URL, issuer storage.Issuer) (string, error) {
+	err := os.MkdirAll(filepath.Join(*crlpath, issuer.ID()), permModeDir)
+	if err != nil {
+		glog.Warningf("Couldn't make directory: %s", err)
+		return "", err
+	}
+
+	filename := makeFilenameFromUrl(crlUrl)
+	tmpPath := filepath.Join(*crlpath, issuer.ID(), filename+".tmp")
+	finalPath := filepath.Join(*crlpath, issuer.ID(), filename)
+
+	err = downloader.DownloadFileSync(ctx, ae.display, crlUrl, tmpPath, 3)
+	if err != nil {
+		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
+			tmpPath, err)
+	} else {
+		// Validate the file and move it to the finalPath
+		cert, err := ae.issuers.GetCertificateForIssuer(issuer)
+		if err != nil {
+			glog.Fatalf("[%s] Could not find certificate for issuer: %s", issuer.ID(), err)
+		}
+
+		_, err = verifyCRL(tmpPath, cert, finalPath)
+		if err != nil {
+			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
+			err = os.Remove(tmpPath)
+			if err != nil {
+				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
+			}
+		} else {
+			err = os.Rename(tmpPath, finalPath)
+			if err != nil {
+				glog.Errorf("[%s] Couldn't rename %s to %s: %s", issuer.ID(), tmpPath, finalPath, err)
+			}
+		}
+	}
+
+	// Ensure the final path is acceptable
+	localSize, localDate, err := downloader.GetSizeAndDateOfFile(finalPath)
+	if err != nil {
+		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
+			"revocations: %s", crlUrl.String(), err)
+		return "", err
+	}
+
+	age := time.Now().Sub(localDate)
+
+	if age > allowableAgeOfLocalCRL {
+		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
+	}
+
+	glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", issuer.ID(), crlUrl.String(),
+		finalPath, localSize, age)
+
+	return finalPath, nil
+}
+
 func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGroup,
 	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
@@ -130,69 +187,13 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			default:
 			}
 
-			filename := makeFilenameFromUrl(crlUrl)
-			err := os.MkdirAll(filepath.Join(*crlpath, tuple.Issuer.ID()), permModeDir)
+			path, err := ae.crlFetchWorkerProcessOne(ctx, crlUrl, tuple.Issuer)
 			if err != nil {
-				glog.Warningf("Couldn't make directory: %s", err)
-				continue
+				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 			}
-
-			tmpPath := filepath.Join(*crlpath, tuple.Issuer.ID(), filename+".tmp")
-			finalPath := filepath.Join(*crlpath, tuple.Issuer.ID(), filename)
-
-			err = downloader.DownloadFileSync(ctx, ae.display, crlUrl, tmpPath, 3)
-			if err != nil {
-				glog.Warningf("[%s] Could not download %s to %s: %s", tuple.Issuer.ID(), crlUrl.String(),
-					tmpPath, err)
-			} else {
-				// Validate the file and move it to the finalPath
-				cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
-				if err != nil {
-					glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
-				}
-				crl, err := verifyCRL(tmpPath, cert, finalPath)
-				if err != nil {
-					glog.Warningf("[%s] Failed to verify, keeping existing: %s", tuple.Issuer.ID(), err)
-					err = os.Remove(tmpPath)
-					if err != nil {
-						glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", tuple.Issuer.ID(), tmpPath, err)
-					}
-				} else {
-					err = os.Rename(tmpPath, finalPath)
-					if err != nil {
-						glog.Errorf("[%s] Couldn't rename %s to %s: %s", tuple.Issuer.ID(), tmpPath, finalPath, err)
-					}
-				}
-
-				if crl != nil {
-					_, err = processCRL(crl)
-					if err != nil {
-						glog.Warningf("[%s] Processing failed on CRL: %s", tuple.Issuer.ID(), err)
-					}
-				} else {
-					glog.Warningf("[%s] No CRLs available.", tuple.Issuer.ID())
-				}
+			if path != "" {
+				paths = append(paths, path)
 			}
-
-			// Ensure the final path is acceptable
-			localSize, localDate, err := downloader.GetSizeAndDateOfFile(finalPath)
-			if err != nil {
-				glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
-					"revocations: %s", crlUrl.String(), err)
-				continue
-			}
-
-			age := time.Now().Sub(localDate)
-
-			if age > allowableAgeOfLocalCRL {
-				glog.Warningf("[%s] Could not download, and local file appears very old. Age: %s",
-					crlUrl.String(), age)
-			}
-
-			glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", tuple.Issuer.ID(), crlUrl.String(),
-				finalPath, localSize, age)
-
-			paths = append(paths, finalPath)
 		}
 
 		subj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
