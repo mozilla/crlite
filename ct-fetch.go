@@ -540,6 +540,11 @@ func main() {
 	}
 
 	// Didn't include a mandatory action, so print usage and exit.
+	if ctconfig.LogUrlList != nil {
+		glog.Warningf("No log URLs found in %s.", *ctconfig.LogUrlList)
+	} else {
+		glog.Warning("No log URLs provided.")
+	}
 	ctconfig.Usage()
 	os.Exit(2)
 }
