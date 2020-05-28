@@ -1,5 +1,5 @@
 ARG crlite_image=crlite:latest
 FROM $crlite_image
 
-ENV fetch_certs false
-ENV reprocess_certs false
+COPY containers/crlite-generate/crlite-generate.sh /app/
+CMD [ "/bin/bash", "-xc", "/app/crlite-generate.sh" ]

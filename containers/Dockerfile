@@ -5,12 +5,14 @@ WORKDIR /build
 RUN mkdir bin gopath
 ENV GOPATH /build/gopath
 
+ARG ct_mapreduce_ver=v1.0.4
+
 # Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
-RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch
-RUN go get github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
-RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics
+RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@$ct_mapreduce_ver
+RUN go get github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs@$ct_mapreduce_ver
+RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics@$ct_mapreduce_ver
 
 FROM python:3.7-stretch
 RUN apt update && apt install -y ca-certificates && \
@@ -39,7 +41,6 @@ RUN pip3 install /app/moz_crlite_lib
 
 COPY create_filter_cascade /app/create_filter_cascade
 COPY moz_kinto_publisher /app/moz_kinto_publisher
-COPY system /app/system
 COPY workflow /app/workflow
 
 ENV TINI_VERSION v0.18.0
@@ -49,8 +50,6 @@ ENTRYPOINT ["/tini", "-g", "--"]
 
 USER appuser
 WORKDIR /app
-
-CMD [ "/bin/bash", "-xc", "/app/system/crlite-fullrun" ]
 
 ENV firestoreProjectId crlite-beta
 ENV numThreads 16

@@ -148,15 +148,16 @@ docker run -p 6379:7000 redis:4 --port 7000
 
 To construct a container, see [`containers/README.md`](https://github.com/mozilla/crlite/tree/master/containers/README.md).
 
+The crlite-fetch container runs forever, fetching CT updates:
 
 ```sh
 docker run --rm -it \
   -e "FIRESTORE_EMULATOR_HOST=my_ip_address:8403" \
   -e "outputRefreshMs=1000" \
-  crlite:0.1
+  crlite:0.1-fetch
 ```
 
-To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
+The crlite-generate container constructs a new filter. To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
 
 ```sh
 docker run --rm -it \
@@ -164,7 +165,7 @@ docker run --rm -it \
   -e "outputRefreshMs=1000" \
   --mount type=bind,src=/tmp/ctlite_data,dst=/ctdata \
   --mount type=bind,src=/tmp/crlite_results,dst=/processing \
-  crlite:0.1
+  crlite:0.1-generate
 ```
 
 

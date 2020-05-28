@@ -1,5 +1,5 @@
 ARG crlite_image=crlite:latest
 FROM $crlite_image
 
-ENV reprocess_certs true
-ENV fetch_certs false
+COPY containers/crlite-rebuild/crlite-rebuild.sh /app/
+CMD [ "/bin/bash", "-xc", "/app/crlite-rebuild.sh" ]

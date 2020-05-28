@@ -1,9 +1,9 @@
 ARG crlite_image=crlite:latest
 FROM $crlite_image
 
-ENV fetch_certs true
-ENV reprocess_certs false
+COPY containers/crlite-fetch/crlite-fetch.sh /app/
+CMD [ "/bin/bash", "-xc", "/app/crlite-fetch.sh" ]
 
-ENV runForever false
+ENV runForever true
 ENV logExpiredEntries false
 ENV logList https://ct.googleapis.com/icarus
