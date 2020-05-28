@@ -53,9 +53,6 @@ WORKDIR /app
 CMD [ "/bin/bash", "-xc", "/app/system/crlite-fullrun" ]
 
 ENV firestoreProjectId crlite-beta
-ENV runForever false
-ENV logExpiredEntries false
 ENV numThreads 16
 ENV cacheSize 64
-ENV logList https://ct.googleapis.com/icarus
 ENV outputRefreshMs 60000
