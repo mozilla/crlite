@@ -57,6 +57,7 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 	}
 
 	if storageDB == nil {
+		glog.Fatalf("Unable to construct storage. hasLocalDiskConfig=%v, hasGoogleConfig=%v", hasLocalDiskConfig, hasGoogleConfig)
 		ctconfig.Usage()
 		os.Exit(2)
 	}
