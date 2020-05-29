@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 
-def read_keys(path, *, emit=False, serial=None):
+def read_keys(path, *, verbosity=0, serial=None):
     cnt = Counter()
     issuers = Counter()
     issuerLen = Counter()
@@ -29,12 +29,11 @@ def read_keys(path, *, emit=False, serial=None):
             issuerLen[len(certId.issuerId)] += 1
             serialLen[len(certId.serial)] += 1
 
-            if emit:
+            if verbosity:
                 print(f"{certId}")
 
             if serial and certId.serial == serial:
-                print(f"{certId} found")
-                sys.exit(0)
+                return certId
 
     print(
         f"Issuers: {len(issuers)} Most Common: {issuers.most_common(5)} Serials: {cnt}"
@@ -43,12 +42,10 @@ def read_keys(path, *, emit=False, serial=None):
         f"Issuer Lengths: {issuerLen.most_common(5)} Serial Lengths: {serialLen.most_common(5)}"
     )
 
-    if serial:
-        print(f"{serial.hex()} not found, exiting 1")
-        sys.exit(1)
+    return False
 
 
-def read_stash(path, *, emit=False, serial=None):
+def read_stash(path, *, verbosity=0, serial=None):
     cnt = Counter()
     issuers = Counter()
     revocations = Counter()
@@ -63,15 +60,16 @@ def read_stash(path, *, emit=False, serial=None):
 
             cnt["revocations"] += len(data["revocations"])
 
-            for certId in data["revocations"]:
-                serialLen[len(certId.serial)] += 1
-
-            if emit:
+            if verbosity:
                 print(f"{data['issuerId']} new revocations: {len(data['revocations'])}")
 
-            if serial and certId.serial == serial:
-                print(f"{certId} found")
-                sys.exit(0)
+            for certId in data["revocations"]:
+                serialLen[len(certId.serial)] += 1
+                if verbosity > 1:
+                    print(f"{certId}")
+
+                if serial and certId.serial == serial:
+                    return certId
 
     print(f"Issuers Affected: {cnt['issuers']}")
     print(f"Number of New Revocations: {cnt['revocations']}")
@@ -83,9 +81,7 @@ def read_stash(path, *, emit=False, serial=None):
     print(f"Aggregated Serials in Bytes: {totalBytes} bytes")
     print(f"Stash File Size in Bytes: {path.stat().st_size} bytes")
 
-    if serial:
-        print(f"{serial.hex()} not found, exiting 1")
-        sys.exit(1)
+    return False
 
 
 def main():
@@ -98,17 +94,24 @@ def main():
     parser.add_argument(
         "-contains-serial", help="Check if this contains a serial (in hex)"
     )
-    parser.add_argument("-print", help="Print the values", action="store_true")
+    parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args()
 
     serial = None
     if args.contains_serial:
-        serial = binascii.unhexlify(args.contains_serial)
+        serial = binascii.unhexlify(args.contains_serial.replace(":", ""))
 
     if args.keys:
-        read_keys(args.keys, emit=args.print, serial=serial)
+        result = read_keys(args.keys, verbosity=args.verbose, serial=serial)
     if args.stash:
-        read_stash(args.stash, emit=args.print, serial=serial)
+        result = read_stash(args.stash, verbosity=args.verbose, serial=serial)
+
+    if serial:
+        if result:
+            print(f"{serial.hex()} found: {result}")
+        else:
+            print(f"{serial.hex()} not found")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
