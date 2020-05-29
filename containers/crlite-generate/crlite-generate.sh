@@ -37,10 +37,10 @@ ls -latS ${ID}/revoked | head
 echo "crlite-fullrun: disk usage"
 du -hc ${ID}
 
-${workflow}/4-generate_mlbf ${ID}
+${workflow}/1-generate_mlbf ${ID}
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
-  ${workflow}/8-upload_artifacts_to_storage ${ID} --extra_folders ${crlite_persistent:-/ct}/crls:crls
+  ${workflow}/2-upload_artifacts_to_storage ${ID} --extra_folders ${crlite_persistent:-/ct}/crls:crls
 fi
 
 echo "crlite_processing"
