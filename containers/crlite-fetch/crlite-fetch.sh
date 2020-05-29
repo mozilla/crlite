@@ -5,7 +5,6 @@ workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 source ${workflow}/0-set_credentials.inc
 
 cmd="${crlite_bin:-~/go/bin}/ct-fetch -log_dir ${crlite_log:-/tmp}/ -stderrthreshold=WARNING"
-env
 
 echo "Starting: ${cmd}"
 echo "Expect ${outputRefreshPeriod} lag for initial output."
