@@ -131,6 +131,10 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	if err != nil {
 		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
 			tmpPath, err)
+		err = os.Remove(tmpPath)
+		if err != nil {
+			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
+		}
 	} else {
 		// Validate the file and move it to the finalPath
 		cert, err := ae.issuers.GetCertificateForIssuer(issuer)
