@@ -168,6 +168,7 @@ docker run --rm -it \
   crlite:0.1-generate
 ```
 
+See the [`test-via-docker.sh`](https://github.com/mozilla/crlite/blob/master/test-via-docker.sh) for an example.
 
 To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work. See [`containers/crlite-config.properties.example`](https://github.com/mozilla/crlite/blob/master/containers/crlite-config.properties.example) for an example of the Kubernetes environment that can be imported using `kubectl create configmap`, see the `containers` README.md for details.
 
