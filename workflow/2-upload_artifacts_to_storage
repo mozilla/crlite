@@ -65,7 +65,6 @@ def main():
     idPath = args.results_path[0].resolve()
 
     ensureFileOrAbort(idPath, Path("mlbf/filter"))
-    ensureFileOrAbort(idPath, Path("mlbf/filter.stash"))
 
     for path, dirs, files in os.walk(idPath):
         localFolder = Path(path)
