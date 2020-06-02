@@ -31,17 +31,16 @@ ENV crlite_bin /app
 RUN mkdir /processing && chown appuser /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
 
-COPY requirements.txt /app/
-RUN pip3 install -r /app/requirements.txt
 COPY --from=builder /build/bin /app/
 COPY --from=builder /build/gopath/bin /app/
 
 COPY moz_crlite_lib /app/moz_crlite_lib
-RUN pip3 install /app/moz_crlite_lib
-
 COPY create_filter_cascade /app/create_filter_cascade
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow
+COPY setup.py /app/
+RUN pip3 install /app/moz_crlite_lib/ /app/
+
 
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini

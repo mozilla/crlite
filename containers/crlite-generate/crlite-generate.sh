@@ -47,3 +47,5 @@ echo "crlite_processing"
 df ${crlite_processing:-/ct/processing}
 echo "crlite_persistent"
 df ${crlite_persistent:-/ct/}
+
+exit 0

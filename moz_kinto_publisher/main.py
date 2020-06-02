@@ -90,7 +90,7 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
 
 
 def get_attachments_base_url():
-    return requests.get(settings.KINTO_SERVER_URL).json()["capabilities"][
+    return requests.get(settings.KINTO_RO_SERVER_URL).json()["capabilities"][
         "attachments"
     ]["base_url"]
 
@@ -225,6 +225,9 @@ def main():
     if args.verbose:
         log.setLevel("DEBUG")
 
+    if args.noop:
+        log.info("The --noop flag is set, will not make changes.")
+
     auth = {}
     try:
         ensureNonBlank(["KINTO_AUTH_TOKEN"])
@@ -239,27 +242,33 @@ def main():
             )
         )
 
-    log.info("Connecting to {}".format(settings.KINTO_SERVER_URL))
+    log.info(
+        f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
+    )
 
-    client = PublisherClient(
-        server_url=settings.KINTO_SERVER_URL,
+    rw_client = PublisherClient(
+        server_url=settings.KINTO_RW_SERVER_URL,
         auth=auth,
         bucket=settings.KINTO_BUCKET,
         retry=5,
     )
 
+    ro_client = PublisherClient(
+        server_url=settings.KINTO_RO_SERVER_URL, bucket=settings.KINTO_BUCKET, retry=5,
+    )
+
     try:
         if args.crlite:
-            publish_crlite(args=args, client=client)
+            publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
 
             if not args.noop and args.request_review:
                 log.info("Set for review")
-                client.request_review_of_collection(
+                rw_client.request_review_of_collection(
                     collection=settings.KINTO_CRLITE_COLLECTION,
                 )
 
         elif args.intermediates:
-            publish_intermediates(args=args, client=client)
+            publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
 
         else:
             parser.print_help()
@@ -404,8 +413,8 @@ class Intermediate:
 
         return attributes
 
-    def _upload_pem(self, *, client=None, kinto_id=None):
-        client.attach_file(
+    def _upload_pem(self, *, rw_client=None, kinto_id=None):
+        rw_client.attach_file(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             fileContents=self.pemData,
             fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}.pem",
@@ -439,16 +448,16 @@ class Intermediate:
             self.download_pem()
         return self.cert.not_valid_after <= datetime.utcnow()
 
-    def delete_from_kinto(self, *, client=None):
+    def delete_from_kinto(self, *, rw_client=None):
         if self.kinto_id is None:
             raise IntermediateRecordError(
                 "Cannot delete a record not at Kinto: {}".format(self)
             )
-        client.delete_record(
+        rw_client.delete_record(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=self.kinto_id,
         )
 
-    def update_kinto(self, *, remote_record=None, client=None):
+    def update_kinto(self, *, remote_record=None, rw_client=None):
         if self.pemData is None:
             raise IntermediateRecordError(
                 "Cannot upload a record not local: {}".format(self)
@@ -474,13 +483,13 @@ class Intermediate:
         # Make sure to put back the existing PEM attachment data
         self.pemAttachment = remote_record.pemAttachment
 
-        client.update_record(
+        rw_client.update_record(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             data=self._get_attributes(complete=True),
             id=remote_record.kinto_id,
         )
 
-    def add_to_kinto(self, *, client=None):
+    def add_to_kinto(self, *, rw_client=None):
         if self.pemData is None:
             raise IntermediateRecordError(
                 "Cannot upload a record not local: {}".format(self)
@@ -489,7 +498,7 @@ class Intermediate:
         attributes = self._get_attributes(new=True)
 
         perms = {"read": ["system.Everyone"]}
-        record = client.create_record(
+        record = rw_client.create_record(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             data=attributes,
             permissions=perms,
@@ -497,14 +506,14 @@ class Intermediate:
         self.kinto_id = record["data"]["id"]
 
         try:
-            self._upload_pem(client=client)
+            self._upload_pem(rw_client=rw_client)
         except KintoException as ke:
             log.error(
                 "Failed to upload attachment. Removing stale intermediate record {}.".format(
                     self.kinto_id
                 )
             )
-            client.delete_record(
+            rw_client.delete_record(
                 collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=self.kinto_id,
             )
             log.error("Stale record deleted.")
@@ -530,7 +539,7 @@ def export_intermediates(writer, keys, intermediates, *, old=None):
             writer.write("\n---------------\n\n")
 
 
-def publish_intermediates(*, args, client):
+def publish_intermediates(*, args, ro_client, rw_client):
     local_intermediates = {}
     remote_intermediates = {}
     remote_error_records = []
@@ -543,12 +552,12 @@ def publish_intermediates(*, args, client):
     run_id = run_identifiers[-1]
 
     run_id_path = args.download_path / Path(run_id)
-    run_id_path.mkdir()
+    run_id_path.mkdir(parents=True, exist_ok=True)
     intermediates_path = run_id_path / Path("enrolled.json")
 
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
-        f"{run_id}/mlbf/enrolled.json",
+        f"{run_id}/enrolled.json",
         intermediates_path,
         timeout=timedelta(minutes=5),
     )
@@ -571,7 +580,7 @@ def publish_intermediates(*, args, client):
                 log.error("Record: {}".format(entry))
                 raise e
 
-    for record in client.get_records(
+    for record in ro_client.get_records(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
     ):
         try:
@@ -619,19 +628,19 @@ def publish_intermediates(*, args, client):
         else:
             update_other_than_enrollment.add(i)
 
-    print(f"Total entries before update: {len(remote_intermediates)}")
-    print(f"To delete: {len(to_delete)} (Deletion enabled: {args.delete})")
-    print(f"- Expired: {len(expired)}")
-    print(f"To add: {len(to_upload)}")
-    print(
+    log.info(f"Total entries before update: {len(remote_intermediates)}")
+    log.info(f"To delete: {len(to_delete)} (Deletion enabled: {args.delete})")
+    log.info(f"- Expired: {len(expired)}")
+    log.info(f"To add: {len(to_upload)}")
+    log.info(
         f"Certificates updated (without a key change): {len(delete_pubkeys & upload_pubkeys)}"
     )
-    print(f"Total entries updated: {len(to_update)}")
-    print(f"- New enrollments: {len(new_enrollments)}")
-    print(f"- Unenrollments: {len(unenrollments)}")
-    print(f"- Other: {len(update_other_than_enrollment)}")
-    print(f"Total entries after update: {len(local_intermediates)}")
-    print("")
+    log.info(f"Remote records in an error state: {len(remote_error_records)}")
+    log.info(f"Total entries updated: {len(to_update)}")
+    log.info(f"- New enrollments: {len(new_enrollments)}")
+    log.info(f"- Unenrollments: {len(unenrollments)}")
+    log.info(f"- Other: {len(update_other_than_enrollment)}")
+    log.info(f"Total entries after update: {len(local_intermediates)}")
 
     if args.export:
         with open(Path(args.export) / Path("to_delete"), "w") as df:
@@ -687,11 +696,15 @@ def publish_intermediates(*, args, client):
         print("")
         breakpoint()
 
+    if args.noop:
+        log.info(f"Noop flag set, exiting before any intermediate updates")
+        return
+
     if len(remote_error_records) > 0:
         log.info("Cleaning {} broken records".format(len(remote_error_records)))
         for record in remote_error_records:
             try:
-                client.delete_record(
+                rw_client.delete_record(
                     collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=record["id"],
                 )
             except KintoException as ke:
@@ -701,12 +714,12 @@ def publish_intermediates(*, args, client):
         intermediate = remote_intermediates[unique_id]
         if args.delete:
             log.info("Deleting {} from Kinto".format(intermediate))
-            intermediate.delete_from_kinto(client=client)
+            intermediate.delete_from_kinto(rw_client=rw_client)
 
     for unique_id in to_upload:
         intermediate = local_intermediates[unique_id]
         log.debug("Uploading {} to Kinto".format(intermediate))
-        intermediate.add_to_kinto(client=client)
+        intermediate.add_to_kinto(rw_client=rw_client)
 
     update_error_records = []
     for unique_id in to_update:
@@ -715,7 +728,7 @@ def publish_intermediates(*, args, client):
         if not local_int.equals(remote_record=remote_int):
             try:
                 local_int.update_kinto(
-                    client=client, remote_record=remote_int,
+                    rw_client=rw_client, remote_record=remote_int,
                 )
             except KintoException as ke:
                 update_error_records.append((local_int, remote_int, ke))
@@ -728,7 +741,7 @@ def publish_intermediates(*, args, client):
     log.info("Verifying correctness...")
     verified_intermediates = {}
     verification_error_records = []
-    for record in client.get_records(
+    for record in ro_client.get_records(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
     ):
         try:
@@ -820,47 +833,45 @@ def publish_intermediates(*, args, client):
             f"Set for review, {len(to_update)} updates, {len(to_upload)} uploads, "
             + f"{len(to_delete)} deletions."
         )
-        client.request_review_of_collection(
+        rw_client.request_review_of_collection(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
         )
     else:
         log.info(f"No updates to do")
 
-    # Todo - use different credentials, as editor cannot review.
-    # log.info("Requesting signature")
-    # client.sign_collection(
-    #   collection = settings.KINTO_INTERMEDIATES_COLLECTION,
-    # )
 
-
-def clear_crlite_filters(*, client, noop):
+def clear_crlite_filters(*, rw_client, noop):
     if noop:
         log.info("Would clean up CRLite filters, but no-op set")
         return
-    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    existing_records = rw_client.get_records(
+        collection=settings.KINTO_CRLITE_COLLECTION
+    )
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
         log.info(f"Cleaning up stale filter record {filter_record['id']}.")
-        client.delete_record(
+        rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION, id=filter_record["id"],
         )
 
 
-def clear_crlite_stashes(*, client, noop):
+def clear_crlite_stashes(*, rw_client, noop):
     if noop:
         log.info("Would clean up CRLite stashes, but no-op set")
         return
-    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+    existing_records = rw_client.get_records(
+        collection=settings.KINTO_CRLITE_COLLECTION
+    )
     existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
     for stash in existing_stashes:
         log.info(f"Cleaning up stale stash record {stash['id']}.")
-        client.delete_record(
+        rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION, id=stash["id"],
         )
 
 
 def publish_crlite_record(
-    *, path, filename, timestamp, client, incremental, noop, previous_id=None
+    *, path, filename, timestamp, rw_client, incremental, noop, previous_id=None
 ):
     record_type = "diff" if incremental else "full"
     record_time = timestamp.isoformat(timespec="seconds")
@@ -884,7 +895,7 @@ def publish_crlite_record(
         log.info("NoOp mode enabled")
 
     if not noop:
-        record = client.create_record(
+        record = rw_client.create_record(
             collection=settings.KINTO_CRLITE_COLLECTION,
             data=attributes,
             permissions=perms,
@@ -892,7 +903,7 @@ def publish_crlite_record(
         recordid = record["data"]["id"]
 
         try:
-            client.attach_file(
+            rw_client.attach_file(
                 collection=settings.KINTO_CRLITE_COLLECTION,
                 fileName=filename,
                 filePath=path,
@@ -902,7 +913,7 @@ def publish_crlite_record(
             log.error(
                 f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}"
             )
-            client.delete_record(
+            rw_client.delete_record(
                 collection=settings.KINTO_CRLITE_COLLECTION, id=recordid,
             )
             log.error("Stale record deleted.")
@@ -916,23 +927,25 @@ def publish_crlite_record(
     return recordid
 
 
-def publish_crlite_main_filter(*, filter_path, filename, client, timestamp, noop):
+def publish_crlite_main_filter(*, filter_path, filename, rw_client, timestamp, noop):
     return publish_crlite_record(
         path=filter_path,
         filename=filename,
         timestamp=timestamp,
-        client=client,
+        rw_client=rw_client,
         noop=noop,
         incremental=False,
     )
 
 
-def publish_crlite_stash(*, stash_path, filename, client, previous_id, timestamp, noop):
+def publish_crlite_stash(
+    *, stash_path, filename, rw_client, previous_id, timestamp, noop
+):
     return publish_crlite_record(
         path=stash_path,
         filename=filename,
         timestamp=timestamp,
-        client=client,
+        rw_client=rw_client,
         previous_id=previous_id,
         noop=noop,
         incremental=True,
@@ -990,7 +1003,6 @@ def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
         + f"delta={delta}"
     )
 
-    # TODO: use the {-1,2,3...} to try and get 6 hour resolution
     if delta < timedelta(0) or delta > timedelta(hours=24):
         log.warning(
             f"Stash is not recent enough compared to the previous (delta={delta})"
@@ -1079,16 +1091,18 @@ def crlite_determine_publish(*, existing_records, run_db):
     return {"upload": unpublished_run_ids}
 
 
-def publish_crlite(*, args, client):
-    existing_records = client.get_records(collection=settings.KINTO_CRLITE_COLLECTION)
+def publish_crlite(*, args, ro_client, rw_client):
+    existing_records = ro_client.get_records(
+        collection=settings.KINTO_CRLITE_COLLECTION
+    )
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
 
     try:
         crlite_verify_record_sanity(existing_records=existing_records)
     except SanityException as se:
         log.error(f"Failed to verify existing record sanity: {se}")
-        clear_crlite_filters(client=client, noop=args.noop)
-        clear_crlite_stashes(client=client, noop=args.noop)
+        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
+        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
         existing_records = []
 
     published_run_db = PublishedRunDB(args.filter_bucket)
@@ -1104,10 +1118,10 @@ def publish_crlite(*, args, client):
         return
 
     if "clear_all" in result:
-        clear_crlite_filters(client=client, noop=args.noop)
-        clear_crlite_stashes(client=client, noop=args.noop)
+        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
+        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
 
-    args.download_path.mkdir()
+    args.download_path.mkdir(parents=True, exist_ok=True)
 
     existing_stash_records = filter(lambda x: x["incremental"], existing_records)
     existing_stash_size = sum(
@@ -1119,7 +1133,7 @@ def publish_crlite(*, args, client):
 
     for run_id in result["upload"]:
         run_id_path = args.download_path / Path(run_id)
-        run_id_path.mkdir()
+        run_id_path.mkdir(parents=True, exist_ok=True)
         stash_path = run_id_path / Path("stash")
 
         workflow.download_and_retry_from_google_cloud(
@@ -1158,13 +1172,13 @@ def publish_crlite(*, args, client):
                 + "uploading a full filter."
             )
 
-        clear_crlite_filters(client=client, noop=args.noop)
-        clear_crlite_stashes(client=client, noop=args.noop)
+        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
+        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
 
         publish_crlite_main_filter(
             filter_path=filter_path,
             filename=f"{final_run_id}-filter",
-            client=client,
+            rw_client=rw_client,
             timestamp=published_run_db.get_timestamp_for_run_id(final_run_id),
             noop=args.noop,
         )
@@ -1184,7 +1198,7 @@ def publish_crlite(*, args, client):
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
                 filename=f"{run_id}-filter.stash",
-                client=client,
+                rw_client=rw_client,
                 previous_id=previous_id,
                 timestamp=published_run_db.get_timestamp_for_run_id(run_id),
                 noop=args.noop,

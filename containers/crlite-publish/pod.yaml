@@ -2,52 +2,34 @@ apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
   creationTimestamp: null
-  name: crlite-generate
+  name: crlite-publish
 spec:
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   jobTemplate:
     metadata:
       creationTimestamp: null
-      name: crlite-generate
+      name: crlite-publish
     spec:
       template:
         metadata:
           creationTimestamp: null
         spec:
-          initContainers:
-          - name: init
-            image: busybox:latest
-            command: ["/bin/chmod", "777", "/persistent"]
-            volumeMounts:
-            - mountPath: "/persistent"
-              name: crlite-crls
           containers:
-          - name: crlite-generate
+          - name: crlite-publish
             envFrom:
             - configMapRef:
                 name: crlite-config
-            image: gcr.io/crlite-beta/crlite:0.1-generate
+            image: gcr.io/crlite-beta/crlite:0.1-publish
             imagePullPolicy: Always
-            resources:
-              requests:
-                memory: 14Gi
-                cpu: 1.0m
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError
-            volumeMounts:
-            - mountPath: "/persistent"
-              name: crlite-crls
-          volumes:
-          - name: crlite-crls
-            persistentVolumeClaim:
-              claimName: crlite-crls
           dnsPolicy: ClusterFirst
           restartPolicy: Never
           schedulerName: default-scheduler
           securityContext: {}
           terminationGracePeriodSeconds: 30
-  schedule: 0 */6 * * *
+  schedule: 0 * * * *
   successfulJobsHistoryLimit: 3
   suspend: false
 status: {}
