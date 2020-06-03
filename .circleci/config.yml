@@ -8,11 +8,8 @@ jobs:
     executor: python/default
     steps:
       - checkout
-      - python/load-cache
-      - python/install-deps
       - run: pip install pytest
       - run: pip install black
-      - python/save-cache
 
       - run:
           name: Install Package
@@ -20,6 +17,7 @@ jobs:
             pip install --editable .
             pip install --editable create_filter_cascade
             pip install --editable moz_crlite_lib
+
       - run:
           name: Run Tests
           command: |
