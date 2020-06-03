@@ -47,3 +47,12 @@ docker run --rm -it \
   --mount type=bind,src=/tmp/crlite/persistent,dst=/persistent \
   --mount type=bind,src=/tmp/crlite/processing,dst=/processing \
   crlite:0.1-generate
+
+docker run --rm -it \
+  -e "googleProjectId=crlite-beta" \
+  -e "FIRESTORE_EMULATOR_HOST=${my_ip}:8403" \
+  -e "redisHost=${my_ip}:6379" \
+  -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
+  -e "DoNotUpload=true" \
+  -e "outputRefreshMs=1000" \
+  crlite:0.1-publish

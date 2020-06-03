@@ -12,3 +12,5 @@ if [ -x /usr/bin/time ] ; then
 else
   ${cmd}
 fi
+
+exit 0
