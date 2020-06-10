@@ -32,7 +32,7 @@
     - id: pytest
       name: Python Tests
       language: system
-      entry: pytest
+      entry: python3 -m pytest
       pass_filenames: false
       files: '.py$'
 - repo:  git://github.com/psf/black

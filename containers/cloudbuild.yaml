@@ -31,7 +31,7 @@ steps:
 
 substitutions:
     _CRLITE_VERSION: "0.1"
-    _CT_MAPREDUCE_VERSION: "v1.0.4"
+    _CT_MAPREDUCE_VERSION: "v1.0.5"
 
 images:
 - 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}'

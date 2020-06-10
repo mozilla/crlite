@@ -5,7 +5,7 @@ WORKDIR /build
 RUN mkdir bin gopath
 ENV GOPATH /build/gopath
 
-ARG ct_mapreduce_ver=v1.0.4
+ARG ct_mapreduce_ver=v1.0.5
 
 # Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
@@ -50,7 +50,6 @@ ENTRYPOINT ["/tini", "-g", "--"]
 USER appuser
 WORKDIR /app
 
-ENV firestoreProjectId crlite-beta
 ENV numThreads 16
 ENV cacheSize 64
 ENV outputRefreshMs 60000

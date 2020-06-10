@@ -11,7 +11,6 @@ setup(
         "Deprecated >= 1.2",
         "filtercascade>=0.3.1",
         "glog>=0.3",
-        "google-cloud-firestore",
         "google-cloud-storage",
         "kinto-http>=9.1",
         "moz_crlite_lib>=0.2",

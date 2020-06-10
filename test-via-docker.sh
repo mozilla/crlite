@@ -23,11 +23,9 @@ if [ "x${GOOGLE_APPLICATION_CREDENTIALS}x" == "xx" ]; then
   exit 1
 fi
 
-echo "Ensure Redis is running at ${my_ip}:6379 and Firestore at ${my_ip}:8403"
+echo "Ensure Redis is running at ${my_ip}:6379"
 
 docker run --rm -it \
-  -e "googleProjectId=crlite-beta" \
-  -e "FIRESTORE_EMULATOR_HOST=${my_ip}:8403" \
   -e "redisHost=${my_ip}:6379" \
   -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
   -e "DoNotUpload=true" \
@@ -38,8 +36,6 @@ docker run --rm -it \
   crlite:0.1-fetch
 
 docker run --rm -it \
-  -e "googleProjectId=crlite-beta" \
-  -e "FIRESTORE_EMULATOR_HOST=${my_ip}:8403" \
   -e "redisHost=${my_ip}:6379" \
   -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
   -e "DoNotUpload=true" \
@@ -49,8 +45,6 @@ docker run --rm -it \
   crlite:0.1-generate
 
 docker run --rm -it \
-  -e "googleProjectId=crlite-beta" \
-  -e "FIRESTORE_EMULATOR_HOST=${my_ip}:8403" \
   -e "redisHost=${my_ip}:6379" \
   -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
   -e "DoNotUpload=true" \

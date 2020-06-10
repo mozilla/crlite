@@ -7,17 +7,17 @@ Basic build:
 docker build -t crlite:0.1 .. -f Dockerfile
 ```
 
-To run the whole tool, you'll need an emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
+To run the tools, you'll need Redis 4+:
 
 ```
-gcloud beta emulators firestore start --host-port="ip:8403"
+docker run --rm -it -p 6379:7000 \
+  redis:4 --port 7000
 ```
 
 Then you can execute the docker container, setting any environment vars you want:
 
 ```
 docker run --rm -it \
-  -e "FIRESTORE_EMULATOR_HOST=10.0.0.115:8403" \
   -e "redisHost=10.0.0.115:6379" \
   -e "outputRefreshMs=1000" \
   crlite:0.1

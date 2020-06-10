@@ -178,8 +178,8 @@ github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T
 github.com/hpcloud/tail v1.0.0 h1:nfCOvKYfkgYP8hkirhJocXT2+zOD8yUNjXaWfTlyFKI=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
-github.com/jcjones/ct-mapreduce v1.0.4-0.20200407183047-a691f52d40b1 h1:hNCwGmkR84ciDQ5+/xkU1kapALIgh4NxcutpEKVWE2E=
-github.com/jcjones/ct-mapreduce v1.0.4-0.20200407183047-a691f52d40b1/go.mod h1:NHpWkT6mhPWcsD+oW+RuzIDA2ebxM9K/U/9ctKkL+5M=
+github.com/jcjones/ct-mapreduce v1.0.5 h1:EmyQbGRNEI6R6Fs++mlhtYWfGLtBigdEUVupuzL5ObA=
+github.com/jcjones/ct-mapreduce v1.0.5/go.mod h1:NHpWkT6mhPWcsD+oW+RuzIDA2ebxM9K/U/9ctKkL+5M=
 github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af/go.mod h1:Nht3zPeWKUH0NzdCt2Blrr5ys8VGpn0CEB0cQHVjt7k=
 github.com/jonboulle/clockwork v0.1.0/go.mod h1:Ii8DK3G1RaLaWxj9trq07+26W01tbo22gdxWY5EU2bo=
 github.com/jpillora/backoff v1.0.0 h1:uvFg412JmmHBHw7iwprIxkPMI+sGQ4kzOWsMeHnm2EA=
