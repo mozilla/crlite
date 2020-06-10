@@ -11,7 +11,6 @@ ARG ct_mapreduce_ver=v1.0.5
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@$ct_mapreduce_ver
-RUN go get github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs@$ct_mapreduce_ver
 RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics@$ct_mapreduce_ver
 
 FROM python:3.7-stretch

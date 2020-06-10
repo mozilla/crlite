@@ -19,8 +19,9 @@ savePeriod=5m
 pollingDelayMean=60m
 pollingDelayStdDev=10
 
-# Set true if you want to report to Stackdriver
+# Set true if you want to report to Stackdriver and provide the relevant project ID
 #stackdriverMetrics=true
+#googleProjectId=projectname
 
 # Publisher
 KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/
