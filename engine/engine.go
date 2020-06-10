@@ -75,6 +75,10 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 			glog.Fatal(err)
 		}
 
+		if ctconfig.GoogleProjectId == nil {
+			glog.Fatal("Cannot enable StackDriver metrics without a GoogleProjectId set")
+		}
+
 		metricsSink := stackdriver.NewSink(client, &stackdriver.Config{
 			ProjectID: *ctconfig.GoogleProjectId,
 		})
