@@ -452,7 +452,8 @@ func expectNilLogState(t *testing.T, rc *RedisCache, url string) {
 func TestRedisLogState(t *testing.T) {
 	t.Parallel()
 	rc := getRedisCache(t)
-	defer rc.client.Del("short_url/location")
+	rc.client.Del("log::short_url/location")
+	defer rc.client.Del("log::short_url/location")
 
 	log := &CertificateLog{
 		ShortURL:      "short_url/location",
