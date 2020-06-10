@@ -42,9 +42,7 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 
 	if hasLocalDiskConfig {
 		glog.Fatalf("Local Disk Backend currently disabled")
-	}
-
-	if hasGoogleConfig {
+	} else if hasGoogleConfig {
 		backend, err = storage.NewFirestoreBackend(ctx, *ctconfig.GoogleProjectId)
 		if err != nil {
 			glog.Fatalf("Unable to configure Firestore for %s: %v", *ctconfig.GoogleProjectId, err)
@@ -54,12 +52,13 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 		if err != nil {
 			glog.Fatalf("Unable to construct Firestore DB for %s: %v", *ctconfig.GoogleProjectId, err)
 		}
-	}
+	} else {
+		backend = storage.NewNoopBackend()
 
-	if storageDB == nil {
-		glog.Fatalf("Unable to construct storage. hasLocalDiskConfig=%v, hasGoogleConfig=%v", hasLocalDiskConfig, hasGoogleConfig)
-		ctconfig.Usage()
-		os.Exit(2)
+		storageDB, err = storage.NewFilesystemDatabase(backend, remoteCache)
+		if err != nil {
+			glog.Fatalf("Unable to construct cache-only DB: %v", err)
+		}
 	}
 
 	return storageDB, remoteCache, backend
