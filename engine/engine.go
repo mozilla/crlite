@@ -6,7 +6,6 @@ package engine
 
 import (
 	"context"
-	"os"
 	"time"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3"
@@ -53,15 +52,14 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsConf := metrics.DefaultConfig(utilName)
 	metricsConf.EnableRuntimeMetrics = false
 
-	val, ok := os.LookupEnv("stackdriverMetrics")
-	if ok && val == "true" {
+	if *ctconfig.StackdriverMetrics {
+		if ctconfig.GoogleProjectId == nil {
+			glog.Fatal("Cannot enable StackDriver metrics without a GoogleProjectId set")
+		}
+
 		client, err := monitoring.NewMetricClient(context.Background())
 		if err != nil {
 			glog.Fatal(err)
-		}
-
-		if ctconfig.GoogleProjectId == nil {
-			glog.Fatal("Cannot enable StackDriver metrics without a GoogleProjectId set")
 		}
 
 		metricsSink := stackdriver.NewSink(client, &stackdriver.Config{
