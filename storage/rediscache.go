@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 )
 
 const EMPTY_QUEUE string = "redis: nil"
+const NO_EXPIRATION time.Duration = 0
 
 type RedisCache struct {
 	client *redis.Client
@@ -173,4 +175,30 @@ func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, er
 	}
 	sr := rc.client.Get(k)
 	return sr.Result()
+}
+
+func shortUrlToLogKey(shortUrl string) string {
+	return fmt.Sprintf("log::%s", shortUrl)
+}
+
+func (ec *RedisCache) StoreLogState(log *CertificateLog) error {
+	encoded, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+
+	return ec.client.Set(shortUrlToLogKey(log.ShortURL), encoded, NO_EXPIRATION).Err()
+}
+
+func (ec *RedisCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
+	data, err := ec.client.Get(shortUrlToLogKey(shortUrl)).Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	var log CertificateLog
+	if err = json.Unmarshal(data, &log); err != nil {
+		return nil, err
+	}
+	return &log, nil
 }

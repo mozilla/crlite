@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/pem"
 	"net/url"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ EA==
 -----END CERTIFICATE-----`
 )
 
-func getTestHarness(t *testing.T) (*MockBackend, CertDatabase) {
+func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase) {
 	mockBackend := NewMockBackend()
 	mockCache := NewMockRemoteCache()
 	storageDB, err := NewFilesystemDatabase(mockBackend, mockCache)
@@ -73,7 +74,7 @@ func getTestHarness(t *testing.T) (*MockBackend, CertDatabase) {
 	if storageDB == nil {
 		t.Fatalf("Can't find DB")
 	}
-	return mockBackend, storageDB
+	return mockBackend, mockCache, storageDB
 }
 
 func Test_GetSpkiRealSPKI(t *testing.T) {
@@ -129,7 +130,7 @@ func expDatesAndStringsEqual(t *testing.T, expected []string, found ExpDateList)
 }
 
 func Test_ListExpiration(t *testing.T) {
-	mockBackend, storageDB := getTestHarness(t)
+	mockBackend, _, storageDB := getTestHarness(t)
 
 	testIssuer := NewIssuerFromString("test issuer")
 
@@ -215,7 +216,7 @@ func Test_ListExpiration(t *testing.T) {
 }
 
 func Test_LogState(t *testing.T) {
-	_, storageDB := getTestHarness(t)
+	_, cache, storageDB := getTestHarness(t)
 
 	unknownUrl, err := url.Parse("gopher://go.pher")
 	if err != nil {
@@ -250,6 +251,14 @@ func Test_LogState(t *testing.T) {
 		t.Errorf("Shouldn't have errored saving %v", err)
 	}
 
+	cacheObj, err := cache.LoadLogState(log.ShortURL)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(cacheObj, log) {
+		t.Errorf("Expected the cache to have the exact same log state, %+v %+v", cacheObj, log)
+	}
+
 	updatedLog, err := storageDB.GetLogState(normalUrl)
 	if err != nil {
 		t.Errorf("Should not error: %v", err)
@@ -263,7 +272,7 @@ func Test_LogState(t *testing.T) {
 }
 
 func Test_GetIssuerAndDatesFromCache(t *testing.T) {
-	_, storageDB := getTestHarness(t)
+	_, _, storageDB := getTestHarness(t)
 
 	l, err := storageDB.GetIssuerAndDatesFromCache()
 	if err != nil {

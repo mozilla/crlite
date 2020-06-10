@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath" // used for glob-like matching in Keys
 	"sort"
@@ -190,4 +191,30 @@ func (ec *MockRemoteCache) BlockingPopCopy(key string, dest string,
 func (ec *MockRemoteCache) ListRemove(key string, value string) error {
 	_, err := ec.SetRemove(key, value)
 	return err
+}
+
+func (ec *MockRemoteCache) StoreLogState(log *CertificateLog) error {
+	encoded, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+
+	ec.Data[log.ShortURL] = []string{string(encoded)}
+	return nil
+}
+
+func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
+	data, ok := ec.Data[shortUrl]
+	if !ok {
+		return nil, fmt.Errorf("Log state not found")
+	}
+	if len(data) != 1 {
+		return nil, fmt.Errorf("Unexpected number of log states")
+	}
+
+	var log CertificateLog
+	if err := json.Unmarshal([]byte(data[0]), &log); err != nil {
+		return nil, err
+	}
+	return &log, nil
 }

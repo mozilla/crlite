@@ -110,6 +110,10 @@ func (db *FilesystemDatabase) ListIssuersForExpirationDate(expDate ExpDate) ([]I
 func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
+	err := db.extCache.StoreLogState(aLogObj)
+	if err != nil {
+		glog.Warningf("Couldn't store log state for %s: %s", aLogObj, err)
+	}
 	return db.backend.StoreLogState(ctx, aLogObj)
 }
 

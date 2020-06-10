@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -436,4 +437,44 @@ func TestRedisListRemove(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+}
+
+func expectNilLogState(t *testing.T, rc *RedisCache, url string) {
+	obj, err := rc.LoadLogState(url)
+	if obj != nil {
+		t.Errorf("Expected a nil state, obtained %+v for %s", obj, url)
+	}
+	if err == nil {
+		t.Error("Expected an error")
+	}
+}
+
+func TestRedisLogState(t *testing.T) {
+	t.Parallel()
+	rc := getRedisCache(t)
+	defer rc.client.Del("short_url/location")
+
+	log := &CertificateLog{
+		ShortURL:      "short_url/location",
+		MaxEntry:      123456789,
+		LastEntryTime: time.Time{},
+	}
+
+	expectNilLogState(t, rc, log.ShortURL)
+
+	err := rc.StoreLogState(log)
+	if err != nil {
+		t.Error(err)
+	}
+
+	obj, err := rc.LoadLogState(log.ShortURL)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(log, obj) {
+		t.Errorf("expected identical log objects: %+v %+v", log, obj)
+	}
+
+	expectNilLogState(t, rc, "")
+	expectNilLogState(t, rc, fmt.Sprintf("%s/a", log.ShortURL))
 }

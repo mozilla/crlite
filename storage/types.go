@@ -96,6 +96,8 @@ type RemoteCache interface {
 	ListRemove(key string, value string) error
 	TrySet(k string, v string, life time.Duration) (string, error)
 	KeysToChan(pattern string, c chan<- string) error
+	StoreLogState(aLogObj *CertificateLog) error
+	LoadLogState(aLogUrl string) (*CertificateLog, error)
 }
 
 type Issuer struct {
