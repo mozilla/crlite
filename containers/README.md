@@ -62,6 +62,3 @@ kubectl create -f crl-storage-claim.yaml
 
 ### Filter publication
 `kubectl create -f crlite-publish`
-
-### Re-populating a cache. Definitely don't run this repeatedly, it's expensive
-`kubectl create -f crlite-rebuild`
