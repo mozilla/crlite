@@ -215,62 +215,6 @@ func Test_ListExpiration(t *testing.T) {
 	expDatesAndStringsEqual(t, expectedDates, expDates)
 }
 
-func Test_LogState(t *testing.T) {
-	_, cache, storageDB := getTestHarness(t)
-
-	unknownUrl, err := url.Parse("gopher://go.pher")
-	if err != nil {
-		t.Fatalf("URL parse failure")
-	}
-	log, err := storageDB.GetLogState(unknownUrl)
-	if err != nil {
-		t.Errorf("Unknown logs should be OK")
-	}
-	if log == nil {
-		t.Fatalf("Log shouldn't be nil")
-	}
-
-	normalUrl, err := url.Parse("https://log.ct/2019")
-	if err != nil {
-		t.Fatalf("URL parse failure")
-	}
-	log, err = storageDB.GetLogState(normalUrl)
-	if err != nil {
-		t.Errorf("Should not error: %v", err)
-	}
-	if log.ShortURL != "log.ct/2019" {
-		t.Errorf("Unexpected ShortURL %s", log.ShortURL)
-	}
-	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
-		t.Errorf("Expected a blank log  %s", log.String())
-	}
-
-	log.MaxEntry = 9
-	err = storageDB.SaveLogState(log)
-	if err != nil {
-		t.Errorf("Shouldn't have errored saving %v", err)
-	}
-
-	cacheObj, err := cache.LoadLogState(log.ShortURL)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(cacheObj, log) {
-		t.Errorf("Expected the cache to have the exact same log state, %+v %+v", cacheObj, log)
-	}
-
-	updatedLog, err := storageDB.GetLogState(normalUrl)
-	if err != nil {
-		t.Errorf("Should not error: %v", err)
-	}
-	if updatedLog.ShortURL != "log.ct/2019" {
-		t.Errorf("Unexpected ShortURL %s", updatedLog.ShortURL)
-	}
-	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
-		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
-	}
-}
-
 func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 	_, _, storageDB := getTestHarness(t)
 
@@ -331,5 +275,103 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 	}
 	if len(l3[0].ExpDates) != 2 {
 		t.Errorf("Should have been two expDates %v", l3[0].ExpDates)
+	}
+}
+
+func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
+	unknownUrl, err := url.Parse("gopher://go.pher")
+	if err != nil {
+		t.Fatalf("URL parse failure")
+	}
+	log, err := storageDB.GetLogState(unknownUrl)
+	if err != nil {
+		t.Errorf("Unknown logs should be OK")
+	}
+	if log == nil {
+		t.Fatalf("Log shouldn't be nil")
+	}
+
+	normalUrl, err := url.Parse("https://log.ct/2019")
+	if err != nil {
+		t.Fatalf("URL parse failure")
+	}
+	log, err = storageDB.GetLogState(normalUrl)
+	if err != nil {
+		t.Errorf("Should not error: %v", err)
+	}
+	if log.ShortURL != "log.ct/2019" {
+		t.Errorf("Unexpected ShortURL %s", log.ShortURL)
+	}
+	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
+		t.Errorf("Expected a blank log  %s", log.String())
+	}
+
+	log.MaxEntry = 9
+	err = storageDB.SaveLogState(log)
+	if err != nil {
+		t.Errorf("Shouldn't have errored saving %v", err)
+	}
+
+	cacheObj, err := cache.LoadLogState(log.ShortURL)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(cacheObj, log) {
+		t.Errorf("Expected the cache to have the exact same log state, %+v %+v", cacheObj, log)
+	}
+
+	updatedLog, err := storageDB.GetLogState(normalUrl)
+	if err != nil {
+		t.Errorf("Should not error: %v", err)
+	}
+	if updatedLog.ShortURL != "log.ct/2019" {
+		t.Errorf("Unexpected ShortURL %s", updatedLog.ShortURL)
+	}
+	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
+		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
+	}
+}
+
+func Test_LogStateFirestoreBackend(t *testing.T) {
+	_, cache, storageDB := getTestHarness(t)
+	test_LogState(t, cache, storageDB)
+}
+
+func Test_LogStateNoopBackend(t *testing.T) {
+	noopBackend := NewNoopBackend()
+	mockCache := NewMockRemoteCache()
+	storageDB, err := NewFilesystemDatabase(noopBackend, mockCache)
+	if err != nil {
+		t.Error(err)
+	}
+	test_LogState(t, mockCache, storageDB)
+}
+
+func Test_NoopBackend(t *testing.T) {
+	noopBackend := NewNoopBackend()
+	mockCache := NewMockRemoteCache()
+	storageDB, err := NewFilesystemDatabase(noopBackend, mockCache)
+	if err != nil {
+		t.Error(err)
+	}
+
+	expDate, err := NewExpDate("2040-02-03")
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = storageDB.markDirty(&time.Time{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = storageDB.ListExpirationDates(time.Time{})
+	if err == nil {
+		t.Errorf("Should have emitted an error")
+	}
+
+	_, err = storageDB.ListIssuersForExpirationDate(expDate)
+	if err == nil {
+		t.Errorf("Should have emitted an error")
 	}
 }

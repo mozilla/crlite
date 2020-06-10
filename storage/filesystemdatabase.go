@@ -121,7 +121,21 @@ func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
 	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, aUrl.Path)
-	return db.backend.LoadLogState(ctx, shortUrl)
+
+	log, cacheErr := db.extCache.LoadLogState(shortUrl)
+	if log != nil {
+		return log, cacheErr
+	}
+
+	log, backendErr := db.backend.LoadLogState(ctx, shortUrl)
+	if log != nil {
+		return log, backendErr
+	}
+
+	glog.Warningf("Allocating brand new log for %+v, cache err=%v, backend err=%v", shortUrl, cacheErr, backendErr)
+	return &CertificateLog{
+		ShortURL: shortUrl,
+	}, nil
 }
 
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
