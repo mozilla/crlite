@@ -134,6 +134,7 @@ func (rj *RepairJob) enumerateIssuersForExpDate(ctx context.Context, expDatePath
 	issuerRef := rj.client.Collection(path)
 	if issuerRef == nil {
 		glog.Fatalf("Got a null issuerRef for %s", path)
+		return
 	}
 
 	err, count := rj.processCollectionRef(ctx, issuerRef, expDateIssuerChan)

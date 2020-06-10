@@ -43,7 +43,7 @@ func BackendTestStoreLoad(t *testing.T, db StorageBackend) {
 	storeAndLoad(t, NewSerialFromHex("01"), expDate, issuer, db, []byte{})
 	storeAndLoad(t, NewSerialFromHex("02"), expDate, issuer, db, []byte{0x01})
 	storeAndLoad(t, NewSerialFromHex("03"), expDate, issuer, db, []byte{0x00, 0x01, 0x02})
-	storeAndLoad(t, NewSerialFromHex("04"), expDate, issuer, db, make([]byte, 1*1024*1024))
+	storeAndLoad(t, NewSerialFromHex("04"), expDate, issuer, db, make([]byte, 1*1024*1024-128))
 
 	// Load unknown
 	_, err := db.LoadCertificatePEM(context.TODO(), NewSerialFromHex("FF"), expDate, issuer)
