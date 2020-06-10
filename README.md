@@ -122,6 +122,7 @@ If you need to proxy the connection, perhaps via SSH, set the `HTTPS_PROXY` to s
 
 [`test-via-docker.sh`](https://github.com/mozilla/crlite/tree/main/test-via-docker.sh) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables.
 
+Note that since all data is stored in Redis, a robust backup for the Redis information is warranted to avoid expensive resynchronization.
 
 ### Starting the Local Dependencies
 
