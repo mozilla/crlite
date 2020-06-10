@@ -16,24 +16,23 @@ import (
 )
 
 type CTConfig struct {
-	LogUrlList           *string
-	CertPath             *string
-	GoogleProjectId      *string
-	RedisHost            *string
-	RedisTimeout         *string
-	Offset               *uint64
-	Limit                *uint64
-	NumThreads           *int
-	NumProcessingThreads *int
-	RunForever           *bool
-	IssuerCNFilter       *string
-	LogExpiredEntries    *bool
-	SavePeriod           *string
-	PollingDelayMean     *string
-	PollingDelayStdDev   *int
-	StatsRefreshPeriod   *string
-	OutputRefreshPeriod  *string
-	Config               *string
+	LogUrlList          *string
+	CertPath            *string
+	GoogleProjectId     *string
+	RedisHost           *string
+	RedisTimeout        *string
+	Offset              *uint64
+	Limit               *uint64
+	NumThreads          *int
+	RunForever          *bool
+	IssuerCNFilter      *string
+	LogExpiredEntries   *bool
+	SavePeriod          *string
+	PollingDelayMean    *string
+	PollingDelayStdDev  *int
+	StatsRefreshPeriod  *string
+	OutputRefreshPeriod *string
+	Config              *string
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
@@ -122,23 +121,22 @@ func confString(p *string, section *ini.Section, key string, def string) {
 
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
-		Offset:               new(uint64),
-		Limit:                new(uint64),
-		LogUrlList:           new(string),
-		NumThreads:           new(int),
-		NumProcessingThreads: new(int),
-		LogExpiredEntries:    new(bool),
-		RunForever:           new(bool),
-		IssuerCNFilter:       new(string),
-		CertPath:             new(string),
-		GoogleProjectId:      new(string),
-		RedisHost:            new(string),
-		RedisTimeout:         new(string),
-		SavePeriod:           new(string),
-		OutputRefreshPeriod:  new(string),
-		StatsRefreshPeriod:   new(string),
-		PollingDelayMean:     new(string),
-		PollingDelayStdDev:   new(int),
+		Offset:              new(uint64),
+		Limit:               new(uint64),
+		LogUrlList:          new(string),
+		NumThreads:          new(int),
+		LogExpiredEntries:   new(bool),
+		RunForever:          new(bool),
+		IssuerCNFilter:      new(string),
+		CertPath:            new(string),
+		GoogleProjectId:     new(string),
+		RedisHost:           new(string),
+		RedisTimeout:        new(string),
+		SavePeriod:          new(string),
+		OutputRefreshPeriod: new(string),
+		StatsRefreshPeriod:  new(string),
+		PollingDelayMean:    new(string),
+		PollingDelayStdDev:  new(int),
 	}
 }
 
@@ -181,7 +179,6 @@ func (c *CTConfig) Init() {
 	confUint64(c.Limit, section, "limit", 0)
 	confString(c.LogUrlList, section, "logList", "")
 	confInt(c.NumThreads, section, "numThreads", 1)
-	confInt(c.NumProcessingThreads, section, "numProcessingThreads", 32)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
 	confInt(c.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
@@ -215,19 +212,18 @@ func (c *CTConfig) Usage() {
 	fmt.Println("")
 	fmt.Println("Choose at most one backing store:")
 	fmt.Println("certPath = Path under which to store full DER-encoded certificates")
-	fmt.Println("googleProjectId = Google Cloud Platform Project ID")
 	fmt.Println("")
 	fmt.Println("The external data cache is mandatory:")
 	fmt.Println("redisHost = address:port of the Redis instance")
 	fmt.Println("")
 	fmt.Println("Options:")
+	fmt.Println("googleProjectId = Google Cloud Platform Project ID, used for stackdriver logging")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
 	fmt.Println("pollingDelayMean = Wait a mean of this long between polls")
 	fmt.Println("pollingDelayStdDev = Use this standard deviation between polls")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for normal operations")
-	fmt.Println("numProcessingThreads = Use this many threads for bulk processing (reprocess-known-certs)")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 	fmt.Println("outputRefreshPeriod = Period between output publications")

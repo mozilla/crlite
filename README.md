@@ -32,11 +32,8 @@ logList = https://ct.googleapis.com/icarus
 # Choose if this should complete when it catches up to the CT logs, or be a daemon
 runForever = false
 
-# A path with plenty of disk space
-certPath = /ct
-# Or use Google Cloud's Firestore
-googleProjectId = ctdata
-# But not both.
+# Optionally, a path with plenty of disk space if you want to save PEM files
+# certPath = /ct
 
 # Redis cache server
 redisHost = 10.10.10.5:6379
@@ -78,8 +75,7 @@ processing `Y` certificates.
 my_ip=$(ipconfig getifaddr en0) # macOS
 docker run redis:4
 # for some reason `docker run -p 6379:7000 redis:4 --port 7000` is needed for me
-gcloud beta emulators firestore start --host-port="${my_ip}:8403"
 
-FIRESTORE_EMULATOR_HOST=${my_ip}:8403 RedisHost=${my_ip}:6379 go test -v ./...
+RedisHost=${my_ip}:6379 go test -v ./...
 ```
 
