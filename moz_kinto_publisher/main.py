@@ -418,7 +418,7 @@ class Intermediate:
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             fileContents=self.pemData,
             fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}.pem",
-            mimeType="application/x-pem-file",
+            mimeType="text/plain",
             recordId=kinto_id or self.kinto_id,
         )
 
