@@ -418,7 +418,7 @@ class Intermediate:
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             fileContents=self.pemData,
             fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}.pem",
-            mimeType="application/x-pem-file",
+            mimeType="text/plain",
             recordId=kinto_id or self.kinto_id,
         )
 
@@ -1185,15 +1185,20 @@ def publish_crlite(*, args, ro_client, rw_client):
 
     else:
         previous_id = existing_records[-1]["id"]
+        rolling_stash_size = existing_stash_size
+
         for run_id in result["upload"]:
             run_id_path = args.download_path / Path(run_id)
             stash_path = run_id_path / Path("stash")
             assert stash_path.is_file(), "stash must have been downloaded"
 
+            stash_size = stash_path.stat().st_size
+
             log.info(
-                f"Adding this stash will increase {existing_stash_size} to {total_size}, "
-                + f"uploading {stash_path}"
+                f"Adding this stash will increase {rolling_stash_size} to "
+                + f"{rolling_stash_size + stash_size}, uploading {stash_path}"
             )
+            rolling_stash_size += stash_size
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
