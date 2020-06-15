@@ -4,7 +4,10 @@ workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 
 source ${workflow}/0-set_credentials.inc
 
-ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
+ID=$(${workflow}/0-allocate_identifier \
+    --path ${crlite_processing:-/ct/processing/} \
+    --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging})
+
 echo "Allocated ${ID}"
 
 ulimit -a
