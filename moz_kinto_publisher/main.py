@@ -700,6 +700,9 @@ def publish_intermediates(*, args, ro_client, rw_client):
         log.info(f"Noop flag set, exiting before any intermediate updates")
         return
 
+    # Don't accidentally use the ro_client beyond this point
+    ro_client = None
+
     if len(remote_error_records) > 0:
         log.info(f"Cleaning {len(remote_error_records)} broken records")
         for record in remote_error_records:
@@ -712,8 +715,8 @@ def publish_intermediates(*, args, ro_client, rw_client):
 
     for unique_id in to_delete:
         intermediate = remote_intermediates[unique_id]
+        log.info(f"Deleting {intermediate} from Kinto (delete={args.delete})")
         if args.delete:
-            log.info(f"Deleting {intermediate} from Kinto")
             try:
                 intermediate.delete_from_kinto(rw_client=rw_client)
             except KintoException as ke:
@@ -744,7 +747,8 @@ def publish_intermediates(*, args, ro_client, rw_client):
     log.info("Verifying correctness...")
     verified_intermediates = {}
     verification_error_records = []
-    for record in ro_client.get_records(
+
+    for record in rw_client.get_records(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
     ):
         try:
@@ -1119,6 +1123,9 @@ def publish_crlite(*, args, ro_client, rw_client):
     if not result["upload"]:
         log.info("Nothing to do.")
         return
+
+    # Don't accidentally use the ro_client beyond this point
+    ro_client = None
 
     if "clear_all" in result:
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
