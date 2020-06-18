@@ -5,13 +5,12 @@ WORKDIR /build
 RUN mkdir bin gopath
 ENV GOPATH /build/gopath
 
-ARG ct_mapreduce_ver=v1.0.4
+ARG ct_mapreduce_ver=v1.0.5
 
 # Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@$ct_mapreduce_ver
-RUN go get github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs@$ct_mapreduce_ver
 RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics@$ct_mapreduce_ver
 
 FROM python:3.7-stretch
@@ -50,7 +49,6 @@ ENTRYPOINT ["/tini", "-g", "--"]
 USER appuser
 WORKDIR /app
 
-ENV firestoreProjectId crlite-beta
 ENV numThreads 16
 ENV cacheSize 64
 ENV outputRefreshMs 60000

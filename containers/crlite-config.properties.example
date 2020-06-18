@@ -1,8 +1,5 @@
 # Be sure not to use quotes for strings in this file
 
-# Probably the overall Google Cloud project ID
-googleProjectId=crlite
-
 # Generate with the script setup/list_all_active_ct_logs
 logList=https://ct.googleapis.com/logs/argon2019/, https://ct.googleapis.com/logs/argon2020/, https://ct.googleapis.com/logs/argon2021/, https://ct.googleapis.com/logs/argon2022/, https://ct.googleapis.com/logs/argon2023/
 
@@ -22,8 +19,9 @@ savePeriod=5m
 pollingDelayMean=60m
 pollingDelayStdDev=10
 
-# Set true if you want to report to Stackdriver
+# Set true if you want to report to Stackdriver and provide the relevant project ID
 #stackdriverMetrics=true
+#googleProjectId=projectname
 
 # Publisher
 KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/

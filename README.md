@@ -2,7 +2,7 @@ This collection of tools is designed to assemble a cascading
 bloom filter containing all TLS certificate revocations, as described
 in the [CRLite paper](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
 
-These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper, however it is a separate implementation, and should still be considered a work in progress, particularly the details of filter generation in [`create_filter_cascade`](https://github.com/mozilla/crlite/tree/master/create_filter_cascade).
+These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper, however it is a separate implementation, and should still be considered a work in progress, particularly the details of filter generation in [`create_filter_cascade`](https://github.com/mozilla/crlite/tree/main/create_filter_cascade).
 
 For details about CRLite, [Mozilla Security Engineering has a blog post series](https://blog.mozilla.org/security/tag/crlite/), and [this repository has a FAQ](https://github.com/mozilla/crlite/wiki#faq).
 
@@ -10,6 +10,7 @@ For details about CRLite, [Mozilla Security Engineering has a blog post series](
 ## Dependencies
 1. `ct-fetch` from [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
 1. Python 3
+1. Redis 4
 1. Kubernetes / Docker
 1. Patience
 
@@ -18,22 +19,21 @@ For details about CRLite, [Mozilla Security Engineering has a blog post series](
 
 At this point, CRLite is intended to be run in a series of Docker containers, run as differing kinds of jobs:
 
-1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/master/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
-1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/master/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
-1. [`containers/crlite-rebuild`](https://github.com/mozilla/crlite/tree/master/containers/crlite-rebuild), an as-needed job that reads out all data in Google Firestore and writes the necessary metadata into Redis, for the generate task. This is intended for use when Redis has to be reinitialized (e.g., after a resize).
+1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/main/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
+1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
+1. [`containers/crlite-publish`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
 
 Each of these jobs has a `pod.yaml` intended for use in Kubernetes.
 
-There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/master/containers) to build Docker images both using Google Cloud's builder and locally with Docker, see `build-gcp.sh` and `build-local.sh`. They make assumptions about the `PROJECT_ID` which will need to change, but PRs are welcome.
+There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main/containers) to build Docker images both using Google Cloud's builder and locally with Docker, see `build-gcp.sh` and `build-local.sh`. They make assumptions about the `PROJECT_ID` which will need to change, but PRs are welcome.
 
 
 ### Storage
-Storage consists of four parts:
+Storage consists of these parts:
 
-1. Google Firestore, for bulk certificate PEM data, bucketed by expiration date for easy deletion
 1. Redis, e.g. Google Cloud Memorystore, for certificate metadata (CRL DPs, serial numbers, expirations, issuers), used in filter generation.
 1. Google Cloud Storage, for storage of the artifacts when a job is completed.
-1. A local persistent disk, for persistent storage of downloaded CRLs. This is defined in [`containers/crl-storage-claim.yaml`](https://github.com/mozilla/crlite/blob/master/containers/crl-storage-claim.yaml).
+1. A local persistent disk, for persistent storage of downloaded CRLs. This is defined in [`containers/crl-storage-claim.yaml`](https://github.com/mozilla/crlite/blob/main/containers/crl-storage-claim.yaml).
 
 
 ### Information Flow
@@ -42,7 +42,7 @@ This tooling monitors Certificate Transparency logs and, upon secheduled executi
 
 ![Information flow](docs/figure1-information_flow.png)
 
-The process for producing a CRLite filter, is run by [`system/crlite-fullrun`](https://github.com/mozilla/crlite/blob/master/system/crlite-fullrun), which is described in block form in this diagram:
+The process for producing a CRLite filter, is run by [`system/crlite-fullrun`](https://github.com/mozilla/crlite/blob/main/system/crlite-fullrun), which is described in block form in this diagram:
 
 ![Process for building a CRLite Bloom filter](docs/figure2-filter_process.png)
 
@@ -64,7 +64,6 @@ It's possible to run the tools locally, though you will need local instances of 
 
 ```sh
 go install -u github.com/jcjones/ct-mapreduce/cmd/ct-fetch
-go install -u github.com/jcjones/ct-mapreduce/cmd/reprocess-known-certs
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-crls
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-known
 
@@ -111,31 +110,21 @@ If not running forever, you can give limits or slice up CT log data:
 * `limit` [uint]
 * `offset` [uint]
 
-Then choose either local storage or Firestore cloud storage by setting either
-* `firestoreProjectId` [project ID string]
-* `certPath` [path string]
-
-If you set `firestoreProjectId`, then choose a firestore instance type:
+You'll also need to configure credentials used for Google Cloud Storage:
 * `GOOGLE_APPLICATION_CREDENTIALS` [base64-encoded string of the service credentials JSON]
-* `FIRESTORE_EMULATOR_HOST` [host]:[port]
 
 If you need to proxy the connection, perhaps via SSH, set the `HTTPS_PROXY` to something like `socks5://localhost:32547/"` as well.
 
 
 ### General Operation
 
-[`system/crlite-fullrun`](https://github.com/mozilla/crlite/tree/master/system/crlite-fullrun) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables. Generally, this is run from a Docker container.
+[`containers/build-local.sh`](https://github.com/mozilla/crlite/tree/main/containers/build-local.sh) produces the Docker containers locally.
 
-That script ultimately runs the scripts in [`workflow/`](https://github.com/mozilla/crlite/tree/master/workflow), in order. They can be run independently for fine control.
+[`test-via-docker.sh`](https://github.com/mozilla/crlite/tree/main/test-via-docker.sh) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables.
 
+Note that since all data is stored in Redis, a robust backup for the Redis information is warranted to avoid expensive resynchronization.
 
 ### Starting the Local Dependencies
-
-To run with Firestore locally, you'll need the `gcloud` Google Cloud utility's Firestore emulator. For docker, be sure to bind to an accessible address, not just localhost. Port 8403 is just a suggestion:
-
-```sh
-gcloud beta emulators firestore start --host-port="my_ip_address:8403"
-```
 
 Redis can be provided in a variety of ways, easiest is probably the Redis docker distribution. For whatever reason, I have the
 best luck remapping ports to make it run on 6379:
@@ -146,7 +135,7 @@ docker run -p 6379:7000 redis:4 --port 7000
 
 ## Running from a Docker Container
 
-To construct a container, see [`containers/README.md`](https://github.com/mozilla/crlite/tree/master/containers/README.md).
+To construct a container, see [`containers/README.md`](https://github.com/mozilla/crlite/tree/main/containers/README.md).
 
 The crlite-fetch container runs forever, fetching CT updates:
 
@@ -168,19 +157,15 @@ docker run --rm -it \
   crlite:0.1-generate
 ```
 
-See the [`test-via-docker.sh`](https://github.com/mozilla/crlite/blob/master/test-via-docker.sh) for an example.
+See the [`test-via-docker.sh`](https://github.com/mozilla/crlite/blob/main/test-via-docker.sh) for an example.
 
-To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work. See [`containers/crlite-config.properties.example`](https://github.com/mozilla/crlite/blob/master/containers/crlite-config.properties.example) for an example of the Kubernetes environment that can be imported using `kubectl create configmap`, see the `containers` README.md for details.
+To run in a remote container, such as a Kubernetes pod, you'll need to make sure to set all the environment variables properly, and the container should otherwise work. See [`containers/crlite-config.properties.example`](https://github.com/mozilla/crlite/blob/main/containers/crlite-config.properties.example) for an example of the Kubernetes environment that can be imported using `kubectl create configmap`, see the `containers` README.md for details.
 
 
 ## Tools
 
 *`ct-fetch`*
 Downloads all CT entries' certificates to a Firestore instance and collects their metadata.
-
-*`reprocess-known-certs`*
-Reprocesses all `.pem` files to update the `.pem.meta` and `.pem.known` files. Needed if there's
-suspected corruption from crashes of `ct-fetch`.
 
 *`aggregate-crls`*
 Obtains all CRLs defined in all CT entries' certificates, verifies them, and collates their results
@@ -189,10 +174,6 @@ into `*issuer SKI base64*.revoked` files.
 *`aggregate-known`*
 Collates all CT entries' unexpired certificates into `*issuer SKI base64*.known` files.
 
-
-## Planning
-
-If the certificate cohort is 500M, and Firestore costs $0.60 / 1M reads, then `reprocess-known-certs` is $300 to run.
 
 
 ## Credits

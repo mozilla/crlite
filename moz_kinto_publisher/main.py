@@ -701,24 +701,27 @@ def publish_intermediates(*, args, ro_client, rw_client):
         return
 
     if len(remote_error_records) > 0:
-        log.info("Cleaning {} broken records".format(len(remote_error_records)))
+        log.info(f"Cleaning {len(remote_error_records)} broken records")
         for record in remote_error_records:
             try:
                 rw_client.delete_record(
                     collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=record["id"],
                 )
             except KintoException as ke:
-                log.warning("Couldn't delete record id {}: {}".format(record["id"], ke))
+                log.warning(f"Couldn't delete record id {record['id']}: {ke}")
 
     for unique_id in to_delete:
         intermediate = remote_intermediates[unique_id]
         if args.delete:
-            log.info("Deleting {} from Kinto".format(intermediate))
-            intermediate.delete_from_kinto(rw_client=rw_client)
+            log.info(f"Deleting {intermediate} from Kinto")
+            try:
+                intermediate.delete_from_kinto(rw_client=rw_client)
+            except KintoException as ke:
+                log.warning(f"Couldn't delete record id {intermediate}: {ke}")
 
     for unique_id in to_upload:
         intermediate = local_intermediates[unique_id]
-        log.debug("Uploading {} to Kinto".format(intermediate))
+        log.debug(f"Uploading {intermediate} to Kinto")
         intermediate.add_to_kinto(rw_client=rw_client)
 
     update_error_records = []
