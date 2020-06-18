@@ -23,6 +23,12 @@ steps:
           '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}' ]
   wait_for: ['crlite']
 
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-signoff', '.',
+          '-f', './containers/crlite-signoff/Dockerfile',
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}' ]
+  wait_for: ['crlite']
+
 substitutions:
     _CRLITE_TAG: "staging"
     _CT_MAPREDUCE_VERSION: "v1.0.8"
@@ -32,3 +38,4 @@ images:
 - 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-fetch'
 - 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-generate'
 - 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-publish'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-signoff'

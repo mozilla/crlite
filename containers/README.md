@@ -62,3 +62,4 @@ kubectl create -f crl-storage-claim.yaml
 
 ### Filter publication
 `kubectl create -f crlite-publish`
+`kubectl create -f crlite-signoff`

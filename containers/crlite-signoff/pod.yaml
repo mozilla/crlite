@@ -1,0 +1,35 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  creationTimestamp: null
+  name: crlite-signoff
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+      name: crlite-signoff
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+        spec:
+          containers:
+          - name: crlite-signoff
+            envFrom:
+            - configMapRef:
+                name: crlite-config
+            image: gcr.io/crlite-beta/crlite:0.1-signoff
+            imagePullPolicy: Always
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: FallbackToLogsOnError
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 3
+  suspend: false
+status: {}
