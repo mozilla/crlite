@@ -19,6 +19,9 @@ parser.add_argument(
 parser.add_argument(
     "--extra_folders", help="More folders to upload as '/path/:remote_name'", nargs="*"
 )
+parser.add_argument(
+    "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
+)
 
 log = logging.getLogger("upload_artifacts_to_storage")
 
@@ -59,8 +62,7 @@ def main():
         sys.exit(0)
 
     storage_client = storage.Client()
-    bucket_name = "crlite_filters"
-    bucket = storage_client.get_bucket(bucket_name)
+    bucket = storage_client.get_bucket(args.filter_bucket)
 
     idPath = args.results_path[0].resolve()
 
