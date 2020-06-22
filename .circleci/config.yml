@@ -78,6 +78,7 @@ jobs:
       - gcp-cloud-run/init
       - gcp-cloud-run/build:
           config: containers/cloudbuild.yaml
+          args: --substitutions _CRLITE_TAG=${CIRCLE_BRANCH}
 
 workflows:
   version: 2

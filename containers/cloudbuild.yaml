@@ -1,34 +1,34 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}', '.',
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}', '.',
           '-f', './containers/Dockerfile',
           '--build-arg', 'ct_mapreduce_ver=${_CT_MAPREDUCE_VERSION}' ]
   id: 'crlite'
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-fetch', '.',
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-fetch', '.',
           '-f', './containers/crlite-fetch/Dockerfile',
-          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}' ]
   wait_for: ['crlite']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-generate', '.',
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-generate', '.',
           '-f', './containers/crlite-generate/Dockerfile',
-          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}' ]
   wait_for: ['crlite']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-publish', '.',
+  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-publish', '.',
           '-f', './containers/crlite-publish/Dockerfile',
-          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}' ]
+          '--build-arg', 'crlite_image=gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}' ]
   wait_for: ['crlite']
 
 substitutions:
-    _CRLITE_VERSION: "0.1"
+    _CRLITE_TAG: "testing"
     _CT_MAPREDUCE_VERSION: "v1.0.6"
 
 images:
-- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}'
-- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-fetch'
-- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-generate'
-- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_VERSION}-publish'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-fetch'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-generate'
+- 'gcr.io/$PROJECT_ID/crlite:${_CRLITE_TAG}-publish'
