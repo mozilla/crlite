@@ -14,6 +14,9 @@ import __init__ as workflow
 parser = argparse.ArgumentParser()
 parser.add_argument("identifier", help="Current working identifier", nargs=1)
 parser.add_argument("--nodiff", help="Avoid building a diff")
+parser.add_argument(
+    "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
+)
 
 
 def main():
@@ -39,20 +42,18 @@ def main():
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
-            bucket_name = "crlite_filters"
-
-            latest = workflow.get_run_identifiers(bucket_name).pop()
+            latest = workflow.get_run_identifiers(args.filter_bucket).pop()
 
             dest = Path(tempfile.mkdtemp()) / Path(latest)
             dest.mkdir()
 
             workflow.download_from_google_cloud(
-                bucket_name,
+                args.filter_bucket,
                 f"{latest}/mlbf/list-revoked.keys",
                 dest / Path("list-revoked.keys"),
             )
             workflow.download_from_google_cloud(
-                bucket_name,
+                args.filter_bucket,
                 f"{latest}/mlbf/list-valid.keys",
                 dest / Path("list-valid.keys"),
             )

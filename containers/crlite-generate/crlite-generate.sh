@@ -4,7 +4,10 @@ workflow=${crlite_workflow:-~/go/src/github.com/mozilla/crlite/workflow}
 
 source ${workflow}/0-set_credentials.inc
 
-ID=$(${workflow}/0-allocate_identifier --path ${crlite_processing:-/ct/processing/})
+ID=$(${workflow}/0-allocate_identifier \
+              --path ${crlite_processing:-/ct/processing/} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging})
+
 echo "Allocated ${ID}"
 
 ulimit -a
@@ -15,7 +18,7 @@ fi
 
 if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
   curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport \
-        --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
+              --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
 fi
 
 ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
@@ -37,10 +40,13 @@ ls -latS ${ID}/revoked | head
 echo "crlite-fullrun: disk usage"
 du -hc ${ID}
 
-${workflow}/1-generate_mlbf ${ID}
+${workflow}/1-generate_mlbf ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
-  ${workflow}/2-upload_artifacts_to_storage ${ID} --extra_folders ${crlite_persistent:-/ct}/crls:crls
+  ${workflow}/2-upload_artifacts_to_storage ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
+              --extra_folders ${crlite_persistent:-/ct}/crls:crls
 fi
 
 echo "crlite_processing"
