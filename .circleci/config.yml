@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   python: circleci/python@0.2.1
+  gcp-cloud-run: circleci/gcp-cloud-run@1.0.2
 
 jobs:
   python-build-and-test:
@@ -69,8 +70,25 @@ jobs:
           command: go test -race -short ./...
           working_directory: /go/src/github.com/mozilla.com/crlite/go
 
+  build_gke:
+    docker:
+      - image: 'cimg/base:stable'
+    steps:
+      - checkout
+      - gcp-cloud-run/init
+      - gcp-cloud-run/build:
+          config: containers/cloudbuild.yaml
+
 workflows:
+  version: 2
   main:
     jobs:
       - python-build-and-test
       - golang-build-and-test
+      - build_gke:
+          filters:
+            branches:
+              only: /.*staging.*/
+          requires:
+            - python-build-and-test
+            - golang-build-and-test
