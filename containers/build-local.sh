@@ -1,6 +1,6 @@
 #!/bin/bash -xe
 
-VER=0.1
+VER=staging
 CT_MAPREDUCE_VER=v1.0.6
 
 docker build -t crlite:${VER} .. -f Dockerfile --build-arg ct_mapreduce_ver=${CT_MAPREDUCE_VER}
