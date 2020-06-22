@@ -15,9 +15,10 @@ numThreads=16
 runForever=true
 outputRefreshPeriod=90s
 statsRefreshPeriod=5m
-savePeriod=5m
+savePeriod=30s
 pollingDelayMean=60m
 pollingDelayStdDev=10
+healthAddr=:8080
 
 # Set true if you want to report to Stackdriver and provide the relevant project ID
 #stackdriverMetrics=true

@@ -31,6 +31,12 @@ spec:
         - configMapRef:
             name: crlite-config
         imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 60
         resources:
           requests:
             cpu: 1
