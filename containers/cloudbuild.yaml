@@ -24,7 +24,7 @@ steps:
   wait_for: ['crlite']
 
 substitutions:
-    _CRLITE_TAG: "testing"
+    _CRLITE_TAG: "staging"
     _CT_MAPREDUCE_VERSION: "v1.0.6"
 
 images:
