@@ -114,13 +114,13 @@ workflows:
       - build_gke:
           filters:
             branches:
-              only: /.*staging.*/
+              only: staging
           requires:
             - python-build-and-test
             - golang-build-and-test
       - deploy_gke:
           filters:
             branches:
-              only: /.*staging.*/
+              only: staging
           requires:
             - build_gke
