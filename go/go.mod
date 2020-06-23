@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
-	github.com/jcjones/ct-mapreduce v1.0.7
+	github.com/jcjones/ct-mapreduce v1.0.8
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
 	github.com/vbauerster/mpb/v5 v5.0.3
