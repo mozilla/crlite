@@ -104,6 +104,10 @@ jobs:
           container-image-updates: crlite-publish=gcr.io/crlite-beta/crlite:${CIRCLE_SHA1}-publish
           resource-name: cronjob/crlite-publish
           show-kubectl-command: true
+      - kubernetes/update-container-image:
+          container-image-updates: crlite-signoff=gcr.io/crlite-beta/crlite:${CIRCLE_SHA1}-signoff
+          resource-name: cronjob/crlite-signoff
+          show-kubectl-command: true
 
 workflows:
   version: 2
