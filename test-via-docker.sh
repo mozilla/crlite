@@ -25,7 +25,7 @@ fi
 
 echo "Ensure Redis is running at ${my_ip}:6379"
 
-docker run --rm -it \
+docker run --rm -it -p 8080:8080/tcp \
   -e "redisHost=${my_ip}:6379" \
   -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
   -e "DoNotUpload=true" \
