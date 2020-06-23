@@ -20,6 +20,9 @@ spec:
             envFrom:
             - configMapRef:
                 name: crlite-config
+            - configMapRef:
+                name: crlite-signoff-config
+
             image: gcr.io/crlite-beta/crlite:0.1-signoff
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log

@@ -20,6 +20,8 @@ spec:
             envFrom:
             - configMapRef:
                 name: crlite-config
+            - configMapRef:
+                name: crlite-publish-config
             image: gcr.io/crlite-beta/crlite:staging-publish
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log

@@ -39,12 +39,18 @@ gcloud builds submit --config containers/cloudbuild.yaml ..
 # Deploying
 
 ## Set up configuration
-customize `crlite-config.properties.example` to `crlite-config.properties`
+customize `crlite-config.properties.example` to `crlite-config.properties` and the same for `-publish` and `-signoff`
 
 ```
 kubectl delete configmap crlite-config && \
       kubectl create configmap crlite-config \
       --from-env-file=crlite-config.properties
+kubectl delete configmap crlite-publish-config && \
+      kubectl create configmap crlite-publish-config \
+      --from-env-file=crlite-publish-config.properties
+kubectl delete configmap crlite-signoff-config && \
+      kubectl create configmap crlite-signoff-config \
+      --from-env-file=crlite-signoff-config.properties
 ```
 
 ## Create CRL storage
