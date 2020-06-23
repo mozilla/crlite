@@ -13,7 +13,6 @@ import (
 
 const EMPTY_QUEUE string = "redis: nil"
 const NO_EXPIRATION time.Duration = 0
-const LOG_PREFIX string = "log::"
 
 type RedisCache struct {
 	client *redis.Client
@@ -179,7 +178,7 @@ func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, er
 }
 
 func shortUrlToLogKey(shortUrl string) string {
-	return LOG_PREFIX + shortUrl
+	return fmt.Sprintf("log::%s", shortUrl)
 }
 
 func (ec *RedisCache) StoreLogState(log *CertificateLog) error {
@@ -202,26 +201,4 @@ func (ec *RedisCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
 		return nil, err
 	}
 	return &log, nil
-}
-
-func (ec *RedisCache) GetAllLogStates() ([]*CertificateLog, error) {
-	logList := []*CertificateLog{}
-	scanres := ec.client.Scan(0, shortUrlToLogKey("*"), 0)
-	err := scanres.Err()
-	if err != nil {
-		return logList, err
-	}
-
-	iter := scanres.Iterator()
-
-	for iter.Next() {
-		keyName := iter.Val()
-		obj, err := ec.LoadLogState(strings.TrimPrefix(keyName, LOG_PREFIX))
-		if err != nil {
-			return logList, err
-		}
-		logList = append(logList, obj)
-	}
-
-	return logList, iter.Err()
 }

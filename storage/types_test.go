@@ -171,13 +171,12 @@ func TestSerialID(t *testing.T) {
 
 func TestLog(t *testing.T) {
 	log := CertificateLog{
-		ShortURL:       "log.example.com/2525",
-		MaxEntry:       math.MaxInt64,
-		LastEntryTime:  time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC),
-		LastUpdateTime: time.Date(3000, time.December, 31, 23, 55, 59, 0, time.UTC),
+		ShortURL:      "log.example.com/2525",
+		MaxEntry:      math.MaxInt64,
+		LastEntryTime: time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC),
 	}
 
-	expectedString := "[log.example.com/2525] MaxEntry=9223372036854775807, LastEntryTime=2525-05-20 19:21:54.000000039 +0000 UTC LastUpdateTime=3000-12-31 23:55:59 +0000 UTC"
+	expectedString := "[log.example.com/2525] MaxEntry=9223372036854775807, LastEntryTime=2525-05-20 19:21:54.000000039 +0000 UTC"
 	if log.String() != expectedString {
 		t.Errorf("Expecting %s but got %s", expectedString, log.String())
 	}

@@ -138,15 +138,6 @@ func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error
 	}, nil
 }
 
-func (db *FilesystemDatabase) GetAllLogStates() []*CertificateLog {
-	logs, cacheErr := db.extCache.GetAllLogStates()
-	if cacheErr != nil {
-		glog.Warningf("Unable to get all logs: %+v", cacheErr)
-		return []*CertificateLog{}
-	}
-	return logs
-}
-
 func (db *FilesystemDatabase) markDirty(aExpiration *time.Time) error {
 	subdirName := aExpiration.Format(kExpirationFormat)
 	return db.backend.MarkDirty(subdirName)
