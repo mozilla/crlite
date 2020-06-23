@@ -24,13 +24,9 @@ pollingDelayStdDev=10
 savePeriod=30s
 healthAddr=:8080
 
+# The Google Cloud Storage bucket for artifact storage
+crlite_filter_bucket=crlite_filters_staging
+
 # Set true if you want to report to Stackdriver and provide the relevant project ID
 #stackdriverMetrics=true
 #googleProjectId=projectname
-
-# Publisher
-KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/
-KINTO_RW_SERVER_URL=https://settings-writer.stage.mozaws.net/v1/
-KINTO_AUTH_USER=kinto_publisher_example_user
-KINTO_AUTH_PASSWORD=kinto_publisher_example_password
-#KINTO_NOOP=dont_publish_if_this_is_set_to_anything

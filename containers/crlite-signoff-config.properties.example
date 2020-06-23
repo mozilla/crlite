@@ -1,0 +1,19 @@
+# Be sure not to use quotes for strings in this file
+
+# Kinto information. RO and RW can be the same server, but don't have to be.
+KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/
+KINTO_RW_SERVER_URL=https://settings-writer.stage.mozaws.net/v1/
+KINTO_AUTH_USER=kinto_signer_example_user
+KINTO_AUTH_PASSWORD=kinto_signer_example_password
+
+# If the variable KINTO_NOOP is set to anything at all, then the signoff will
+# operate as a no-op and simply print what it's doing.
+# KINTO_NOOP=dont_publish_if_this_is_set_to_anything
+
+
+# Hosts to verify as being unrevoked in the filter in the `crlite_filter_bucket`
+# config. The pod will connect to each, obtain the certificate in-use, and
+# evaluate the CRLite filter to ensure it's not revoked.
+#
+# Syntax: space delimited list of hosts as host[:port]
+crlite_verify_hosts=settings.stage.mozaws.net firefox-settings-attachments-cdn.stage.mozaws.net aus5.mozilla.org

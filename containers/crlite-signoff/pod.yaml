@@ -2,27 +2,28 @@ apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
   creationTimestamp: null
-  name: crlite-publish
+  name: crlite-signoff
 spec:
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 1
   jobTemplate:
     metadata:
       creationTimestamp: null
-      name: crlite-publish
+      name: crlite-signoff
     spec:
       template:
         metadata:
           creationTimestamp: null
         spec:
           containers:
-          - name: crlite-publish
+          - name: crlite-signoff
             envFrom:
             - configMapRef:
                 name: crlite-config
             - configMapRef:
-                name: crlite-publish-config
-            image: gcr.io/crlite-beta/crlite:staging-publish
+                name: crlite-signoff-config
+
+            image: gcr.io/crlite-beta/crlite:0.1-signoff
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError
