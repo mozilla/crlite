@@ -23,13 +23,14 @@ const (
 )
 
 type CertificateLog struct {
-	ShortURL      string    `db:"url"`           // URL to the log
-	MaxEntry      int64     `db:"maxEntry"`      // The most recent entryID logged
-	LastEntryTime time.Time `db:"lastEntryTime"` // Date when we completed the last update
+	ShortURL       string    `db:"url"`            // URL to the log
+	MaxEntry       int64     `db:"maxEntry"`       // The most recent entryID logged
+	LastEntryTime  time.Time `db:"lastEntryTime"`  // Date of the most recently logged entry
+	LastUpdateTime time.Time `db:"lastUpdateTime"` // Date when we completed the last update
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("[%s] MaxEntry=%d, LastEntryTime=%s", o.ShortURL, o.MaxEntry, o.LastEntryTime)
+	return fmt.Sprintf("[%s] MaxEntry=%d, LastEntryTime=%s LastUpdateTime=%s", o.ShortURL, o.MaxEntry, o.LastEntryTime, o.LastUpdateTime)
 }
 
 func CertificateLogIDFromShortURL(shortURL string) string {

@@ -34,6 +34,7 @@ type CTConfig struct {
 	OutputRefreshPeriod *string
 	Config              *string
 	StackdriverMetrics  *bool
+	HealthAddr          *string
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
@@ -132,6 +133,7 @@ func NewCTConfig() *CTConfig {
 		CertPath:            new(string),
 		GoogleProjectId:     new(string),
 		StackdriverMetrics:  new(bool),
+		HealthAddr:          new(string),
 		RedisHost:           new(string),
 		RedisTimeout:        new(string),
 		SavePeriod:          new(string),
@@ -194,6 +196,7 @@ func (c *CTConfig) Init() {
 	confString(c.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 	confBool(c.StackdriverMetrics, section, "stackdriverMetrics", false)
+	confString(c.HealthAddr, section, "healthAddr", ":8080")
 
 	// Finally, CLI flags override
 	if flagOffset > 0 {
@@ -233,4 +236,5 @@ func (c *CTConfig) Usage() {
 	fmt.Println("statsRefreshPeriod = Period between stats being dumped to stderr")
 	fmt.Println("stackdriverMetrics = true if should log to StackDriver, requires googleProjectId")
 	fmt.Println("redisTimeout = Timeout for operations from Redis, e.g. 10s")
+	fmt.Println("healthAddr = Address to host the /health information http endpoint, e.g. localhost:8080")
 }
