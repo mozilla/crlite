@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
@@ -83,6 +84,8 @@ type LogSyncEngine struct {
 	entryChan           chan CtLogEntry
 	display             *mpb.Progress
 	cancelTrigger       context.CancelFunc
+	lastUpdateTime      time.Time
+	lastUpdateMutex     *sync.RWMutex
 }
 
 // Operates on a single log
@@ -120,6 +123,8 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		entryChan:           make(chan CtLogEntry, 1024*16),
 		display:             display,
 		cancelTrigger:       cancel,
+		lastUpdateTime:      time.Time{},
+		lastUpdateMutex:     &sync.RWMutex{},
 	}
 }
 
@@ -144,6 +149,12 @@ func (ld *LogSyncEngine) ApproximateRemainingEntries() int {
 	return len(ld.entryChan)
 }
 
+func (ld *LogSyncEngine) ApproximateMostRecentUpdateTimestamp() time.Time {
+	ld.lastUpdateMutex.RLock()
+	defer ld.lastUpdateMutex.RUnlock()
+	return ld.lastUpdateTime
+}
+
 func (ld *LogSyncEngine) Stop() {
 	close(ld.entryChan)
 	ld.cancelTrigger()
@@ -160,6 +171,14 @@ func (ld *LogSyncEngine) Cleanup() {
 func (ld *LogSyncEngine) insertCTWorker() {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
+
+	healthStatusPeriod, _ := time.ParseDuration("15s")
+	healthStatusJitter := rand.Int63n(15 * 1000)
+	healthStatusDuration := healthStatusPeriod + time.Duration(healthStatusJitter)*time.Millisecond
+	glog.Infof("Thread health status period: %v + %v = %v", healthStatusPeriod, healthStatusJitter, healthStatusDuration)
+	healthStatusTicker := time.NewTicker(healthStatusDuration)
+	defer healthStatusTicker.Stop()
+
 	for ep := range ld.entryChan {
 		var cert *x509.Certificate
 		var err error
@@ -203,6 +222,17 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
+
+		metrics.IncrCounter([]string{"insertCTWorker", "Inserted"}, 1)
+
+		select {
+		case <-healthStatusTicker.C:
+			ld.lastUpdateMutex.Lock()
+			ld.lastUpdateTime = time.Now()
+			ld.lastUpdateMutex.Unlock()
+		default:
+			// Nothing to do, selecting to make the above nonblocking
+		}
 	}
 }
 
@@ -340,6 +370,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 	if entryTime != nil {
 		lw.LogState.LastEntryTime = *entryTime
 	}
+	lw.LogState.LastUpdateTime = time.Now()
 
 	defer metrics.MeasureSince([]string{"LogWorker", "saveState"}, time.Now())
 	saveErr := lw.Database.SaveLogState(lw.LogState)
@@ -450,6 +481,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 func main() {
 	ctconfig.Init()
 	ctx := context.Background()
+	rand.Seed(time.Now().UnixNano())
 
 	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
@@ -523,6 +555,49 @@ func main() {
 			}()
 		}
 
+		healthHandler := http.NewServeMux()
+		healthHandler.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			approxUpdateTimestamp := syncEngine.ApproximateMostRecentUpdateTimestamp()
+
+			if approxUpdateTimestamp.IsZero() {
+				w.Header().Add("Retry-After", "30")
+				w.WriteHeader(503)
+				_, err := w.Write([]byte("error: no health updates yet, Retry-After 30 seconds"))
+				if err != nil {
+					glog.Warningf("Couldn't return too early health status: %+v", err)
+				}
+				return
+			}
+
+			duration := time.Since(approxUpdateTimestamp)
+			evaluationTime := 2 * pollingDelayMean
+			if duration > evaluationTime {
+				w.WriteHeader(500)
+				_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelayMean (%v)", duration, evaluationTime)))
+				if err != nil {
+					glog.Warningf("Couldn't return poor health status: %+v", err)
+				}
+				return
+			}
+
+			w.WriteHeader(200)
+			_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelayMean (%v)", duration, evaluationTime)))
+			if err != nil {
+				glog.Warningf("Couldn't return ok health status: %+v", err)
+			}
+		})
+
+		healthServer := &http.Server{
+			Handler: healthHandler,
+			Addr:    *ctconfig.HealthAddr,
+		}
+		go func() {
+			err := healthServer.ListenAndServe()
+			if err != nil {
+				glog.Infof("HTTP server result: %v", err)
+			}
+		}()
+
 		syncEngine.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
 		go func() {
 			for {
@@ -534,6 +609,10 @@ func main() {
 		syncEngine.Stop()                 // Stop workers
 		syncEngine.ThreadWaitGroup.Wait() // Wait for workers to stop
 		syncEngine.Cleanup()              // Ensure cache is coherent
+
+		if err := healthServer.Shutdown(ctx); err != nil {
+			glog.Infof("HTTP server shutdown error: %v", err)
+		}
 		glog.Flush()
 
 		os.Exit(0)
