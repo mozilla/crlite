@@ -417,7 +417,7 @@ class Intermediate:
         rw_client.attach_file(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             fileContents=self.pemData,
-            fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}",
+            fileName=f"{base64.urlsafe_b64encode(self.pubKeyHash).decode('utf-8')}.pem",
             mimeType="text/plain",
             recordId=kinto_id or self.kinto_id,
         )
