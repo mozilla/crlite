@@ -2,6 +2,9 @@ version: 2.1
 
 orbs:
   python: circleci/python@0.2.1
+  gcp-cloud-run: circleci/gcp-cloud-run@1.0.2
+  gcp-gke: circleci/gcp-gke@1.0.4
+  kubernetes: circleci/kubernetes@0.11.0
 
 jobs:
   python-build-and-test:
@@ -69,8 +72,55 @@ jobs:
           command: go test -race -short ./...
           working_directory: /go/src/github.com/mozilla.com/crlite/go
 
+  build_gke:
+    docker:
+      - image: 'cimg/base:stable'
+    steps:
+      - checkout
+      - gcp-cloud-run/init
+      - gcp-cloud-run/build:
+          config: containers/cloudbuild.yaml
+          args: --substitutions _CRLITE_TAG=${CIRCLE_SHA1}
+
+  deploy_gke:
+    docker:
+      - image: 'cimg/base:stable'
+    steps:
+      - gcp-gke/update-kubeconfig-with-credentials:
+          cluster: ${GKE_CLUSTER_ID}
+          install-kubectl: true
+          perform-login: true
+      - kubernetes/update-container-image:
+          container-image-updates: crlite-fetch=gcr.io/crlite-beta/crlite:${CIRCLE_SHA1}-fetch
+          resource-name: deployment/crlite-fetch
+          show-kubectl-command: true
+          get-rollout-status: true
+          watch-timeout: 5m
+      - kubernetes/update-container-image:
+          container-image-updates: crlite-generate=gcr.io/crlite-beta/crlite:${CIRCLE_SHA1}-generate
+          resource-name: cronjob/crlite-generate
+          show-kubectl-command: true
+      - kubernetes/update-container-image:
+          container-image-updates: crlite-publish=gcr.io/crlite-beta/crlite:${CIRCLE_SHA1}-publish
+          resource-name: cronjob/crlite-publish
+          show-kubectl-command: true
+
 workflows:
+  version: 2
   main:
     jobs:
       - python-build-and-test
       - golang-build-and-test
+      - build_gke:
+          filters:
+            branches:
+              only: staging
+          requires:
+            - python-build-and-test
+            - golang-build-and-test
+      - deploy_gke:
+          filters:
+            branches:
+              only: staging
+          requires:
+            - build_gke

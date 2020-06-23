@@ -4,7 +4,7 @@ See `./build-local.sh`
 
 Basic build:
 ```
-docker build -t crlite:0.1 .. -f Dockerfile
+docker build -t crlite:staging .. -f Dockerfile
 ```
 
 To run the tools, you'll need Redis 4+:
@@ -20,7 +20,7 @@ Then you can execute the docker container, setting any environment vars you want
 docker run --rm -it \
   -e "redisHost=10.0.0.115:6379" \
   -e "outputRefreshMs=1000" \
-  crlite:0.1
+  crlite-fetch:staging
 ```
 
 See the Running section for more environment variables.

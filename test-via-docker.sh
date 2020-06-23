@@ -33,7 +33,7 @@ docker run --rm -it \
   -e "logList=https://ct.googleapis.com/logs/argon2021/, https://ct.googleapis.com/logs/argon2022/, https://ct.googleapis.com/logs/argon2023/" \
   -e "limit=500" \
   -e "runForever=false" \
-  crlite:0.1-fetch
+  crlite:staging-fetch
 
 docker run --rm -it \
   -e "redisHost=${my_ip}:6379" \
@@ -42,11 +42,11 @@ docker run --rm -it \
   -e "outputRefreshMs=1000" \
   --mount type=bind,src=/tmp/crlite/persistent,dst=/persistent \
   --mount type=bind,src=/tmp/crlite/processing,dst=/processing \
-  crlite:0.1-generate
+  crlite:staging-generate
 
 docker run --rm -it \
   -e "redisHost=${my_ip}:6379" \
   -e "credentials_data=$(base64 ${GOOGLE_APPLICATION_CREDENTIALS})" \
   -e "DoNotUpload=true" \
   -e "outputRefreshMs=1000" \
-  crlite:0.1-publish
+  crlite:staging-publish

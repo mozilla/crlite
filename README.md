@@ -143,7 +143,7 @@ The crlite-fetch container runs forever, fetching CT updates:
 docker run --rm -it \
   -e "FIRESTORE_EMULATOR_HOST=my_ip_address:8403" \
   -e "outputRefreshMs=1000" \
-  crlite:0.1-fetch
+  crlite:staging-fetch
 ```
 
 The crlite-generate container constructs a new filter. To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
@@ -154,7 +154,7 @@ docker run --rm -it \
   -e "outputRefreshMs=1000" \
   --mount type=bind,src=/tmp/ctlite_data,dst=/ctdata \
   --mount type=bind,src=/tmp/crlite_results,dst=/processing \
-  crlite:0.1-generate
+  crlite:staging-generate
 ```
 
 See the [`test-via-docker.sh`](https://github.com/mozilla/crlite/blob/main/test-via-docker.sh) for an example.
