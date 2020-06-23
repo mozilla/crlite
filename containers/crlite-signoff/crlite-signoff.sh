@@ -14,6 +14,8 @@ python3 /app/crlite-signoff-tool.py \
   --moz-crlite-query /app/.local/bin/moz_crlite_query \
   --hosts ${crlite_verify_hosts:-revoked.badssl.com}
 
-# moz_kinto_publisher/main.py ${ARGS}
+moz_kinto_publisher/main.py --crlite --approve-sign ${ARGS}
+
+moz_kinto_publisher/main.py --intermediates --approve-sign ${ARGS}
 
 exit 0

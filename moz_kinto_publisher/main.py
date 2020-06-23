@@ -213,12 +213,19 @@ def main():
     )
 
     parser.add_argument("--filter-bucket", default="crlite_filters")
-    parser.add_argument(
+    parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
+
+    signer_group = parser.add_mutually_exclusive_group()
+    signer_group.add_argument(
         "--request-review",
         action="store_true",
         help="Mark the Kinto collection for signature when done",
     )
-    parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
+    signer_group.add_argument(
+        "--approve-sign",
+        action="store_true",
+        help="Approve the Kinto collection for signing",
+    )
 
     args = parser.parse_args()
 
@@ -258,20 +265,30 @@ def main():
     )
 
     try:
+        if args.approve_sign:
+            if args.crlite:
+                crlite_sign(args=args, rw_client=rw_client)
+            elif args.intermediates:
+                intermediates_sign(args=args, rw_client=rw_client)
+            else:
+                parser.print_help()
+            return
+
         if args.crlite:
             publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
-
             if not args.noop and args.request_review:
                 log.info("Set for review")
                 rw_client.request_review_of_collection(
                     collection=settings.KINTO_CRLITE_COLLECTION,
                 )
+            return
 
-        elif args.intermediates:
+        if args.intermediates:
             publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
+            return
 
-        else:
-            parser.print_help()
+        parser.print_help()
+
     except KintoException as ke:
         log.error("An exception occurred: {}".format(ke))
         raise ke
@@ -1218,6 +1235,22 @@ def publish_crlite(*, args, ro_client, rw_client):
                 timestamp=published_run_db.get_timestamp_for_run_id(run_id),
                 noop=args.noop,
             )
+
+
+def crlite_sign(*, args, rw_client):
+    log.info(f"Signing collection {settings.KINTO_CRLITE_COLLECTION}, noop={args.noop}")
+    if args.noop:
+        return
+    rw_client.sign_collection(collection=settings.KINTO_CRLITE_COLLECTION)
+
+
+def intermediates_sign(*, args, rw_client):
+    log.info(
+        f"Signing collection {settings.KINTO_INTERMEDIATES_COLLECTION}, noop={args.noop}"
+    )
+    if args.noop:
+        return
+    rw_client.sign_collection(collection=settings.KINTO_INTERMEDIATES_COLLECTION)
 
 
 if __name__ == "__main__":
