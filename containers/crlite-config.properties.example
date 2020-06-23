@@ -15,9 +15,13 @@ numThreads=16
 runForever=true
 outputRefreshPeriod=90s
 statsRefreshPeriod=5m
-savePeriod=30s
 pollingDelayMean=60m
 pollingDelayStdDev=10
+
+# The save period needs to be coordinated with the ct-fetch pod liveness probe,
+# as liveness health information won't be available until the first save.
+# The actual save period is this + a few seconds of jitter calculated in ct-fetch
+savePeriod=30s
 healthAddr=:8080
 
 # Set true if you want to report to Stackdriver and provide the relevant project ID
