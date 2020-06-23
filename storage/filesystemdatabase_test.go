@@ -330,6 +330,11 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
 	}
+
+	logList := storageDB.GetAllLogStates()
+	if len(logList) != 1 {
+		t.Errorf("Expected one entry in the log list: %+v", logList)
+	}
 }
 
 func Test_LogStateFirestoreBackend(t *testing.T) {

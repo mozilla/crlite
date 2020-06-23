@@ -13,6 +13,7 @@ import (
 
 type MockRemoteCache struct {
 	Data        map[string][]string
+	LogData     map[string][]string
 	Expirations map[string]time.Time
 	Duplicate   int
 }
@@ -20,6 +21,7 @@ type MockRemoteCache struct {
 func NewMockRemoteCache() *MockRemoteCache {
 	return &MockRemoteCache{
 		Data:        make(map[string][]string),
+		LogData:     make(map[string][]string),
 		Expirations: make(map[string]time.Time),
 		Duplicate:   0,
 	}
@@ -199,12 +201,12 @@ func (ec *MockRemoteCache) StoreLogState(log *CertificateLog) error {
 		return err
 	}
 
-	ec.Data[log.ShortURL] = []string{string(encoded)}
+	ec.LogData[log.ShortURL] = []string{string(encoded)}
 	return nil
 }
 
 func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
-	data, ok := ec.Data[shortUrl]
+	data, ok := ec.LogData[shortUrl]
 	if !ok {
 		return nil, fmt.Errorf("Log state not found")
 	}
@@ -217,4 +219,16 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error
 		return nil, err
 	}
 	return &log, nil
+}
+
+func (ec *MockRemoteCache) GetAllLogStates() ([]*CertificateLog, error) {
+	objects := []*CertificateLog{}
+	for key := range ec.LogData {
+		state, err := ec.LoadLogState(key)
+		if err != nil {
+			return objects, err
+		}
+		objects = append(objects, state)
+	}
+	return objects, nil
 }

@@ -463,7 +463,12 @@ func TestRedisLogState(t *testing.T) {
 
 	expectNilLogState(t, rc, log.ShortURL)
 
-	err := rc.StoreLogState(log)
+	originalList, err := rc.GetAllLogStates()
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = rc.StoreLogState(log)
 	if err != nil {
 		t.Error(err)
 	}
@@ -478,4 +483,12 @@ func TestRedisLogState(t *testing.T) {
 
 	expectNilLogState(t, rc, "")
 	expectNilLogState(t, rc, fmt.Sprintf("%s/a", log.ShortURL))
+
+	list, err := rc.GetAllLogStates()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(list) != 1+len(originalList) {
+		t.Errorf("Expected 1 new log state: %+v", list)
+	}
 }
