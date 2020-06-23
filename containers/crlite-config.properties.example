@@ -24,6 +24,9 @@ pollingDelayStdDev=10
 savePeriod=30s
 healthAddr=:8080
 
+# The Google Cloud Storage bucket for artifact storage
+crlite_filter_bucket=crlite_filters_staging
+
 # Set true if you want to report to Stackdriver and provide the relevant project ID
 #stackdriverMetrics=true
 #googleProjectId=projectname

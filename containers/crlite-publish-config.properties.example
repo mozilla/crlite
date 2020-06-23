@@ -1,8 +1,12 @@
 # Be sure not to use quotes for strings in this file
 
-# Publisher
+# Kinto information. RO and RW can be the same server, but don't have to be.
 KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/
 KINTO_RW_SERVER_URL=https://settings-writer.stage.mozaws.net/v1/
 KINTO_AUTH_USER=kinto_publisher_example_user
 KINTO_AUTH_PASSWORD=kinto_publisher_example_password
-#KINTO_NOOP=dont_publish_if_this_is_set_to_anything
+
+
+# If the variable KINTO_NOOP is set to anything at all, then the signoff will
+# operate as a no-op and simply print what it's doing.
+# KINTO_NOOP=dont_publish_if_this_is_set_to_anything
