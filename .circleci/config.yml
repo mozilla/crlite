@@ -154,6 +154,14 @@ jobs:
       - publish-docker-pods:
           tag-param: ${CIRCLE_TAG}
 
+  publish-latest-pods:
+    executor: docker/docker
+    steps:
+      - setup_remote_docker
+      - checkout
+      - publish-docker-pods:
+          tag-param: latest
+
   deploy-to-gke:
     docker:
       - image: 'cimg/base:stable'
@@ -192,6 +200,13 @@ workflows:
           filters:
             branches:
               only: staging
+          requires:
+            - python-build-and-test
+            - golang-build-and-test
+      - publish-latest-pods:
+          filters:
+            branches:
+              only: main
           requires:
             - python-build-and-test
             - golang-build-and-test
