@@ -7,7 +7,6 @@ setup(
     install_requires=[
         "bsdiff4>=1.1",
         "cryptography>=2.2",
-        "dbx-stopwatch>=1.5",
         "Deprecated >= 1.2",
         "filtercascade>=0.3.1",
         "glog>=0.3",
@@ -19,5 +18,6 @@ setup(
         "pyOpenSSL>=17.5",
         "python-decouple>=3.1",
         "requests[socks]>=2.10.0",
+        "statsd>=3.3",
     ],
 )
