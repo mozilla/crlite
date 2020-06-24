@@ -21,11 +21,12 @@ At this point, CRLite is intended to be run in a series of Docker containers, ru
 
 1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/main/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
 1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
-1. [`containers/crlite-publish`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
+1. [`containers/crlite-publish`](https://github.com/mozilla/crlite/tree/main/containers/crlite-publish), a periodic (cron) job that publishes the results of a `crlite-generate` run to a Kinto instance.
+1. [`containers/crlite-signoff`](https://github.com/mozilla/crlite/tree/main/containers/crlite-signoff), a periodic (cron) job that verifies and approves data `crlite-publish` placed in a Kinto instance.
 
 Each of these jobs has a `pod.yaml` intended for use in Kubernetes.
 
-There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main/containers) to build Docker images both using Google Cloud's builder and locally with Docker, see `build-gcp.sh` and `build-local.sh`. They make assumptions about the `PROJECT_ID` which will need to change, but PRs are welcome.
+There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main/containers) to build Docker images both using Docker, see`build-local.sh`. There are also builds for the `staging` and all tags at Docker Hub in the [`jcjones/crlite`](https://hub.docker.com/r/jcjones/crlite) project.
 
 
 ### Storage
