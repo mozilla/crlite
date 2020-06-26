@@ -8,7 +8,9 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"net/http"
@@ -36,6 +38,7 @@ import (
 
 var (
 	ctconfig = config.NewCTConfig()
+	nobars   = flag.Bool("nobars", false, "disable display of download bars")
 )
 
 func certIsFilteredOut(aCert *x509.Certificate) bool {
@@ -111,9 +114,15 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 	}
 	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
 
+	var barOutput io.Writer = nil
+	if nobars != nil && !*nobars {
+		barOutput = os.Stdout
+	}
+
 	display := mpb.NewWithContext(ctx,
 		mpb.WithWaitGroup(twg),
 		mpb.WithRefreshRate(refreshDur),
+		mpb.WithOutput(barOutput),
 	)
 
 	return &LogSyncEngine{
@@ -379,7 +388,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 		return
 	}
 
-	glog.V(1).Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
+	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
 }
 
 // DownloadRange downloads log entries from the given starting index till one
