@@ -25,16 +25,6 @@ docker run --rm -it \
 
 See the Running section for more environment variables.
 
-# Remote via Google Cloud:
-
-See `./build-gcp.sh`
-
-Basic build:
-
-```
-gcloud config set project crlite-beta
-gcloud builds submit --config containers/cloudbuild.yaml ..
-```
 
 # Deploying
 
