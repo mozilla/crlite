@@ -2,6 +2,7 @@
 
 from google.cloud import storage
 from pathlib import Path
+from datetime import datetime
 
 import argparse
 import os
@@ -86,6 +87,11 @@ def main():
     for path, dirs, files in os.walk(idPath / "mlbf"):
         remoteFolder = Path("latest")
         uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
+
+    sentinel = bucket.blob(str(Path(idPath.name) / "completed"))
+    log.info(f"Saving 'completed' marker to {sentinel.name}")
+    if not args.noop:
+        sentinel.upload_from_string(f"Upload completed at {datetime.utcnow()}")
 
 
 if __name__ == "__main__":
