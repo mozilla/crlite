@@ -197,9 +197,9 @@ workflows:
       - python-build-and-test
       - golang-build-and-test
       - publish-staging-pods:
-          filters:
-            branches:
-              only: staging
+          # filters:
+          #   branches:
+          #     only: staging
           requires:
             - python-build-and-test
             - golang-build-and-test
