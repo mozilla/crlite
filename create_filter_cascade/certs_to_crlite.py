@@ -101,6 +101,7 @@ def createCertLists(
                 f"createCertLists Processing issuerObj={issuerObj}, "
                 + f"memory={psutil.virtual_memory()}"
             )
+            metrics.gauge("CreateCertLists.VirtualMemory", psutil.virtual_memory(), 1)
 
             issuer = issuerObj.issuer
             initIssuerStats(stats, issuer)
@@ -127,6 +128,12 @@ def createCertLists(
             log.debug(
                 f"createCertLists issuerObj={issuerObj} KNR={known_nonrevoked_certs_len} "
                 + f"KR={known_revoked_certs_len}"
+            )
+
+            metrics.incr("CreateCertLists.Issuers")
+            metrics.incr("CreateCertLists.KnownRevoked", count=known_revoked_certs_len)
+            metrics.incr(
+                "CreateCertLists.KnownNotRevoked", count=known_nonrevoked_certs_len
             )
 
     # TODO: Verify any revoked issuers that had no known issuers
@@ -171,6 +178,8 @@ def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_cer
             layers=cascade.layerCount(), bits=cascade.bitCount()
         )
     )
+    metrics.gauge("GenerateMLBF.BitCount", cascade.bitCount())
+    metrics.gauge("GenerateMLBF.LayerCount", cascade.layerCount())
     return cascade
 
 
