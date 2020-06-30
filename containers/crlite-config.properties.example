@@ -22,11 +22,12 @@ pollingDelayStdDev=10
 # as liveness health information won't be available until the first save.
 # The actual save period is this + a few seconds of jitter calculated in ct-fetch
 savePeriod=30s
+# The health address should be a [address]:port string, where address defaults to *
 healthAddr=:8080
 
 # The Google Cloud Storage bucket for artifact storage
 crlite_filter_bucket=crlite_filters_staging
 
-# Set true if you want to report to Stackdriver and provide the relevant project ID
-#stackdriverMetrics=true
-#googleProjectId=projectname
+# Set if you want to provide StatsD metrics
+# statsdHost=localhost
+# statsdPort=8125
