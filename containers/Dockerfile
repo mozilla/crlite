@@ -37,9 +37,10 @@ COPY moz_crlite_lib /app/moz_crlite_lib
 COPY create_filter_cascade /app/create_filter_cascade
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow
+COPY containers/scripts /app/scripts
 COPY setup.py /app/
 RUN pip3 install /app/moz_crlite_lib/ /app/
-
+RUN pip3 install --user moz_crlite_query
 
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
