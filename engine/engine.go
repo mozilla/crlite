@@ -6,12 +6,11 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	monitoring "cloud.google.com/go/monitoring/apiv3"
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
-	"github.com/google/go-metrics-stackdriver"
 	"github.com/jcjones/ct-mapreduce/config"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/jcjones/ct-mapreduce/telemetry"
@@ -52,26 +51,19 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsConf := metrics.DefaultConfig(utilName)
 	metricsConf.EnableRuntimeMetrics = false
 
-	if *ctconfig.StackdriverMetrics {
-		if ctconfig.GoogleProjectId == nil {
-			glog.Fatal("Cannot enable StackDriver metrics without a GoogleProjectId set")
-		}
-
-		client, err := monitoring.NewMetricClient(context.Background())
+	if *ctconfig.StatsDPort > 1 && len(*ctconfig.StatsDHost) > 0 {
+		metricsSink, err := metrics.NewStatsdSink(fmt.Sprintf("%s:%d", *ctconfig.StatsDHost, *ctconfig.StatsDPort))
 		if err != nil {
 			glog.Fatal(err)
 		}
 
-		metricsSink := stackdriver.NewSink(client, &stackdriver.Config{
-			ProjectID: *ctconfig.GoogleProjectId,
-		})
 		_, err = metrics.NewGlobal(metricsConf, metricsSink)
 		if err != nil {
 			glog.Fatal(err)
 		}
 
-		glog.Infof("%s is starting. Statistics are being reported to the Stackdriver project %s",
-			utilName, *ctconfig.GoogleProjectId)
+		glog.Infof("%s is starting. Statistics are being reported to the StatsD server at %s:%d",
+			utilName, *ctconfig.StatsDHost, *ctconfig.StatsDPort)
 
 		return
 	}
