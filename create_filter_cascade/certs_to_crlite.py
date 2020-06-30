@@ -65,7 +65,7 @@ def initIssuerStats(stats, issuer):
     }
 
 
-@metrics.timer("CreateCertLists", rate=1)
+@metrics.timer("CreateCertLists")
 def createCertLists(
     *,
     known_path,
@@ -101,7 +101,10 @@ def createCertLists(
                 f"createCertLists Processing issuerObj={issuerObj}, "
                 + f"memory={psutil.virtual_memory()}"
             )
-            metrics.gauge("CreateCertLists.VirtualMemory", psutil.virtual_memory(), 1)
+            metrics.gauge(
+                "CreateCertLists.VirtualMemory.available",
+                psutil.virtual_memory().available,
+            )
 
             issuer = issuerObj.issuer
             initIssuerStats(stats, issuer)
@@ -155,7 +158,7 @@ def createCertLists(
     }
 
 
-@metrics.timer("GenerateMLBF", rate=1)
+@metrics.timer("GenerateMLBF")
 def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_certs_len):
     revoked_certs_len = len(revoked_certs)
 
@@ -183,7 +186,7 @@ def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_cer
     return cascade
 
 
-@metrics.timer("VerifyMLBF", rate=1)
+@metrics.timer("VerifyMLBF")
 def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
     # Verify generate filter
     if args.noVerify is False:
@@ -191,7 +194,7 @@ def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
         cascade.verify(include=revoked_certs, exclude=nonrevoked_certs)
 
 
-@metrics.timer("SaveMLBF", rate=1)
+@metrics.timer("SaveMLBF")
 def saveMLBF(args, stats, cascade):
     os.makedirs(os.path.dirname(args.outFile), exist_ok=True)
 
@@ -201,7 +204,7 @@ def saveMLBF(args, stats, cascade):
     stats["mlbf_filesize"] = os.stat(args.outFile).st_size
 
 
-@metrics.timer("FindAdditions", rate=1)
+@metrics.timer("FindAdditions")
 def find_additions(*, old_by_issuer, new_by_issuer):
     added = {}
     old_cache = {}
@@ -315,7 +318,7 @@ def saveStats(args, stats):
         f.write(json.dumps(stats))
 
 
-@metrics.timer("Main", rate=1)
+@metrics.timer("Main")
 def main():
     args = parseArgs(sys.argv[1:])
     log = logging.getLogger("cert_to_crlite")
@@ -354,7 +357,7 @@ def main():
                     )
 
                 log.info("Diff: Saving difference stash.")
-                with metrics.timer("SaveAdditions", rate=1):
+                with metrics.timer("SaveAdditions"):
                     crlite.save_additions(
                         out_path=args.diffPath,
                         revoked_by_issuer=revoked_diff_by_isssuer,
@@ -371,7 +374,7 @@ def main():
 
     if not known_nonrevoked_certs_len:
         log.info("known_nonrevoked_certs_len not calculated, calculating...")
-        with metrics.timer("CalculateKnownNonrevokedCertsLen", rate=1):
+        with metrics.timer("CalculateKnownNonrevokedCertsLen"):
             with open(args.validKeys, "rb") as fp:
                 known_nonrevoked_certs_len = len(list(crlite.readFromCertList(fp)))
 
