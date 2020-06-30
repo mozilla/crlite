@@ -2,6 +2,7 @@
 
 from google.cloud import storage
 from pathlib import Path
+from datetime import datetime
 
 import argparse
 import os
@@ -47,8 +48,8 @@ def uploadFiles(files, localFolder, remoteFolder, bucket, *, args):
         blob.upload_from_filename(str(localFilePath))
 
 
-def ensureFileOrAbort(idPath, path):
-    filePath = idPath / Path(path)
+def ensureFileOrAbort(runIdPath, path):
+    filePath = runIdPath / Path(path)
     if not filePath.exists():
         log.error(f"{filePath} does not exist, aborting.")
         sys.exit(1)
@@ -64,13 +65,13 @@ def main():
     storage_client = storage.Client()
     bucket = storage_client.get_bucket(args.filter_bucket)
 
-    idPath = args.results_path[0].resolve()
+    runIdPath = args.results_path[0].resolve()
 
-    ensureFileOrAbort(idPath, Path("mlbf/filter"))
+    ensureFileOrAbort(runIdPath, Path("mlbf/filter"))
 
-    for path, dirs, files in os.walk(idPath):
+    for path, dirs, files in os.walk(runIdPath):
         localFolder = Path(path)
-        remoteFolder = localFolder.relative_to(idPath.parent)
+        remoteFolder = localFolder.relative_to(runIdPath.parent)
 
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
 
@@ -79,13 +80,20 @@ def main():
             localPath, remotePath = extraString.split(":")
             for path, dirs, files in os.walk(localPath):
                 remoteFolder = (
-                    Path(idPath.name) / remotePath / Path(path).relative_to(localPath)
+                    Path(runIdPath.name)
+                    / remotePath
+                    / Path(path).relative_to(localPath)
                 )
                 uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
 
-    for path, dirs, files in os.walk(idPath / "mlbf"):
+    for path, dirs, files in os.walk(runIdPath / "mlbf"):
         remoteFolder = Path("latest")
         uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
+
+    sentinel = bucket.blob(str(Path(runIdPath.name) / "completed"))
+    log.info(f"Saving 'completed' marker to {sentinel.name}")
+    if not args.noop:
+        sentinel.upload_from_string(f"Upload completed at {datetime.utcnow()}")
 
 
 if __name__ == "__main__":

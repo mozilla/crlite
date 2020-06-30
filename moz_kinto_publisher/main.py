@@ -9,6 +9,7 @@ import re
 import requests
 import settings
 import tempfile
+import time
 import workflow
 
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,31 @@ class PublishedRunDB(object):
         )
         log.debug(f"{run_id} {'Is Valid' if is_valid else 'Is Not Valid'}")
         return is_valid
+
+    def is_run_ready(self, run_id):
+        is_ready = workflow.google_cloud_file_exists(
+            self.filter_bucket, f"{run_id}/completed"
+        )
+        log.debug(f"{run_id}/completed {'is ready' if is_ready else 'is not ready'}")
+        return is_ready
+
+    def await_run_ready(self, run_id, *, timeout=timedelta(minutes=5)):
+        time_start = datetime.now()
+        while True:
+            if self.is_run_ready(run_id):
+                return
+
+            time_waiting = datetime.now() - time_start
+            if time_waiting >= timeout:
+                raise Exception(
+                    f"Timed out waiting for run completion ID {run_id}, "
+                    + f"waited={time_waiting}"
+                )
+            log.warning(
+                f"{run_id}/completed not found, retrying (waiting={time_waiting}, "
+                + f"deadline={timeout-time_waiting})"
+            )
+            time.sleep(30)
 
     def most_recent_id(self):
         return self.run_identifiers[-1]
@@ -290,8 +316,11 @@ def main():
         parser.print_help()
 
     except KintoException as ke:
-        log.error("An exception occurred: {}".format(ke))
+        log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
+    except Exception as e:
+        log.error("A general exception occurred: {}".format(e))
+        raise e
 
 
 class IntermediateRecordError(KintoException):
@@ -1162,6 +1191,10 @@ def publish_crlite(*, args, ro_client, rw_client):
         run_id_path = args.download_path / Path(run_id)
         run_id_path.mkdir(parents=True, exist_ok=True)
         stash_path = run_id_path / Path("stash")
+
+        if not published_run_db.is_run_ready(run_id):
+            log.info("Run is not ready yet, waiting")
+            published_run_db.await_run_ready(run_id)
 
         workflow.download_and_retry_from_google_cloud(
             args.filter_bucket,
