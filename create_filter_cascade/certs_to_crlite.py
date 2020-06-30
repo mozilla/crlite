@@ -321,8 +321,10 @@ def saveStats(args, stats):
 @metrics.timer("Main")
 def main():
     args = parseArgs(sys.argv[1:])
-    log = logging.getLogger("cert_to_crlite")
-    log.debug(args)
+    log.debug(f"certs_to_crlite called with arguments: {args}")
+    log.info(
+        f"StatsD information submitting to {metrics._addr} with prefix {metrics._prefix}."
+    )
 
     stats = {}
     known_nonrevoked_certs_len = None
