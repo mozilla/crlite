@@ -5,7 +5,7 @@ WORKDIR /build
 RUN mkdir bin gopath
 ENV GOPATH /build/gopath
 
-ARG ct_mapreduce_ver=v1.0.5
+ARG ct_mapreduce_ver=v1.0.10
 
 # Get the current checked-out versions of the CRLite tools
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
