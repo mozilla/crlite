@@ -1,8 +1,7 @@
 ARG crlite_image=crlite:latest
 FROM $crlite_image
 
-COPY containers/crlite-fetch/crlite-fetch.sh /app/
-CMD [ "/bin/bash", "-xc", "/app/crlite-fetch.sh" ]
+CMD [ "/bin/bash", "-xc", "/app/scripts/crlite-fetch.sh" ]
 
 ENV runForever true
 ENV logExpiredEntries false

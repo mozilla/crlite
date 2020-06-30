@@ -9,7 +9,7 @@ if [ "x${DoNotUpload}x" != "xx" ] || [ "x${KINTO_NOOP}x" != "xx" ] ; then
   echo "Setting argument ${ARGS}"
 fi
 
-python3 /app/crlite-signoff-tool.py \
+python3 /app/scripts/crlite-signoff-tool.py \
   --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
   --moz-crlite-query /app/.local/bin/moz_crlite_query \
   --hosts ${crlite_verify_hosts:-revoked.badssl.com}
