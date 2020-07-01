@@ -23,7 +23,7 @@ spec:
             - configMapRef:
                 name: crlite-signoff-config
 
-            image: gcr.io/crlite-beta/crlite:0.1-signoff
+            image: docker.io/mozilla/crlite:latest-signoff
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError

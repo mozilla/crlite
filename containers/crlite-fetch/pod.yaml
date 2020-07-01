@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
       - name: crlite-fetch
-        image: gcr.io/crlite-beta/crlite:staging-fetch
+        image: docker.io/mozilla/crlite:latest-fetch
         envFrom:
         - configMapRef:
             name: crlite-config

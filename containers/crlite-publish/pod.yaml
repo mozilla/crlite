@@ -22,7 +22,7 @@ spec:
                 name: crlite-config
             - configMapRef:
                 name: crlite-publish-config
-            image: gcr.io/crlite-beta/crlite:staging-publish
+            image: docker.io/mozilla/crlite:latest-publish
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError
