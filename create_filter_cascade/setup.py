@@ -16,7 +16,7 @@ setup(
     author="J.C. Jones",
     author_email="jc@mozilla.com",
     license="Mozilla Public License 2.0 (MPL 2.0)",
-    install_requires=["psutil", "dbx-stopwatch", "filtercascade"],
+    install_requires=["filtercascade", "psutil", "statsd"],
     include_package_data=True,
     zip_safe=False,
 )

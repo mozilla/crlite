@@ -11,7 +11,7 @@ import logging
 import moz_crlite_lib as crlite
 import os
 import psutil
-import stopwatch
+import statsd
 import sys
 
 from filtercascade import FilterCascade, fileformats
@@ -47,8 +47,12 @@ from pathlib import Path
 #   }
 # }
 
-sw = stopwatch.StopWatch()
 log = logging.getLogger("cert_to_crlite")
+metrics = statsd.StatsClient(
+    os.getenv("statsdHost", "localhost"),
+    os.getenv("statsdPort", 8125),
+    prefix="create_filter_cascade",
+)
 
 
 def initIssuerStats(stats, issuer):
@@ -61,6 +65,7 @@ def initIssuerStats(stats, issuer):
     }
 
 
+@metrics.timer("CreateCertLists")
 def createCertLists(
     *,
     known_path,
@@ -96,6 +101,10 @@ def createCertLists(
                 f"createCertLists Processing issuerObj={issuerObj}, "
                 + f"memory={psutil.virtual_memory()}"
             )
+            metrics.gauge(
+                "CreateCertLists.VirtualMemory.available",
+                psutil.virtual_memory().available,
+            )
 
             issuer = issuerObj.issuer
             initIssuerStats(stats, issuer)
@@ -124,6 +133,12 @@ def createCertLists(
                 + f"KR={known_revoked_certs_len}"
             )
 
+            metrics.incr("CreateCertLists.Issuers")
+            metrics.incr("CreateCertLists.KnownRevoked", count=known_revoked_certs_len)
+            metrics.incr(
+                "CreateCertLists.KnownNotRevoked", count=known_nonrevoked_certs_len
+            )
+
     # TODO: Verify any revoked issuers that had no known issuers
 
     log.debug(
@@ -143,8 +158,8 @@ def createCertLists(
     }
 
 
+@metrics.timer("GenerateMLBF")
 def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_certs_len):
-    sw.start("mlbf")
     revoked_certs_len = len(revoked_certs)
 
     log.info("Generating filter")
@@ -166,21 +181,21 @@ def generateMLBF(args, stats, *, revoked_certs, nonrevoked_certs, nonrevoked_cer
             layers=cascade.layerCount(), bits=cascade.bitCount()
         )
     )
-    sw.end("mlbf")
+    metrics.gauge("GenerateMLBF.BitCount", cascade.bitCount())
+    metrics.gauge("GenerateMLBF.LayerCount", cascade.layerCount())
     return cascade
 
 
+@metrics.timer("VerifyMLBF")
 def verifyMLBF(args, cascade, *, revoked_certs, nonrevoked_certs):
     # Verify generate filter
     if args.noVerify is False:
-        sw.start("verify")
         log.info("Checking/verifying certs against MLBF")
         cascade.verify(include=revoked_certs, exclude=nonrevoked_certs)
-        sw.end("verify")
 
 
+@metrics.timer("SaveMLBF")
 def saveMLBF(args, stats, cascade):
-    sw.start("save")
     os.makedirs(os.path.dirname(args.outFile), exist_ok=True)
 
     with open(args.outFile, "wb") as mlbf_file:
@@ -188,9 +203,8 @@ def saveMLBF(args, stats, cascade):
         cascade.tofile(mlbf_file)
     stats["mlbf_filesize"] = os.stat(args.outFile).st_size
 
-    sw.end("save")
 
-
+@metrics.timer("FindAdditions")
 def find_additions(*, old_by_issuer, new_by_issuer):
     added = {}
     old_cache = {}
@@ -237,7 +251,7 @@ def find_additions(*, old_by_issuer, new_by_issuer):
     if len(old_cache) > 0:
         # We don't care about removals, but log a debug statement if it matters
         log.debug(
-            f"find_additions: old_cache indicates a removal of "
+            "find_additions: old_cache indicates a removal of "
             + f"{len(old_cache)} entries from keys: {old_cache.keys()}"
         )
     return added
@@ -304,17 +318,18 @@ def saveStats(args, stats):
         f.write(json.dumps(stats))
 
 
+@metrics.timer("Main")
 def main():
     args = parseArgs(sys.argv[1:])
-    log = logging.getLogger("cert_to_crlite")
-    log.debug(args)
+    log.debug(f"certs_to_crlite called with arguments: {args}")
+    log.info(
+        f"StatsD information submitting to {metrics._addr} with prefix {metrics._prefix}."
+    )
 
     stats = {}
     known_nonrevoked_certs_len = None
 
-    sw.start("crlite")
     if args.onlyUseCache is False:
-        sw.start("collate certs")
         log.info("Constructing known revoked and nonrevoked cert sets")
         results = createCertLists(
             known_path=args.knownPath,
@@ -325,7 +340,6 @@ def main():
             stats=stats,
         )
         known_nonrevoked_certs_len = results["known_nonrevoked_certs_len"]
-        sw.end("collate certs")
 
     # Setup for diff if previous filter specified
     if args.previd is not None:
@@ -334,7 +348,6 @@ def main():
         if not prior_revoked_path.is_file():
             log.warning("Diff: Previous ID specified but no filter files found.")
         else:
-            sw.start("make diff")
             try:
                 log.info("Diff: Making diff for known revoked entries")
                 with open(prior_revoked_path, "rb") as prior_fp, open(
@@ -346,9 +359,11 @@ def main():
                     )
 
                 log.info("Diff: Saving difference stash.")
-                crlite.save_additions(
-                    out_path=args.diffPath, revoked_by_issuer=revoked_diff_by_isssuer
-                )
+                with metrics.timer("SaveAdditions"):
+                    crlite.save_additions(
+                        out_path=args.diffPath,
+                        revoked_by_issuer=revoked_diff_by_isssuer,
+                    )
                 log.info(
                     f"Difference stash complete. sz={Path(args.diffPath).stat().st_size} "
                     + f"memory={psutil.virtual_memory()}"
@@ -358,21 +373,18 @@ def main():
                     f"Diff: Failed to make a diff, proceeding without one: {e}",
                     exc_info=sys.exc_info(),
                 )
-            sw.end("make diff")
 
     if not known_nonrevoked_certs_len:
         log.info("known_nonrevoked_certs_len not calculated, calculating...")
-        sw.start("calculate known_nonrevoked_certs_len")
-        with open(args.validKeys, "rb") as fp:
-            known_nonrevoked_certs_len = len(list(crlite.readFromCertList(fp)))
-        sw.end("calculate known_nonrevoked_certs_len")
+        with metrics.timer("CalculateKnownNonrevokedCertsLen"):
+            with open(args.validKeys, "rb") as fp:
+                known_nonrevoked_certs_len = len(list(crlite.readFromCertList(fp)))
 
     log.info("revoked_certs loading...")
-    sw.start("load revoked certs")
-    with open(args.revokedKeys, "rb") as fp:
-        revoked_certs = set(crlite.readFromCertList(fp))
+    with metrics.timer("LoadRevokedCerts"):
+        with open(args.revokedKeys, "rb") as fp:
+            revoked_certs = set(crlite.readFromCertList(fp))
     num_revoked_certs = len(revoked_certs)
-    sw.end("load revoked certs")
 
     log.info(
         f"Ready to produce MLBF, counts are R: {num_revoked_certs} "
@@ -407,13 +419,11 @@ def main():
 
         log.info(f"MLBF validation complete. memory={psutil.virtual_memory()}")
 
-        log.info(f"Saving MLBF.")
+        log.info("Saving MLBF.")
         saveMLBF(args, stats, mlbf)
         log.info(f"MLBF save complete. sz={Path(args.outFile).stat().st_size}")
 
     saveStats(args, stats)
-    sw.end("crlite")
-    log.info(sw.format_last_report())
 
 
 if __name__ == "__main__":
