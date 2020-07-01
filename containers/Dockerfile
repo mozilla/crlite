@@ -1,4 +1,4 @@
-FROM golang:1.13-stretch as builder
+FROM golang:1.13-buster as builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
@@ -13,7 +13,7 @@ RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go get github.com/jcjones/ct-mapreduce/cmd/ct-fetch@$ct_mapreduce_ver
 RUN go get github.com/jcjones/ct-mapreduce/cmd/storage-statistics@$ct_mapreduce_ver
 
-FROM python:3.7-stretch
+FROM python:3.8-buster
 RUN apt update && apt install -y ca-certificates && \
     apt -y upgrade && apt-get autoremove --purge -y && \
     apt-get -y clean && \
