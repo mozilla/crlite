@@ -27,7 +27,7 @@ spec:
             envFrom:
             - configMapRef:
                 name: crlite-config
-            image: gcr.io/crlite-beta/crlite:staging-generate
+            image: docker.io/mozilla/crlite:latest-generate
             imagePullPolicy: Always
             resources:
               requests:
