@@ -138,7 +138,7 @@ jobs:
           command: go test -race -short ./...
           working_directory: /go/src/github.com/mozilla.com/crlite/go
 
-  publish-staging-pods:
+  publish-dev-pods:
     executor: docker/docker
     steps:
       - setup_remote_docker
@@ -196,10 +196,10 @@ workflows:
     jobs:
       - python-build-and-test
       - golang-build-and-test
-      - publish-staging-pods:
+      - publish-dev-pods:
           filters:
             branches:
-              only: staging
+              only: dev
           requires:
             - python-build-and-test
             - golang-build-and-test
@@ -213,9 +213,9 @@ workflows:
       - deploy-to-gke:
           filters:
             branches:
-              only: staging
+              only: dev
           requires:
-            - publish-staging-pods
+            - publish-dev-pods
 
   tagged-build:
     jobs:
