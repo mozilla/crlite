@@ -57,6 +57,7 @@ type AggregateEngine struct {
 
 	issuers *rootprogram.MozIssuers
 	display *mpb.Progress
+	auditor *CrlAuditor
 }
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
@@ -131,6 +132,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	if err != nil {
 		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
 			tmpPath, err)
+		ae.auditor.FailedDownload(issuer, &crlUrl, err)
 		err = os.Remove(tmpPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -145,6 +147,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		_, err = verifyCRL(tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
+			ae.auditor.FailedVerify(issuer, &crlUrl, err)
 			err = os.Remove(tmpPath)
 			if err != nil {
 				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -168,6 +171,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	age := time.Now().Sub(localDate)
 
 	if age > allowableAgeOfLocalCRL {
+		ae.auditor.Old(issuer, &crlUrl, age)
 		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
 	}
 
@@ -298,18 +302,21 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			default:
 				crl, err := verifyCRL(crlPath, cert, "")
 				if err != nil {
+					ae.auditor.FailedVerifyLocal(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
 					continue
 				}
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
+					ae.auditor.FailedProcessLocal(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
 					continue
 				}
 
 				revokedCount := len(revokedSerials)
 				if revokedCount == 0 {
+					ae.auditor.NoRevocations(tuple.Issuer, crlPath)
 					continue
 				}
 
@@ -582,12 +589,15 @@ func main() {
 		mpb.WithOutput(barOutput),
 	)
 
+	auditor := NewCrlAuditor()
+
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
 		saveStorage:   saveBackend,
 		remoteCache:   remoteCache,
 		issuers:       mozIssuers,
 		display:       display,
+		auditor:       auditor,
 	}
 
 	mergedCrls := ae.identifyCrlsByIssuer(ctx)

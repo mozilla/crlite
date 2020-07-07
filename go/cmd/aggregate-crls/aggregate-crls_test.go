@@ -253,6 +253,7 @@ func Test_crlFetchWorker(t *testing.T) {
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
 		display:       display,
+		auditor:       NewCrlAuditor(),
 	}
 	bar := display.AddBar(1)
 
@@ -358,6 +359,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
 		display:       display,
+		auditor:       NewCrlAuditor(),
 	}
 
 	ca, caPrivKey := makeCA(t)
