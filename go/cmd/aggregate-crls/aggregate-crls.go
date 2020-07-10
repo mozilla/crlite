@@ -591,7 +591,7 @@ func main() {
 		mpb.WithOutput(barOutput),
 	)
 
-	auditor := NewCrlAuditor()
+	auditor := NewCrlAuditor(mozIssuers)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,

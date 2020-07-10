@@ -249,7 +249,7 @@ func Test_crlFetchWorker(t *testing.T) {
 
 	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
-	auditor := NewCrlAuditor()
+	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
@@ -361,7 +361,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 
 	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
-	auditor := NewCrlAuditor()
+	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,

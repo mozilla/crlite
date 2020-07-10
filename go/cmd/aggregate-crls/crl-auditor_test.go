@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/rootprogram"
 )
 
 func assertEmptyList(t *testing.T, a *CrlAuditor) {
@@ -33,6 +34,9 @@ func assertValidEntry(t *testing.T, ent *CrlAuditEntry) {
 	}
 	if ent.Issuer.ID() == "" {
 		t.Error("Issuer is mandatory")
+	}
+	if ent.IssuerSubject == "" {
+		t.Error("IssuerSubject is mandatory")
 	}
 	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
 		if len(ent.Error) == 0 {
@@ -108,8 +112,9 @@ func assertAuditorReportHasEntries(t *testing.T, auditor *CrlAuditor, count int)
 }
 
 func Test_FailedDownload(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
@@ -121,8 +126,9 @@ func Test_FailedDownload(t *testing.T) {
 }
 
 func Test_FailedVerify(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
@@ -134,8 +140,9 @@ func Test_FailedVerify(t *testing.T) {
 }
 
 func Test_FailedProcessLocal(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
 
 	assertEmptyList(t, auditor)
@@ -147,8 +154,9 @@ func Test_FailedProcessLocal(t *testing.T) {
 }
 
 func Test_FailedVerifyLocal(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
 
 	assertEmptyList(t, auditor)
@@ -160,8 +168,9 @@ func Test_FailedVerifyLocal(t *testing.T) {
 }
 
 func Test_FailedNoRevocations(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
 
 	assertEmptyList(t, auditor)
@@ -173,8 +182,9 @@ func Test_FailedNoRevocations(t *testing.T) {
 }
 
 func Test_FailedOld(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
@@ -191,7 +201,8 @@ func Test_FailedOld(t *testing.T) {
 }
 
 func Test_EmptyReport(t *testing.T) {
-	auditor := NewCrlAuditor()
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
 	assertEmptyList(t, auditor)
 
 	var b bytes.Buffer
@@ -209,8 +220,9 @@ func Test_EmptyReport(t *testing.T) {
 }
 
 func Test_SeveralFailures(t *testing.T) {
-	auditor := NewCrlAuditor()
-	issuer := storage.NewIssuerFromString("Test Corporation SA")
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)

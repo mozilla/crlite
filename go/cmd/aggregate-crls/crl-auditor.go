@@ -7,7 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/rootprogram"
 )
 
 var (
@@ -22,25 +24,37 @@ var (
 type CrlAuditEntryKind string
 
 type CrlAuditEntry struct {
-	Timestamp time.Time
-	Url       string `json:",omitempty"`
-	Path      string `json:",omitempty"`
-	Age       string `json:",omitempty"`
-	Issuer    storage.Issuer
-	Kind      CrlAuditEntryKind
-	Error     string `json:",omitempty"`
+	Timestamp     time.Time
+	Url           string `json:",omitempty"`
+	Path          string `json:",omitempty"`
+	Age           string `json:",omitempty"`
+	Issuer        storage.Issuer
+	IssuerSubject string
+	Kind          CrlAuditEntryKind
+	Error         string `json:",omitempty"`
 }
 
 type CrlAuditor struct {
 	mutex   *sync.Mutex
+	issuers *rootprogram.MozIssuers
 	Entries []CrlAuditEntry
 }
 
-func NewCrlAuditor() *CrlAuditor {
+func NewCrlAuditor(issuers *rootprogram.MozIssuers) *CrlAuditor {
 	return &CrlAuditor{
 		mutex:   &sync.Mutex{},
+		issuers: issuers,
 		Entries: []CrlAuditEntry{},
 	}
+}
+
+func (auditor *CrlAuditor) getSubject(issuer storage.Issuer) string {
+	subject, err := auditor.issuers.GetSubjectForIssuer(issuer)
+	if err != nil {
+		glog.Warningf("Could not get subject for issuer %s: %v", issuer.ID(), err)
+		return ""
+	}
+	return subject
 }
 
 func (auditor *CrlAuditor) GetEntries() []CrlAuditEntry {
@@ -59,11 +73,12 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindFailedDownload,
-		Url:       crlUrl.String(),
-		Issuer:    issuer,
-		Error:     err.Error(),
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindFailedDownload,
+		Url:           crlUrl.String(),
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Error:         err.Error(),
 	})
 }
 
@@ -72,11 +87,12 @@ func (auditor *CrlAuditor) FailedVerify(issuer storage.Issuer, crlUrl *url.URL, 
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindFailedVerify,
-		Url:       crlUrl.String(),
-		Issuer:    issuer,
-		Error:     err.Error(),
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindFailedVerify,
+		Url:           crlUrl.String(),
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Error:         err.Error(),
 	})
 }
 
@@ -85,11 +101,12 @@ func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindOld,
-		Url:       crlUrl.String(),
-		Issuer:    issuer,
-		Age:       age.String(),
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindOld,
+		Url:           crlUrl.String(),
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Age:           age.String(),
 	})
 }
 
@@ -98,11 +115,12 @@ func (auditor *CrlAuditor) FailedVerifyLocal(issuer storage.Issuer, crlPath stri
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindFailedVerifyLocal,
-		Path:      crlPath,
-		Issuer:    issuer,
-		Error:     err.Error(),
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindFailedVerifyLocal,
+		Path:          crlPath,
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Error:         err.Error(),
 	})
 }
 func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
@@ -110,11 +128,12 @@ func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath str
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindFailedProcessLocal,
-		Path:      crlPath,
-		Issuer:    issuer,
-		Error:     err.Error(),
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindFailedProcessLocal,
+		Path:          crlPath,
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Error:         err.Error(),
 	})
 }
 
@@ -123,9 +142,10 @@ func (auditor *CrlAuditor) NoRevocations(issuer storage.Issuer, crlPath string) 
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp: time.Now().UTC(),
-		Kind:      AuditKindNoRevocations,
-		Path:      crlPath,
-		Issuer:    issuer,
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindNoRevocations,
+		Path:          crlPath,
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
 	})
 }
