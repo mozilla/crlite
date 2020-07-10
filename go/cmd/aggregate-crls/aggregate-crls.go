@@ -148,7 +148,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		_, err = verifyCRL(tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
-			ae.auditor.FailedVerify(issuer, &crlUrl, err)
+			ae.auditor.FailedVerifyUrl(issuer, &crlUrl, err)
 			err = os.Remove(tmpPath)
 			if err != nil {
 				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -303,7 +303,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			default:
 				crl, err := verifyCRL(crlPath, cert, "")
 				if err != nil {
-					ae.auditor.FailedVerifyLocal(tuple.Issuer, crlPath, err)
+					ae.auditor.FailedVerifyPath(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
 					continue
 				}

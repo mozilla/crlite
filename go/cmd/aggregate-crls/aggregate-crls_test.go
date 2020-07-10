@@ -56,7 +56,6 @@ func Test_makeFilenameFromUrl(t *testing.T) {
 
 func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 	t.Helper()
-
 	caTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().Unix()),
 		Subject: pkix.Name{

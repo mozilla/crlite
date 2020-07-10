@@ -133,7 +133,7 @@ func Test_FailedVerify(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerify(issuer, url, fmt.Errorf("bad error"))
+	auditor.FailedVerifyUrl(issuer, url, fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)
@@ -161,9 +161,9 @@ func Test_FailedVerifyLocal(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyLocal(issuer, path, fmt.Errorf("bad error"))
+	auditor.FailedVerifyPath(issuer, path, fmt.Errorf("bad error"))
 
-	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerifyLocal)
+	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
 	assertEntryPathAndIssuer(t, ent, issuer, path)
 }
 

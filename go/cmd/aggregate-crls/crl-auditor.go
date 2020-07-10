@@ -16,7 +16,6 @@ var (
 	AuditKindFailedDownload     CrlAuditEntryKind = "Failed Download"
 	AuditKindFailedProcessLocal CrlAuditEntryKind = "Failed Process Local"
 	AuditKindFailedVerify       CrlAuditEntryKind = "Failed Verify"
-	AuditKindFailedVerifyLocal  CrlAuditEntryKind = "Failed Verify Local"
 	AuditKindNoRevocations      CrlAuditEntryKind = "No NoRevocations"
 	AuditKindOld                CrlAuditEntryKind = "Old"
 )
@@ -82,7 +81,7 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerify(issuer storage.Issuer, crlUrl *url.URL, err error) {
+func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -110,13 +109,13 @@ func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyLocal(issuer storage.Issuer, crlPath string, err error) {
+func (auditor *CrlAuditor) FailedVerifyPath(issuer storage.Issuer, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:     time.Now().UTC(),
-		Kind:          AuditKindFailedVerifyLocal,
+		Kind:          AuditKindFailedVerify,
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
