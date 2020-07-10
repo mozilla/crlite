@@ -24,6 +24,7 @@ fi
 ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
               -revokedpath ${ID}/revoked \
               -enrolledpath ${ID}/enrolled.json \
+              -auditpath ${ID}/crl-audit.json \
               -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv \
               -nobars -alsologtostderr -log_dir ${ID}/log
 

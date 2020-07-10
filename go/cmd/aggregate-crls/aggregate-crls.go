@@ -42,6 +42,7 @@ var (
 	crlpath      = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
 	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
 	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
+	auditpath    = flag.String("auditpath", "<path>", "output JSON audit report")
 	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 
@@ -538,6 +539,7 @@ func main() {
 	checkPathArg(*revokedpath, "revokedpath", ctconfig)
 	checkPathArg(*crlpath, "crlpath", ctconfig)
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
+	checkPathArg(*auditpath, "auditpath", ctconfig)
 
 	if err := os.MkdirAll(*revokedpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the revokedpath directory: %s", err)
@@ -616,4 +618,17 @@ func main() {
 		glog.Fatalf("Unable to save the crlite-informed intermediate issuers to %s: %s", *enrolledpath, err)
 	}
 	glog.Infof("Saved crlite-informed intermediate issuers to %s", *enrolledpath)
+
+	fd, err := os.Create(*auditpath)
+	if err != nil {
+		glog.Warningf("Could not open audit report path %s: %v", *auditpath, err)
+		return
+	}
+	if err = auditor.WriteReport(fd); err != nil {
+		glog.Warningf("Could not write audit report %s: %v", *auditpath, err)
+	}
+	err = fd.Close()
+	if err != nil {
+		glog.Warningf("Could not close audit report %s: %v", *auditpath, err)
+	}
 }
