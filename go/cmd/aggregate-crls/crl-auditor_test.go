@@ -39,7 +39,7 @@ func assertValidEntry(t *testing.T, ent *CrlAuditEntry) {
 		t.Error("IssuerSubject is mandatory")
 	}
 	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
-		if len(ent.Error) == 0 {
+		if len(ent.Errors) == 0 {
 			t.Error("Expecting an error message")
 		}
 	}
@@ -119,7 +119,7 @@ func Test_FailedDownload(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedDownload(issuer, url, fmt.Errorf("bad error"))
+	auditor.FailedDownload(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedDownload)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)
@@ -133,7 +133,7 @@ func Test_FailedVerify(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyUrl(issuer, url, fmt.Errorf("bad error"))
+	auditor.FailedVerifyUrl(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)

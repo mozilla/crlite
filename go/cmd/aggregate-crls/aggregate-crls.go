@@ -129,11 +129,14 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	tmpPath := filepath.Join(*crlpath, issuer.ID(), filename+".tmp")
 	finalPath := filepath.Join(*crlpath, issuer.ID(), filename)
 
-	err = downloader.DownloadFileSync(ctx, ae.display, crlUrl, tmpPath, 3)
+	dlAuditor := NewDownloadAuditor()
+	auditCtx := dlAuditor.Configure(ctx)
+
+	err = downloader.DownloadFileSync(auditCtx, ae.display, crlUrl, tmpPath, 3)
 	if err != nil {
 		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
 			tmpPath, err)
-		ae.auditor.FailedDownload(issuer, &crlUrl, err)
+		ae.auditor.FailedDownload(issuer, &crlUrl, dlAuditor, err)
 		err = os.Remove(tmpPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -148,7 +151,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		_, err = verifyCRL(tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
-			ae.auditor.FailedVerifyUrl(issuer, &crlUrl, err)
+			ae.auditor.FailedVerifyUrl(issuer, &crlUrl, dlAuditor, err)
 			err = os.Remove(tmpPath)
 			if err != nil {
 				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)

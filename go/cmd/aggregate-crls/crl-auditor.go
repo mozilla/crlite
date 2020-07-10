@@ -30,7 +30,8 @@ type CrlAuditEntry struct {
 	Issuer        storage.Issuer
 	IssuerSubject string
 	Kind          CrlAuditEntryKind
-	Error         string `json:",omitempty"`
+	Errors        []string `json:",omitempty"`
+	DNSResults    []string `json:",omitempty"`
 }
 
 type CrlAuditor struct {
@@ -67,7 +68,7 @@ func (auditor *CrlAuditor) WriteReport(fd io.Writer) error {
 	return enc.Encode(auditor)
 }
 
-func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, err error) {
+func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -77,11 +78,12 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 		Url:           crlUrl.String(),
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Error:         err.Error(),
+		Errors:        append(dlAuditor.Errors(), err.Error()),
+		DNSResults:    dlAuditor.DNSResults(),
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, err error) {
+func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -91,7 +93,8 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.UR
 		Url:           crlUrl.String(),
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Error:         err.Error(),
+		Errors:        append(dlAuditor.Errors(), err.Error()),
+		DNSResults:    dlAuditor.DNSResults(),
 	})
 }
 
@@ -119,7 +122,7 @@ func (auditor *CrlAuditor) FailedVerifyPath(issuer storage.Issuer, crlPath strin
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Error:         err.Error(),
+		Errors:        []string{err.Error()},
 	})
 }
 func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
@@ -132,7 +135,7 @@ func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath str
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Error:         err.Error(),
+		Errors:        []string{err.Error()},
 	})
 }
 
