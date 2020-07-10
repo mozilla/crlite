@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"net/url"
 	"sync"
 	"time"
@@ -20,93 +22,105 @@ var (
 type CrlAuditEntryKind string
 
 type CrlAuditEntry struct {
-	Url    *url.URL
-	Path   string
-	Issuer storage.Issuer
-	Kind   CrlAuditEntryKind
+	Timestamp time.Time
+	Url       string `json:",omitempty"`
+	Path      string `json:",omitempty"`
+	Age       string `json:",omitempty"`
+	Issuer    storage.Issuer
+	Kind      CrlAuditEntryKind
 }
 
 type CrlAuditor struct {
-	mutex   *sync.Mutex
-	entries []CrlAuditEntry
+	mutex   *sync.Mutex `json:"-"`
+	Entries []CrlAuditEntry
 }
 
 func NewCrlAuditor() *CrlAuditor {
 	return &CrlAuditor{
-		mutex: &sync.Mutex{},
+		mutex:   &sync.Mutex{},
+		Entries: []CrlAuditEntry{},
 	}
 }
 
-func (ae *CrlAuditor) GetEntries() <-chan CrlAuditEntry {
-	c := make(chan CrlAuditEntry, len(ae.entries))
-	for _, entry := range ae.entries {
-		c <- entry
-	}
-	close(c)
-	return c
+func (auditor *CrlAuditor) GetEntries() []CrlAuditEntry {
+	return auditor.Entries
 }
 
-func (ae *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, err error) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) WriteReport(fd io.Writer) error {
+	enc := json.NewEncoder(fd)
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
+	return enc.Encode(auditor)
+}
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindFailedDownload,
-		Url:    crlUrl,
-		Issuer: issuer,
+func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, err error) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
+
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindFailedDownload,
+		Url:       crlUrl.String(),
+		Issuer:    issuer,
 	})
 }
 
-func (ae *CrlAuditor) FailedVerify(issuer storage.Issuer, crlUrl *url.URL, err error) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) FailedVerify(issuer storage.Issuer, crlUrl *url.URL, err error) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindFailedVerify,
-		Url:    crlUrl,
-		Issuer: issuer,
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindFailedVerify,
+		Url:       crlUrl.String(),
+		Issuer:    issuer,
 	})
 }
 
-func (ae *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.Duration) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.Duration) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindOld,
-		Url:    crlUrl,
-		Issuer: issuer,
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindOld,
+		Url:       crlUrl.String(),
+		Issuer:    issuer,
+		Age:       age.String(),
 	})
 }
 
-func (ae *CrlAuditor) FailedVerifyLocal(issuer storage.Issuer, crlPath string, err error) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) FailedVerifyLocal(issuer storage.Issuer, crlPath string, err error) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindFailedVerifyLocal,
-		Path:   crlPath,
-		Issuer: issuer,
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindFailedVerifyLocal,
+		Path:      crlPath,
+		Issuer:    issuer,
 	})
 }
-func (ae *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindFailedProcessLocal,
-		Path:   crlPath,
-		Issuer: issuer,
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindFailedProcessLocal,
+		Path:      crlPath,
+		Issuer:    issuer,
 	})
 }
 
-func (ae *CrlAuditor) NoRevocations(issuer storage.Issuer, crlPath string) {
-	ae.mutex.Lock()
-	defer ae.mutex.Unlock()
+func (auditor *CrlAuditor) NoRevocations(issuer storage.Issuer, crlPath string) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
 
-	ae.entries = append(ae.entries, CrlAuditEntry{
-		Kind:   AuditKindNoRevocations,
-		Path:   crlPath,
-		Issuer: issuer,
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp: time.Now().UTC(),
+		Kind:      AuditKindNoRevocations,
+		Path:      crlPath,
+		Issuer:    issuer,
 	})
 }
