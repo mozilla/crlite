@@ -32,7 +32,7 @@ type CrlAuditEntry struct {
 }
 
 type CrlAuditor struct {
-	mutex   *sync.Mutex `json:"-"`
+	mutex   *sync.Mutex
 	Entries []CrlAuditEntry
 }
 
