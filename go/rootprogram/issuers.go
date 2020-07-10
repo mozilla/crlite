@@ -249,6 +249,18 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 	return issuer
 }
 
+func (mi *MozIssuers) NewTestIssuerFromSubjectString(aSub string) storage.Issuer {
+	issuer := storage.NewIssuerFromString(aSub)
+	ic := issuerCert{
+		subjectDN: aSub,
+	}
+	mi.issuerMap[issuer.ID()] = IssuerData{
+		certs:    []issuerCert{ic},
+		enrolled: false,
+	}
+	return issuer
+}
+
 func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()

@@ -42,6 +42,7 @@ var (
 	crlpath      = flag.String("crlpath", "<path>", "root of folders of the form /<path>/<issuer> containing .crl files to be updated")
 	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
 	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
+	auditpath    = flag.String("auditpath", "<path>", "output JSON audit report")
 	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 
@@ -57,6 +58,7 @@ type AggregateEngine struct {
 
 	issuers *rootprogram.MozIssuers
 	display *mpb.Progress
+	auditor *CrlAuditor
 }
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
@@ -127,10 +129,14 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	tmpPath := filepath.Join(*crlpath, issuer.ID(), filename+".tmp")
 	finalPath := filepath.Join(*crlpath, issuer.ID(), filename)
 
-	err = downloader.DownloadFileSync(ctx, ae.display, crlUrl, tmpPath, 3)
+	dlAuditor := NewDownloadAuditor()
+	auditCtx := dlAuditor.Configure(ctx)
+
+	err = downloader.DownloadFileSync(auditCtx, ae.display, crlUrl, tmpPath, 3)
 	if err != nil {
 		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
 			tmpPath, err)
+		ae.auditor.FailedDownload(issuer, &crlUrl, dlAuditor, err)
 		err = os.Remove(tmpPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -145,6 +151,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		_, err = verifyCRL(tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
+			ae.auditor.FailedVerifyUrl(issuer, &crlUrl, dlAuditor, err)
 			err = os.Remove(tmpPath)
 			if err != nil {
 				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -168,6 +175,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	age := time.Now().Sub(localDate)
 
 	if age > allowableAgeOfLocalCRL {
+		ae.auditor.Old(issuer, &crlUrl, age)
 		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
 	}
 
@@ -298,18 +306,21 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			default:
 				crl, err := verifyCRL(crlPath, cert, "")
 				if err != nil {
+					ae.auditor.FailedVerifyPath(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
 					continue
 				}
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
+					ae.auditor.FailedProcessLocal(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
 					continue
 				}
 
 				revokedCount := len(revokedSerials)
 				if revokedCount == 0 {
+					ae.auditor.NoRevocations(tuple.Issuer, crlPath)
 					continue
 				}
 
@@ -531,6 +542,7 @@ func main() {
 	checkPathArg(*revokedpath, "revokedpath", ctconfig)
 	checkPathArg(*crlpath, "crlpath", ctconfig)
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
+	checkPathArg(*auditpath, "auditpath", ctconfig)
 
 	if err := os.MkdirAll(*revokedpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the revokedpath directory: %s", err)
@@ -582,12 +594,15 @@ func main() {
 		mpb.WithOutput(barOutput),
 	)
 
+	auditor := NewCrlAuditor(mozIssuers)
+
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
 		saveStorage:   saveBackend,
 		remoteCache:   remoteCache,
 		issuers:       mozIssuers,
 		display:       display,
+		auditor:       auditor,
 	}
 
 	mergedCrls := ae.identifyCrlsByIssuer(ctx)
@@ -606,4 +621,17 @@ func main() {
 		glog.Fatalf("Unable to save the crlite-informed intermediate issuers to %s: %s", *enrolledpath, err)
 	}
 	glog.Infof("Saved crlite-informed intermediate issuers to %s", *enrolledpath)
+
+	fd, err := os.Create(*auditpath)
+	if err != nil {
+		glog.Warningf("Could not open audit report path %s: %v", *auditpath, err)
+		return
+	}
+	if err = auditor.WriteReport(fd); err != nil {
+		glog.Warningf("Could not write audit report %s: %v", *auditpath, err)
+	}
+	err = fd.Close()
+	if err != nil {
+		glog.Warningf("Could not close audit report %s: %v", *auditpath, err)
+	}
 }

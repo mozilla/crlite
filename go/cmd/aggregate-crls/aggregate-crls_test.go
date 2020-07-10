@@ -55,6 +55,7 @@ func Test_makeFilenameFromUrl(t *testing.T) {
 }
 
 func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
+	t.Helper()
 	caTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().Unix()),
 		Subject: pkix.Name{
@@ -87,6 +88,7 @@ func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 }
 
 func makeCRL(t *testing.T, ca *x509.Certificate, caPrivKey interface{}, thisUpdate time.Time, nextUpdate time.Time) []byte {
+	t.Helper()
 	revokedCerts := []pkix.RevokedCertificate{}
 
 	crlBytes, err := ca.CreateCRL(rand.Reader, caPrivKey, revokedCerts, thisUpdate, nextUpdate)
@@ -216,6 +218,7 @@ func Test_verifyCRL(t *testing.T) {
 }
 
 func hostCRL(t *testing.T, crlBytes []byte) *httptest.Server {
+	t.Helper()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write(crlBytes)
 		if err != nil {
@@ -244,8 +247,8 @@ func Test_crlFetchWorker(t *testing.T) {
 	)
 
 	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
-
 	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
@@ -253,6 +256,7 @@ func Test_crlFetchWorker(t *testing.T) {
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
 		display:       display,
+		auditor:       auditor,
 	}
 	bar := display.AddBar(1)
 
@@ -335,6 +339,11 @@ func Test_crlFetchWorker(t *testing.T) {
 		t.Errorf("Unexpected message: %+v", msg)
 	default:
 	}
+
+	assertAuditorReportHasEntries(t, auditor, 3)
+	for _, e := range auditor.GetEntries() {
+		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
+	}
 }
 
 func Test_crlFetchWorkerProcessOne(t *testing.T) {
@@ -351,6 +360,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 
 	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
@@ -358,6 +368,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
 		display:       display,
+		auditor:       auditor,
 	}
 
 	ca, caPrivKey := makeCA(t)
@@ -395,5 +406,10 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	}
 	if !bytes.Equal(readBytes, crlBytes) {
 		t.Error("Bytes on disk didn't match what was served")
+	}
+
+	assertAuditorReportHasEntries(t, auditor, 1)
+	for _, e := range auditor.GetEntries() {
+		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
 	}
 }
