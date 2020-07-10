@@ -374,3 +374,16 @@ func Test_IsIssuerEnrolled(t *testing.T) {
 		t.Error("Should now be enrolled")
 	}
 }
+
+func Test_NewTestIssuerFromSubjectString(t *testing.T) {
+	mi := NewMozillaIssuers()
+	issuer := mi.NewTestIssuerFromSubjectString("a subject")
+
+	subject, err := mi.GetSubjectForIssuer(issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if subject != "a subject" {
+		t.Errorf("Unexpected subject: %v", subject)
+	}
+}
