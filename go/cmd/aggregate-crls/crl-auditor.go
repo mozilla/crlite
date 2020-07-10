@@ -16,7 +16,7 @@ var (
 	AuditKindFailedDownload     CrlAuditEntryKind = "Failed Download"
 	AuditKindFailedProcessLocal CrlAuditEntryKind = "Failed Process Local"
 	AuditKindFailedVerify       CrlAuditEntryKind = "Failed Verify"
-	AuditKindNoRevocations      CrlAuditEntryKind = "No NoRevocations"
+	AuditKindNoRevocations      CrlAuditEntryKind = "Empty Revocation List"
 	AuditKindOld                CrlAuditEntryKind = "Old"
 )
 
