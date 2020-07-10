@@ -28,6 +28,7 @@ type CrlAuditEntry struct {
 	Age       string `json:",omitempty"`
 	Issuer    storage.Issuer
 	Kind      CrlAuditEntryKind
+	Error     string `json:",omitempty"`
 }
 
 type CrlAuditor struct {
@@ -62,6 +63,7 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 		Kind:      AuditKindFailedDownload,
 		Url:       crlUrl.String(),
 		Issuer:    issuer,
+		Error:     err.Error(),
 	})
 }
 
@@ -74,6 +76,7 @@ func (auditor *CrlAuditor) FailedVerify(issuer storage.Issuer, crlUrl *url.URL, 
 		Kind:      AuditKindFailedVerify,
 		Url:       crlUrl.String(),
 		Issuer:    issuer,
+		Error:     err.Error(),
 	})
 }
 
@@ -99,6 +102,7 @@ func (auditor *CrlAuditor) FailedVerifyLocal(issuer storage.Issuer, crlPath stri
 		Kind:      AuditKindFailedVerifyLocal,
 		Path:      crlPath,
 		Issuer:    issuer,
+		Error:     err.Error(),
 	})
 }
 func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
@@ -110,6 +114,7 @@ func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath str
 		Kind:      AuditKindFailedProcessLocal,
 		Path:      crlPath,
 		Issuer:    issuer,
+		Error:     err.Error(),
 	})
 }
 

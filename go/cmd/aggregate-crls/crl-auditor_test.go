@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -23,11 +22,31 @@ func assertEmptyList(t *testing.T, a *CrlAuditor) {
 	}
 }
 
+func assertValidEntry(t *testing.T, ent *CrlAuditEntry) {
+	t.Helper()
+	// Check mandatory fields
+	if ent.Timestamp.IsZero() {
+		t.Error("Timestamp should not be zero")
+	}
+	if len(ent.Url) == 0 && len(ent.Path) == 0 {
+		t.Errorf("Either URL or Path must be set: %+v", ent)
+	}
+	if ent.Issuer.ID() == "" {
+		t.Error("Issuer is mandatory")
+	}
+	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
+		if len(ent.Error) == 0 {
+			t.Error("Expecting an error message")
+		}
+	}
+}
+
 func assertOnlyEntryInList(t *testing.T, a *CrlAuditor, entryKind CrlAuditEntryKind) *CrlAuditEntry {
 	t.Helper()
 	num := 0
 	for _, entry := range a.GetEntries() {
 		num += 1
+		assertValidEntry(t, &entry)
 		if entry.Kind == entryKind {
 			return &entry
 		}
@@ -47,6 +66,7 @@ func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Is
 	if ent.Issuer.ID() != issuer.ID() {
 		t.Errorf("Expected Issuer of %v got %v", issuer, ent.Issuer)
 	}
+	assertValidEntry(t, ent)
 }
 
 func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer, path string) {
@@ -57,35 +77,33 @@ func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.I
 	if ent.Issuer.ID() != issuer.ID() {
 		t.Errorf("Expected Issuer of %v got %v", issuer, ent.Issuer)
 	}
+	assertValidEntry(t, ent)
 }
 
 type OutReport struct {
 	Entries []CrlAuditEntry
 }
 
-func assertReportHasEntries(t *testing.T, r io.Reader, count int) {
+func assertAuditorReportHasEntries(t *testing.T, auditor *CrlAuditor, count int) {
 	t.Helper()
-	dec := json.NewDecoder(r)
-	report := OutReport{}
-	err := dec.Decode(&report)
+	var b bytes.Buffer
+	err := auditor.WriteReport(&b)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
+
+	dec := json.NewDecoder(&b)
+	report := OutReport{}
+	err = dec.Decode(&report)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if len(report.Entries) != count {
 		t.Errorf("Expected %d entries but found %d", count, len(report.Entries))
 	}
 	for _, e := range report.Entries {
-		// Check mandatory fields
-		if e.Timestamp.IsZero() {
-			t.Error("Timestamp should not be zero")
-		}
-		if len(e.Url) == 0 && len(e.Path) == 0 {
-			t.Errorf("Either URL or Path must be set: %+v", e)
-		}
-		if e.Issuer.ID() == "" {
-			t.Error("Issuer is mandatory")
-		}
+		assertValidEntry(t, &e)
 	}
 }
 
@@ -187,7 +205,7 @@ func Test_EmptyReport(t *testing.T) {
 		t.Errorf("Expected %v got %v", expected, b.Bytes())
 	}
 
-	assertReportHasEntries(t, &b, 0)
+	assertAuditorReportHasEntries(t, auditor, 0)
 }
 
 func Test_SeveralFailures(t *testing.T) {
@@ -231,11 +249,5 @@ func Test_SeveralFailures(t *testing.T) {
 		}
 	}
 
-	var b bytes.Buffer
-	err = auditor.WriteReport(&b)
-	if err != nil {
-		t.Error(err)
-	}
-
-	assertReportHasEntries(t, &b, 6)
+	assertAuditorReportHasEntries(t, auditor, 6)
 }
