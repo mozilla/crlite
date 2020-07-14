@@ -649,8 +649,11 @@ def publish_intermediates(*, args, ro_client, rw_client):
 
     expired = set()
     for i in to_delete:
-        if remote_intermediates[i].is_expired():
-            expired.add(i)
+        try:
+            if remote_intermediates[i].is_expired():
+                expired.add(i)
+        except Exception as e:
+            log.warning(f"Failed to track expiration for {i}: {e}")
 
     to_delete_not_expired = to_delete - expired
 
