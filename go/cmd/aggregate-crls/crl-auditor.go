@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/url"
 	"sync"
@@ -16,8 +17,10 @@ var (
 	AuditKindFailedDownload     CrlAuditEntryKind = "Failed Download"
 	AuditKindFailedProcessLocal CrlAuditEntryKind = "Failed Process Local"
 	AuditKindFailedVerify       CrlAuditEntryKind = "Failed Verify"
+	AuditKindOlderThanLast      CrlAuditEntryKind = "Older Than Previous"
 	AuditKindNoRevocations      CrlAuditEntryKind = "Empty Revocation List"
-	AuditKindOld                CrlAuditEntryKind = "Old"
+	AuditKindOld                CrlAuditEntryKind = "Very Old, Blocked"
+	AuditKindExpired            CrlAuditEntryKind = "Expired, Allowed"
 )
 
 type CrlAuditEntryKind string
@@ -98,6 +101,23 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.UR
 	})
 }
 
+func (auditor *CrlAuditor) FailedOlderthanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, previous time.Time, this time.Time) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
+
+	err := fmt.Sprintf("Previous: %s, New: %s", previous, this)
+
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindOlderThanLast,
+		Url:           crlUrl.String(),
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Errors:        append(dlAuditor.Errors(), err),
+		DNSResults:    dlAuditor.DNSResults(),
+	})
+}
+
 func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.Duration) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
@@ -109,6 +129,20 @@ func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
 		Age:           age.String(),
+	})
+}
+
+func (auditor *CrlAuditor) Expired(issuer storage.Issuer, crlUrl *url.URL, nextUpdate time.Time) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
+
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindExpired,
+		Url:           crlUrl.String(),
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Errors:        []string{fmt.Sprintf("Expired, NextUpdate was %s", nextUpdate)},
 	})
 }
 

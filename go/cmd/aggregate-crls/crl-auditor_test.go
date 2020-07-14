@@ -58,7 +58,7 @@ func assertOnlyEntryInList(t *testing.T, a *CrlAuditor, entryKind CrlAuditEntryK
 			t.Errorf("More than one entry in list")
 		}
 	}
-	t.Errorf("Entry type %v not in list of size %d", entryKind, num)
+	t.Fatalf("Entry type %v not in list of size %d", entryKind, num)
 	return nil
 }
 
@@ -197,6 +197,34 @@ func Test_FailedOld(t *testing.T) {
 	auditor.Old(issuer, url, age)
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindOld)
+	assertEntryUrlAndIssuer(t, ent, issuer, url)
+}
+
+func Test_FailedOlderthanPrevious(t *testing.T) {
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
+	url, _ := url.Parse("http://test/crl")
+
+	assertEmptyList(t, auditor)
+
+	auditor.FailedOlderthanPrevious(issuer, url, NewDownloadAuditor(), time.Now(), time.Now().AddDate(0, 0, -1))
+
+	ent := assertOnlyEntryInList(t, auditor, AuditKindOlderThanLast)
+	assertEntryUrlAndIssuer(t, ent, issuer, url)
+}
+
+func Test_FailedExpired(t *testing.T) {
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
+	url, _ := url.Parse("http://test/crl")
+
+	assertEmptyList(t, auditor)
+
+	auditor.Expired(issuer, url, time.Now().AddDate(0, 0, -1))
+
+	ent := assertOnlyEntryInList(t, auditor, AuditKindExpired)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)
 }
 
