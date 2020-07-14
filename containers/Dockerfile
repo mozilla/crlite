@@ -50,6 +50,15 @@ ENTRYPOINT ["/tini", "-g", "--"]
 USER appuser
 WORKDIR /app
 
+ENV outputRefreshMs 60000
+
+# For crlite-fetch
+ENV runForever true
+ENV logExpiredEntries false
+ENV logList https://ct.googleapis.com/icarus
+
+EXPOSE 8080/tcp
+
+# For crlite-generate
 ENV numThreads 16
 ENV cacheSize 64
-ENV outputRefreshMs 60000

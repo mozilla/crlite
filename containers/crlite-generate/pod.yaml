@@ -27,7 +27,8 @@ spec:
             envFrom:
             - configMapRef:
                 name: crlite-config
-            image: docker.io/mozilla/crlite:latest-generate
+            image: docker.io/mozilla/crlite:latest
+            command: [ "/bin/bash", "-xc", "/app/scripts/crlite-generate.sh" ]
             imagePullPolicy: Always
             resources:
               requests:

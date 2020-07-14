@@ -22,7 +22,8 @@ spec:
                 name: crlite-config
             - configMapRef:
                 name: crlite-publish-config
-            image: docker.io/mozilla/crlite:latest-publish
+            image: docker.io/mozilla/crlite:latest
+            command: [ "/bin/bash", "-xc", "/app/scripts/crlite-publish.sh" ]
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError
