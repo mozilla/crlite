@@ -353,7 +353,7 @@ def main():
                 with open(prior_revoked_path, "rb") as prior_fp, open(
                     args.revokedKeys, "rb"
                 ) as fp:
-                    revoked_diff_by_isssuer = find_additions(
+                    revoked_diff_by_issuer = find_additions(
                         old_by_issuer=crlite.readFromCertListByIssuer(prior_fp),
                         new_by_issuer=crlite.readFromCertListByIssuer(fp),
                     )
@@ -362,12 +362,14 @@ def main():
                 with metrics.timer("SaveAdditions"):
                     crlite.save_additions(
                         out_path=args.diffPath,
-                        revoked_by_issuer=revoked_diff_by_isssuer,
+                        revoked_by_issuer=revoked_diff_by_issuer,
                     )
                 log.info(
                     f"Difference stash complete. sz={Path(args.diffPath).stat().st_size} "
                     + f"memory={psutil.virtual_memory()}"
                 )
+                stats["stash_filesize"] = Path(args.diffPath).stat().st_size
+                stats["stash_num_issuers"] = len(revoked_diff_by_issuer)
             except Exception as e:
                 log.error(
                     f"Diff: Failed to make a diff, proceeding without one: {e}",
