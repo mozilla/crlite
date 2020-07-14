@@ -37,9 +37,10 @@ COPY moz_crlite_lib /app/moz_crlite_lib
 COPY create_filter_cascade /app/create_filter_cascade
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow
+COPY containers/scripts /app/scripts
 COPY setup.py /app/
 RUN pip3 install /app/moz_crlite_lib/ /app/
-
+RUN pip3 install moz_crlite_query
 
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
@@ -49,6 +50,15 @@ ENTRYPOINT ["/tini", "-g", "--"]
 USER appuser
 WORKDIR /app
 
+ENV outputRefreshMs 60000
+
+# For crlite-fetch
+ENV runForever true
+ENV logExpiredEntries false
+ENV logList https://ct.googleapis.com/icarus
+
+EXPOSE 8080/tcp
+
+# For crlite-generate
 ENV numThreads 16
 ENV cacheSize 64
-ENV outputRefreshMs 60000

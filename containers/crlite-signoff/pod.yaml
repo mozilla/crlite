@@ -22,8 +22,8 @@ spec:
                 name: crlite-config
             - configMapRef:
                 name: crlite-signoff-config
-
-            image: docker.io/mozilla/crlite:latest-signoff
+            image: docker.io/mozilla/crlite:latest
+            command: [ "/bin/bash", "-xc", "/app/scripts/crlite-signoff.sh" ]
             imagePullPolicy: Always
             terminationMessagePath: /dev/termination-log
             terminationMessagePolicy: FallbackToLogsOnError

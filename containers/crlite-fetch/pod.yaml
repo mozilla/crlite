@@ -26,7 +26,8 @@ spec:
     spec:
       containers:
       - name: crlite-fetch
-        image: docker.io/mozilla/crlite:latest-fetch
+        image: docker.io/mozilla/crlite:latest
+        command: [ "/bin/bash", "-xc", "/app/scripts/crlite-fetch.sh" ]
         envFrom:
         - configMapRef:
             name: crlite-config
