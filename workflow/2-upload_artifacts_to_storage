@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from google.cloud import storage
+from google.cloud.retry import Retry
 from pathlib import Path
 from datetime import datetime
 
@@ -27,6 +28,12 @@ parser.add_argument(
 log = logging.getLogger("upload_artifacts_to_storage")
 
 
+@Retry(deadline=60)
+def uploadBlob(bucket, remoteFilePath, localFilePath):
+    blob = bucket.blob(str(remoteFilePath))
+    blob.upload_from_filename(str(localFilePath))
+
+
 def uploadFiles(files, localFolder, remoteFolder, bucket, *, args):
     log.info(f"Uploading {len(files)} files from {localFolder} to {remoteFolder}")
     for item in files:
@@ -44,8 +51,7 @@ def uploadFiles(files, localFolder, remoteFolder, bucket, *, args):
         if args.noop:
             continue
 
-        blob = bucket.blob(str(remoteFilePath))
-        blob.upload_from_filename(str(localFilePath))
+        uploadBlob(bucket, remoteFilePath, localFilePath)
 
 
 def ensureFileOrAbort(runIdPath, path):
