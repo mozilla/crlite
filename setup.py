@@ -7,9 +7,11 @@ setup(
     install_requires=[
         "bsdiff4>=1.1",
         "cryptography>=2.2",
-        "Deprecated >= 1.2",
+        "Deprecated>=1.2",
         "filtercascade>=0.3.1",
         "glog>=0.3",
+        "google-api-core",
+        "google-cloud-core",
         "google-cloud-storage",
         "kinto-http>=9.1",
         "moz_crlite_lib>=0.2",
