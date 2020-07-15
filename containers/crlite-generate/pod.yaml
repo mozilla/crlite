@@ -45,6 +45,7 @@ spec:
               claimName: crlite-crls
           dnsPolicy: ClusterFirst
           restartPolicy: Never
+          backoffLimit: 0
           schedulerName: default-scheduler
           securityContext: {}
           terminationGracePeriodSeconds: 30
