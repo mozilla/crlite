@@ -101,7 +101,7 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.UR
 	})
 }
 
-func (auditor *CrlAuditor) FailedOlderthanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, previous time.Time, this time.Time) {
+func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, previous time.Time, this time.Time) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 

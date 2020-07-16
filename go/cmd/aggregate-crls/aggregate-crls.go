@@ -258,7 +258,7 @@ func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlAuditor *Download
 		}
 
 		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
-			ae.auditor.FailedOlderthanPrevious(aIssuer, crlUrl, dlAuditor, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
+			ae.auditor.FailedOlderThanPrevious(aIssuer, crlUrl, dlAuditor, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
 				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 		}
