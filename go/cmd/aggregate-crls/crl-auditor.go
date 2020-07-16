@@ -105,7 +105,7 @@ func (auditor *CrlAuditor) FailedOlderthanPrevious(issuer storage.Issuer, crlUrl
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
-	err := fmt.Sprintf("Previous: %s, New: %s", previous, this)
+	err := fmt.Sprintf("Previous: %s, This Run: %s", previous, this)
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:     time.Now().UTC(),
