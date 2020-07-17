@@ -42,8 +42,6 @@ commands:
       - build-and-publish:
           path: containers
           tag: <<parameters.tag-param>>
-      - docker/update-description:
-          image: ${DOCKER_IMAGE}
 
 jobs:
   python-build-and-test:
