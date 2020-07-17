@@ -17,4 +17,10 @@ KINTO_AUTH_PASSWORD=kinto_signer_example_password
 #
 # Syntax: comma delimited list of accessible urls, containing lines of hosts as
 #         host[:port]
+# and prefixing lines with # or ; to indicate comments. E.g.:
+#
+#   example.com:8443
+#   ; also the following, port 443 assumed
+#   example.net
+#
 crlite_verify_host_file_urls=https://storage.googleapis.com/crlite-verification-domains/mozilla-services-domains.txt, https://storage.googleapis.com/crlite-verification-domains/moz-top500.txt
