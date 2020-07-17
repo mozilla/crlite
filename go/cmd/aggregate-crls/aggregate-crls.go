@@ -148,10 +148,10 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 			glog.Fatalf("[%s] Could not find certificate for issuer: %s", issuer.ID(), err)
 		}
 
-		_, err = verifyCRL(tmpPath, cert, finalPath)
+		_, err = ae.verifyCRL(issuer, dlAuditor, &crlUrl, tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
-			ae.auditor.FailedVerifyUrl(issuer, &crlUrl, dlAuditor, err)
+			// Auditor had its methods called by verifyCRL
 			err = os.Remove(tmpPath)
 			if err != nil {
 				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -241,27 +241,31 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, err
 }
 
-func verifyCRL(aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
-	glog.V(1).Infof("[%s] Verifying CRL", aPath)
+func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlAuditor *DownloadAuditor, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
+	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
 	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
 	if err != nil {
+		ae.auditor.FailedVerifyUrl(aIssuer, crlUrl, dlAuditor, err)
 		return nil, err
 	}
 
 	if _, err = os.Stat(aPreviousPath); err == nil {
 		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
+			ae.auditor.FailedVerifyPath(aIssuer, aPreviousPath, err)
 			return nil, err
 		}
 
 		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
+			ae.auditor.FailedOlderThanPrevious(aIssuer, crlUrl, dlAuditor, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
 				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 		}
 	}
 
 	if crl.HasExpired(time.Now()) {
+		ae.auditor.Expired(aIssuer, crlUrl, crl.TBSCertList.NextUpdate)
 		glog.Warningf("[%s] CRL is expired, but proceeding anyway. (ThisUpdate=%s,"+
 			" NextUpdate=%s)", aPath, crl.TBSCertList.ThisUpdate, crl.TBSCertList.NextUpdate)
 	}
@@ -304,7 +308,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			case <-ctx.Done():
 				return
 			default:
-				crl, err := verifyCRL(crlPath, cert, "")
+				crl, err := loadAndCheckSignatureOfCRL(crlPath, cert)
 				if err != nil {
 					ae.auditor.FailedVerifyPath(tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)

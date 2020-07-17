@@ -142,6 +142,25 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 }
 
 func Test_verifyCRL(t *testing.T) {
+	issuersObj := rootprogram.NewMozillaIssuers()
+	dlauditor := NewDownloadAuditor()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
+	url, _ := url.Parse("http://test/crl")
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	ae := AggregateEngine{
+		loadStorageDB: storageDB,
+		saveStorage:   storage.NewMockBackend(),
+		remoteCache:   storage.NewMockRemoteCache(),
+		issuers:       issuersObj,
+		display:       display,
+		auditor:       auditor,
+	}
+
 	todayThisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
 	todayNextUpdate := time.Date(2020, time.February, 1, 0, 0, 0, 0, time.UTC)
 
@@ -177,13 +196,13 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = verifyCRL(todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlauditor, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "CRL is older than the previous CRL") {
 		t.Error(err)
 	}
 
 	// Should work fine this orientation
-	list, err := verifyCRL(yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
+	list, err := ae.verifyCRL(issuer, dlauditor, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
 	if err != nil {
 		t.Error(err)
 	}
@@ -211,7 +230,7 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = verifyCRL(todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlauditor, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}
