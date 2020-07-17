@@ -15,5 +15,6 @@ KINTO_AUTH_PASSWORD=kinto_signer_example_password
 # config. The pod will connect to each, obtain the certificate in-use, and
 # evaluate the CRLite filter to ensure it's not revoked.
 #
-# Syntax: space delimited list of hosts as host[:port]
-crlite_verify_hosts=settings.stage.mozaws.net firefox-settings-attachments-cdn.stage.mozaws.net aus5.mozilla.org
+# Syntax: comma delimited list of accessible urls, containing lines of hosts as
+#         host[:port]
+crlite_verify_host_file_urls=https://storage.googleapis.com/crlite-verification-domains/mozilla-services-domains.txt, https://storage.googleapis.com/crlite-verification-domains/moz-top500.txt
