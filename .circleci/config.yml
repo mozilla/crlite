@@ -185,9 +185,9 @@ workflows:
             - python-build-and-test
             - golang-build-and-test
       - publish-latest-pods:
-          filters:
-            branches:
-              only: main
+          # filters:
+          #   branches:
+          #     only: main
           requires:
             - python-build-and-test
             - golang-build-and-test
