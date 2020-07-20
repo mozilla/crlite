@@ -38,7 +38,7 @@ COPY create_filter_cascade /app/create_filter_cascade
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow
 COPY containers/scripts /app/scripts
-COPY setup.py /app/
+COPY setup.py version.json /app/
 RUN pip3 install /app/moz_crlite_lib/ /app/
 
 ENV TINI_VERSION v0.19.0
