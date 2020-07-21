@@ -430,6 +430,35 @@ func Test_LoadFromURL(t *testing.T) {
 	}
 }
 
+func Test_LoadFromURLToDefaultLocation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, kFirstTwoLines)
+	}))
+	defer ts.Close()
+
+	mi := NewMozillaIssuers()
+	mi.reportUrl = ts.URL
+	defer os.Remove(mi.diskPath)
+
+	err := mi.Load()
+	if err != nil {
+		t.Error(err)
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if subject != kFirstTwoLinesSubject {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.diskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 func Test_LoadFrom404URLNoLocal(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())
 	defer ts.Close()

@@ -57,7 +57,7 @@ func NewMozillaIssuers() *MozIssuers {
 	return &MozIssuers{
 		issuerMap: make(map[string]IssuerData, 0),
 		mutex:     &sync.Mutex{},
-		diskPath:  "/tmp/mozissuers",
+		diskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
 		reportUrl: kMozCCADBReport,
 	}
 }
