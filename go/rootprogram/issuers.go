@@ -1,6 +1,7 @@
 package rootprogram
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
@@ -9,7 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/downloader"
+	"github.com/vbauerster/mpb/v5"
 )
 
 const (
@@ -46,18 +49,69 @@ type EnrolledIssuer struct {
 type MozIssuers struct {
 	issuerMap map[string]IssuerData
 	mutex     *sync.Mutex
+	diskPath  string
+	reportUrl string
 }
 
 func NewMozillaIssuers() *MozIssuers {
 	return &MozIssuers{
 		issuerMap: make(map[string]IssuerData, 0),
 		mutex:     &sync.Mutex{},
+		diskPath:  "/tmp/mozissuers",
+		reportUrl: kMozCCADBReport,
 	}
 }
 
+type verifier struct {
+}
+
+func (v *verifier) IsValid(path string) error {
+	mi := NewMozillaIssuers()
+	return mi.LoadFromDisk(path)
+}
+
+type loggingAuditor struct{}
+
+func (ta *loggingAuditor) FailedDownload(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+	glog.Warningf("Failed download of %s: %s", crlUrl.String(), err)
+}
+func (ta *loggingAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+	glog.Warningf("Failed verify of %s: %s", crlUrl.String(), err)
+}
+func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string, err error) {
+	glog.Warningf("Failed verify of %s: %s", crlPath, err)
+}
+
+type identifier struct{}
+
+func (i *identifier) ID() string {
+	return "Mozilla Issuers"
+}
+
 func (mi *MozIssuers) Load() error {
-	// TODO: Use a local cache
-	return mi.downloadAndParse(kMozCCADBReport)
+	ctx := context.Background()
+
+	display := mpb.New(
+		mpb.WithOutput(ioutil.Discard),
+	)
+
+	dataUrl, err := url.Parse(mi.reportUrl)
+	if err != nil {
+		glog.Fatalf("Couldn't parse CCADB URL of %s: %s", mi.reportUrl, err)
+	}
+
+	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},
+		display, *dataUrl, mi.diskPath, 3)
+
+	if !isAcceptable {
+		return err
+	}
+
+	if err != nil {
+		glog.Warningf("Error encountered loading CCADB data, but able to proceed with previous data. Error: %s", err)
+	}
+
+	return mi.LoadFromDisk(mi.diskPath)
 }
 
 func (mi *MozIssuers) LoadFromDisk(aPath string) error {
@@ -290,23 +344,4 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 	}
 
 	return nil
-}
-
-func (mi *MozIssuers) downloadAndParse(aUrl string) error {
-	req, err := http.NewRequest("GET", aUrl, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite")
-	glog.Infof("Loading salesforce data from %s\n", aUrl)
-
-	client := &http.Client{}
-	r, err := client.Do(req)
-	if err != nil {
-		glog.Fatalf("Problem fetching salesforce data from URL %s\n", err)
-	}
-
-	defer r.Body.Close()
-	return mi.parseCCADB(r.Body)
 }
