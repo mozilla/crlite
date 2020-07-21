@@ -49,16 +49,16 @@ type EnrolledIssuer struct {
 type MozIssuers struct {
 	issuerMap map[string]IssuerData
 	mutex     *sync.Mutex
-	diskPath  string
-	reportUrl string
+	DiskPath  string
+	ReportUrl string
 }
 
 func NewMozillaIssuers() *MozIssuers {
 	return &MozIssuers{
 		issuerMap: make(map[string]IssuerData, 0),
 		mutex:     &sync.Mutex{},
-		diskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
-		reportUrl: kMozCCADBReport,
+		DiskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
+		ReportUrl: kMozCCADBReport,
 	}
 }
 
@@ -95,13 +95,13 @@ func (mi *MozIssuers) Load() error {
 		mpb.WithOutput(ioutil.Discard),
 	)
 
-	dataUrl, err := url.Parse(mi.reportUrl)
+	dataUrl, err := url.Parse(mi.ReportUrl)
 	if err != nil {
-		glog.Fatalf("Couldn't parse CCADB URL of %s: %s", mi.reportUrl, err)
+		glog.Fatalf("Couldn't parse CCADB URL of %s: %s", mi.ReportUrl, err)
 	}
 
 	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},
-		display, *dataUrl, mi.diskPath, 3)
+		display, *dataUrl, mi.DiskPath, 3)
 
 	if !isAcceptable {
 		return err
@@ -111,7 +111,7 @@ func (mi *MozIssuers) Load() error {
 		glog.Warningf("Error encountered loading CCADB data, but able to proceed with previous data. Error: %s", err)
 	}
 
-	return mi.LoadFromDisk(mi.diskPath)
+	return mi.LoadFromDisk(mi.DiskPath)
 }
 
 func (mi *MozIssuers) LoadFromDisk(aPath string) error {

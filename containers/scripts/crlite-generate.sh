@@ -16,16 +16,11 @@ if [ ! -d ${ID}/log ] ; then
   mkdir ${ID}/log
 fi
 
-if [ ! -r ${crlite_processing:-/ct}/ccadb-intermediates.csv ] ; then
-  curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport \
-              --output ${crlite_processing:-/ct}/ccadb-intermediates.csv
-fi
-
 ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
               -revokedpath ${ID}/revoked \
               -enrolledpath ${ID}/enrolled.json \
               -auditpath ${ID}/crl-audit.json \
-              -ccadb ${crlite_processing:-/ct}/ccadb-intermediates.csv \
+              -ccadb ${crlite_persistent:-/ct}/ccadb-intermediates.csv \
               -nobars -alsologtostderr -log_dir ${ID}/log
 
 ${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${ID}/known \

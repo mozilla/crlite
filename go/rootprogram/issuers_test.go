@@ -408,8 +408,8 @@ func Test_LoadFromURL(t *testing.T) {
 	defer os.Remove(tmpfile.Name())
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	mi.diskPath = tmpfile.Name()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
 
 	err = mi.Load()
 	if err != nil {
@@ -424,7 +424,7 @@ func Test_LoadFromURL(t *testing.T) {
 		t.Errorf("Unexpected certificate subject: %s", subject)
 	}
 
-	_, err = os.Stat(mi.diskPath)
+	_, err = os.Stat(mi.DiskPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -437,8 +437,8 @@ func Test_LoadFromURLToDefaultLocation(t *testing.T) {
 	defer ts.Close()
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	defer os.Remove(mi.diskPath)
+	mi.ReportUrl = ts.URL
+	defer os.Remove(mi.DiskPath)
 
 	err := mi.Load()
 	if err != nil {
@@ -453,7 +453,7 @@ func Test_LoadFromURLToDefaultLocation(t *testing.T) {
 		t.Errorf("Unexpected certificate subject: %s", subject)
 	}
 
-	_, err = os.Stat(mi.diskPath)
+	_, err = os.Stat(mi.DiskPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -470,8 +470,8 @@ func Test_LoadFrom404URLNoLocal(t *testing.T) {
 	defer os.Remove(tmpfile.Name())
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	mi.diskPath = tmpfile.Name()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
 
 	err = mi.Load()
 	if err == nil {
@@ -486,7 +486,7 @@ func Test_LoadFrom404URLNoLocal(t *testing.T) {
 		t.Errorf("Unexpected certificate subject: %s", subject)
 	}
 
-	_, err = os.Stat(mi.diskPath)
+	_, err = os.Stat(mi.DiskPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -508,8 +508,8 @@ func Test_LoadFrom404URLWithLocal(t *testing.T) {
 	}
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	mi.diskPath = tmpfile.Name()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
 
 	err = mi.Load()
 	if err != nil {
@@ -524,7 +524,7 @@ func Test_LoadFrom404URLWithLocal(t *testing.T) {
 		t.Errorf("Unexpected certificate subject: %s", subject)
 	}
 
-	_, err = os.Stat(mi.diskPath)
+	_, err = os.Stat(mi.DiskPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -548,8 +548,8 @@ func Test_LoadInvalidWithLocal(t *testing.T) {
 	}
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	mi.diskPath = tmpfile.Name()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
 
 	err = mi.Load()
 	if err != nil {
@@ -564,7 +564,7 @@ func Test_LoadInvalidWithLocal(t *testing.T) {
 		t.Errorf("Unexpected certificate subject: %s", subject)
 	}
 
-	_, err = os.Stat(mi.diskPath)
+	_, err = os.Stat(mi.DiskPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -583,8 +583,8 @@ func Test_LoadInvalidWithNoLocal(t *testing.T) {
 	defer os.Remove(tmpfile.Name())
 
 	mi := NewMozillaIssuers()
-	mi.reportUrl = ts.URL
-	mi.diskPath = tmpfile.Name()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
 
 	err = mi.Load()
 	if err == nil {

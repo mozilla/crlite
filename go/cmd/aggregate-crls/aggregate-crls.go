@@ -559,11 +559,10 @@ func main() {
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
-		err = mozIssuers.LoadFromDisk(*inccadb)
-	} else {
-		err = mozIssuers.Load()
+		mozIssuers.DiskPath = *inccadb
 	}
 
+	err = mozIssuers.Load()
 	if err != nil {
 		glog.Fatalf("Unable to load the Mozilla issuers: %s", err)
 	}
