@@ -10,9 +10,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/vbauerster/mpb/v5"
 )
+
+type testIdentifier struct{}
+
+func (ti testIdentifier) ID() string {
+	return "test identifier"
+}
 
 type testVerifier struct{}
 
@@ -29,11 +34,11 @@ func (tv *testVerifier) IsValid(path string) error {
 
 type testAuditor struct{}
 
-func (ta *testAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlTracer *DownloadTracer, err error) {
+func (ta *testAuditor) FailedDownload(issuer DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error) {
 }
-func (ta *testAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlTracer *DownloadTracer, err error) {
+func (ta *testAuditor) FailedVerifyUrl(issuer DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error) {
 }
-func (ta *testAuditor) FailedVerifyPath(issuer storage.Issuer, crlPath string, err error) {}
+func (ta *testAuditor) FailedVerifyPath(issuer DownloadIdentifier, crlPath string, err error) {}
 
 func Test_NotFoundNotLocal(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())
@@ -54,7 +59,7 @@ func Test_NotFoundNotLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		storage.NewIssuerFromString("this issuer"), display, *testUrl,
+		&testIdentifier{}, display, *testUrl,
 		tmpfile.Name(), 1)
 
 	if err == nil {
@@ -93,7 +98,7 @@ func Test_NotFoundButIsLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		storage.NewIssuerFromString("this issuer"), display, *testUrl,
+		&testIdentifier{}, display, *testUrl,
 		tmpfile.Name(), 1)
 
 	if err == nil {
@@ -133,7 +138,7 @@ func Test_FoundRemoteButNotLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		storage.NewIssuerFromString("this issuer"), display, *testUrl,
+		&testIdentifier{}, display, *testUrl,
 		tmpfile.Name(), 1)
 
 	if err != nil {
@@ -170,7 +175,7 @@ func Test_FoundRemoteAndAlsoLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		storage.NewIssuerFromString("this issuer"), display, *testUrl,
+		&testIdentifier{}, display, *testUrl,
 		tmpfile.Name(), 1)
 
 	if err != nil {

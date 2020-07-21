@@ -2,12 +2,14 @@ package downloader
 
 import (
 	"net/url"
-
-	"github.com/jcjones/ct-mapreduce/storage"
 )
 
+type DownloadIdentifier interface {
+	ID() string
+}
+
 type DownloadAuditor interface {
-	FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
-	FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
-	FailedVerifyPath(issuer storage.Issuer, crlPath string, err error)
+	FailedDownload(identifier DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
+	FailedVerifyUrl(identifier DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
+	FailedVerifyPath(identifier DownloadIdentifier, crlPath string, err error)
 }

@@ -118,6 +118,15 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 	resultChan <- issuerCrls
 }
 
+type CrlVerifier struct {
+	expectedIssuerCert *x509.Certificate
+}
+
+func (cv *CrlVerifier) IsValid(path string) error {
+	_, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
+	return err
+}
+
 func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl url.URL, issuer storage.Issuer) (string, error) {
 	err := os.MkdirAll(filepath.Join(*crlpath, issuer.ID()), permModeDir)
 	if err != nil {
@@ -126,48 +135,31 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	}
 
 	filename := makeFilenameFromUrl(crlUrl)
-	tmpPath := filepath.Join(*crlpath, issuer.ID(), filename+".tmp")
 	finalPath := filepath.Join(*crlpath, issuer.ID(), filename)
 
-	dlTracer := downloader.NewDownloadTracer()
-	auditCtx := dlTracer.Configure(ctx)
-
-	err = downloader.DownloadFileSync(auditCtx, ae.display, crlUrl, tmpPath, 3)
+	cert, err := ae.issuers.GetCertificateForIssuer(issuer)
 	if err != nil {
-		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
-			tmpPath, err)
-		ae.auditor.FailedDownload(issuer, &crlUrl, dlTracer, err)
-		err = os.Remove(tmpPath)
-		if err != nil {
-			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
-		}
-	} else {
-		// Validate the file and move it to the finalPath
-		cert, err := ae.issuers.GetCertificateForIssuer(issuer)
-		if err != nil {
-			glog.Fatalf("[%s] Could not find certificate for issuer: %s", issuer.ID(), err)
-		}
+		glog.Fatalf("[%s] Could not find certificate for issuer: %s", issuer.ID(), err)
+	}
 
-		_, err = ae.verifyCRL(issuer, dlTracer, &crlUrl, tmpPath, cert, finalPath)
-		if err != nil {
-			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
-			// Auditor had its methods called by verifyCRL
-			err = os.Remove(tmpPath)
-			if err != nil {
-				glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
-			}
-		} else {
-			err = os.Rename(tmpPath, finalPath)
-			if err != nil {
-				glog.Errorf("[%s] Couldn't rename %s to %s: %s", issuer.ID(), tmpPath, finalPath, err)
-			}
-		}
+	verifyFunc := &CrlVerifier{
+		expectedIssuerCert: cert,
+	}
+
+	fileOnDiskIsAcceptable, dlErr := downloader.DownloadAndVerifyFileSync(ctx, verifyFunc, ae.auditor, &issuer, ae.display, crlUrl, finalPath, 3)
+	if !fileOnDiskIsAcceptable {
+		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
+			"revocations: %s", crlUrl.String(), dlErr)
+		return "", dlErr
+	}
+	if dlErr != nil {
+		glog.Errorf("[%s] Problem downloading: %s", crlUrl.String(), dlErr)
 	}
 
 	// Ensure the final path is acceptable
 	localSize, localDate, err := downloader.GetSizeAndDateOfFile(finalPath)
 	if err != nil {
-		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
+		glog.Errorf("[%s] Unexpected error on local file, will not be populating the "+
 			"revocations: %s", crlUrl.String(), err)
 		return "", err
 	}
@@ -175,7 +167,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	age := time.Now().Sub(localDate)
 
 	if age > allowableAgeOfLocalCRL {
-		ae.auditor.Old(issuer, &crlUrl, age)
+		ae.auditor.Old(&issuer, &crlUrl, age)
 		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
 	}
 
@@ -246,26 +238,26 @@ func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloade
 
 	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
 	if err != nil {
-		ae.auditor.FailedVerifyUrl(aIssuer, crlUrl, dlTracer, err)
+		ae.auditor.FailedVerifyUrl(&aIssuer, crlUrl, dlTracer, err)
 		return nil, err
 	}
 
 	if _, err = os.Stat(aPreviousPath); err == nil {
 		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
-			ae.auditor.FailedVerifyPath(aIssuer, aPreviousPath, err)
+			ae.auditor.FailedVerifyPath(&aIssuer, aPreviousPath, err)
 			return nil, err
 		}
 
 		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
-			ae.auditor.FailedOlderThanPrevious(aIssuer, crlUrl, dlTracer, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
+			ae.auditor.FailedOlderThanPrevious(&aIssuer, crlUrl, dlTracer, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
 				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 		}
 	}
 
 	if crl.HasExpired(time.Now()) {
-		ae.auditor.Expired(aIssuer, crlUrl, crl.TBSCertList.NextUpdate)
+		ae.auditor.Expired(&aIssuer, crlUrl, crl.TBSCertList.NextUpdate)
 		glog.Warningf("[%s] CRL is expired, but proceeding anyway. (ThisUpdate=%s,"+
 			" NextUpdate=%s)", aPath, crl.TBSCertList.ThisUpdate, crl.TBSCertList.NextUpdate)
 	}
@@ -310,21 +302,21 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			default:
 				crl, err := loadAndCheckSignatureOfCRL(crlPath, cert)
 				if err != nil {
-					ae.auditor.FailedVerifyPath(tuple.Issuer, crlPath, err)
+					ae.auditor.FailedVerifyPath(&tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
 					continue
 				}
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
-					ae.auditor.FailedProcessLocal(tuple.Issuer, crlPath, err)
+					ae.auditor.FailedProcessLocal(&tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
 					continue
 				}
 
 				revokedCount := len(revokedSerials)
 				if revokedCount == 0 {
-					ae.auditor.NoRevocations(tuple.Issuer, crlPath)
+					ae.auditor.NoRevocations(&tuple.Issuer, crlPath)
 					continue
 				}
 

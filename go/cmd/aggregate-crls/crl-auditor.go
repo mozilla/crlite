@@ -31,7 +31,7 @@ type CrlAuditEntry struct {
 	Url           string `json:",omitempty"`
 	Path          string `json:",omitempty"`
 	Age           string `json:",omitempty"`
-	Issuer        storage.Issuer
+	Issuer        downloader.DownloadIdentifier
 	IssuerSubject string
 	Kind          CrlAuditEntryKind
 	Errors        []string `json:",omitempty"`
@@ -52,8 +52,12 @@ func NewCrlAuditor(issuers *rootprogram.MozIssuers) *CrlAuditor {
 	}
 }
 
-func (auditor *CrlAuditor) getSubject(issuer storage.Issuer) string {
-	subject, err := auditor.issuers.GetSubjectForIssuer(issuer)
+func (auditor *CrlAuditor) getSubject(identifier downloader.DownloadIdentifier) string {
+	issuer, ok := identifier.(*storage.Issuer)
+	if !ok {
+		return ""
+	}
+	subject, err := auditor.issuers.GetSubjectForIssuer(*issuer)
 	if err != nil {
 		glog.Warningf("Could not get subject for issuer %s: %v", issuer.ID(), err)
 		return ""
@@ -72,7 +76,7 @@ func (auditor *CrlAuditor) WriteReport(fd io.Writer) error {
 	return enc.Encode(auditor)
 }
 
-func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+func (auditor *CrlAuditor) FailedDownload(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -87,7 +91,7 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+func (auditor *CrlAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -102,7 +106,7 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.UR
 	})
 }
 
-func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, previous time.Time, this time.Time) {
+func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, previous time.Time, this time.Time) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -119,7 +123,7 @@ func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl
 	})
 }
 
-func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.Duration) {
+func (auditor *CrlAuditor) Old(issuer downloader.DownloadIdentifier, crlUrl *url.URL, age time.Duration) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -133,7 +137,7 @@ func (auditor *CrlAuditor) Old(issuer storage.Issuer, crlUrl *url.URL, age time.
 	})
 }
 
-func (auditor *CrlAuditor) Expired(issuer storage.Issuer, crlUrl *url.URL, nextUpdate time.Time) {
+func (auditor *CrlAuditor) Expired(issuer downloader.DownloadIdentifier, crlUrl *url.URL, nextUpdate time.Time) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -147,7 +151,7 @@ func (auditor *CrlAuditor) Expired(issuer storage.Issuer, crlUrl *url.URL, nextU
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyPath(issuer storage.Issuer, crlPath string, err error) {
+func (auditor *CrlAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -160,7 +164,7 @@ func (auditor *CrlAuditor) FailedVerifyPath(issuer storage.Issuer, crlPath strin
 		Errors:        []string{err.Error()},
 	})
 }
-func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath string, err error) {
+func (auditor *CrlAuditor) FailedProcessLocal(issuer downloader.DownloadIdentifier, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -174,7 +178,7 @@ func (auditor *CrlAuditor) FailedProcessLocal(issuer storage.Issuer, crlPath str
 	})
 }
 
-func (auditor *CrlAuditor) NoRevocations(issuer storage.Issuer, crlPath string) {
+func (auditor *CrlAuditor) NoRevocations(issuer downloader.DownloadIdentifier, crlPath string) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 

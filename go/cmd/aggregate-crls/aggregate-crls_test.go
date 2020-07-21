@@ -397,8 +397,8 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 
 	path, err := ae.crlFetchWorkerProcessOne(context.TODO(), *unavailableUrl, issuer)
-	if err == nil || !strings.Contains(err.Error(), "no such file or directory") {
-		t.Errorf("expected no such file or directory error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "connect: connection refused") {
+		t.Errorf("expected connect: connection refused error, got %v", err)
 	}
 	if path != "" {
 		t.Errorf("Should not have gotten a path for the unavailable URL: %s", path)
