@@ -362,7 +362,7 @@ func Test_crlFetchWorker(t *testing.T) {
 
 	assertAuditorReportHasEntries(t, auditor, 3)
 	for _, e := range auditor.GetEntries() {
-		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
+		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, unavailableUrl)
 	}
 }
 
@@ -430,6 +430,6 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 
 	assertAuditorReportHasEntries(t, auditor, 1)
 	for _, e := range auditor.GetEntries() {
-		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
+		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, unavailableUrl)
 	}
 }

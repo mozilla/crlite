@@ -72,13 +72,16 @@ func (v *verifier) IsValid(path string) error {
 
 type loggingAuditor struct{}
 
-func (ta *loggingAuditor) FailedDownload(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+func (ta *loggingAuditor) FailedDownload(issuer downloader.DownloadIdentifier, crlUrl *url.URL,
+	dlTracer *downloader.DownloadTracer, err error) {
 	glog.Warningf("Failed download of %s: %s", crlUrl.String(), err)
 }
-func (ta *loggingAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
+func (ta *loggingAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, crlUrl *url.URL,
+	dlTracer *downloader.DownloadTracer, err error) {
 	glog.Warningf("Failed verify of %s: %s", crlUrl.String(), err)
 }
-func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string, err error) {
+func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string,
+	err error) {
 	glog.Warningf("Failed verify of %s: %s", crlPath, err)
 }
 
