@@ -21,6 +21,7 @@ import (
 	"github.com/google/certificate-transparency-go/x509/pkix"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
+	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb/v5"
 )
@@ -143,7 +144,7 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 
 func Test_verifyCRL(t *testing.T) {
 	issuersObj := rootprogram.NewMozillaIssuers()
-	dlauditor := NewDownloadAuditor()
+	dlTracer := downloader.NewDownloadTracer()
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
@@ -196,13 +197,13 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ae.verifyCRL(issuer, dlauditor, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlTracer, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "CRL is older than the previous CRL") {
 		t.Error(err)
 	}
 
 	// Should work fine this orientation
-	list, err := ae.verifyCRL(issuer, dlauditor, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
+	list, err := ae.verifyCRL(issuer, dlTracer, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
 	if err != nil {
 		t.Error(err)
 	}
@@ -230,7 +231,7 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ae.verifyCRL(issuer, dlauditor, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlTracer, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}

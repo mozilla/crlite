@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
 
@@ -71,7 +72,7 @@ func (auditor *CrlAuditor) WriteReport(fd io.Writer) error {
 	return enc.Encode(auditor)
 }
 
-func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, err error) {
+func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -81,12 +82,12 @@ func (auditor *CrlAuditor) FailedDownload(issuer storage.Issuer, crlUrl *url.URL
 		Url:           crlUrl.String(),
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Errors:        append(dlAuditor.Errors(), err.Error()),
-		DNSResults:    dlAuditor.DNSResults(),
+		Errors:        append(dlTracer.Errors(), err.Error()),
+		DNSResults:    dlTracer.DNSResults(),
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, err error) {
+func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -96,12 +97,12 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer storage.Issuer, crlUrl *url.UR
 		Url:           crlUrl.String(),
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Errors:        append(dlAuditor.Errors(), err.Error()),
-		DNSResults:    dlAuditor.DNSResults(),
+		Errors:        append(dlTracer.Errors(), err.Error()),
+		DNSResults:    dlTracer.DNSResults(),
 	})
 }
 
-func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlAuditor *DownloadAuditor, previous time.Time, this time.Time) {
+func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, previous time.Time, this time.Time) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
@@ -113,8 +114,8 @@ func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer storage.Issuer, crlUrl
 		Url:           crlUrl.String(),
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
-		Errors:        append(dlAuditor.Errors(), err),
-		DNSResults:    dlAuditor.DNSResults(),
+		Errors:        append(dlTracer.Errors(), err),
+		DNSResults:    dlTracer.DNSResults(),
 	})
 }
 

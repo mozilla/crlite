@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
 
@@ -119,7 +120,7 @@ func Test_FailedDownload(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedDownload(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
+	auditor.FailedDownload(issuer, url, downloader.NewDownloadTracer(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedDownload)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)
@@ -133,7 +134,7 @@ func Test_FailedVerify(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyUrl(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
+	auditor.FailedVerifyUrl(issuer, url, downloader.NewDownloadTracer(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)
@@ -208,7 +209,7 @@ func Test_FailedOlderThanPrevious(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedOlderThanPrevious(issuer, url, NewDownloadAuditor(), time.Now(), time.Now().AddDate(0, 0, -1))
+	auditor.FailedOlderThanPrevious(issuer, url, downloader.NewDownloadTracer(), time.Now(), time.Now().AddDate(0, 0, -1))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindOlderThanLast)
 	assertEntryUrlAndIssuer(t, ent, issuer, url)

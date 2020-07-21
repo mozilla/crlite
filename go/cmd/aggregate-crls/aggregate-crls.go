@@ -129,14 +129,14 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	tmpPath := filepath.Join(*crlpath, issuer.ID(), filename+".tmp")
 	finalPath := filepath.Join(*crlpath, issuer.ID(), filename)
 
-	dlAuditor := NewDownloadAuditor()
-	auditCtx := dlAuditor.Configure(ctx)
+	dlTracer := downloader.NewDownloadTracer()
+	auditCtx := dlTracer.Configure(ctx)
 
 	err = downloader.DownloadFileSync(auditCtx, ae.display, crlUrl, tmpPath, 3)
 	if err != nil {
 		glog.Warningf("[%s] Could not download %s to %s: %s", issuer.ID(), crlUrl.String(),
 			tmpPath, err)
-		ae.auditor.FailedDownload(issuer, &crlUrl, dlAuditor, err)
+		ae.auditor.FailedDownload(issuer, &crlUrl, dlTracer, err)
 		err = os.Remove(tmpPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to remove invalid tmp file %s: %s", issuer.ID(), tmpPath, err)
@@ -148,7 +148,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 			glog.Fatalf("[%s] Could not find certificate for issuer: %s", issuer.ID(), err)
 		}
 
-		_, err = ae.verifyCRL(issuer, dlAuditor, &crlUrl, tmpPath, cert, finalPath)
+		_, err = ae.verifyCRL(issuer, dlTracer, &crlUrl, tmpPath, cert, finalPath)
 		if err != nil {
 			glog.Warningf("[%s] Failed to verify, keeping existing: %s", issuer.ID(), err)
 			// Auditor had its methods called by verifyCRL
@@ -241,12 +241,12 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, err
 }
 
-func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlAuditor *DownloadAuditor, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
+func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
 	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
 	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
 	if err != nil {
-		ae.auditor.FailedVerifyUrl(aIssuer, crlUrl, dlAuditor, err)
+		ae.auditor.FailedVerifyUrl(aIssuer, crlUrl, dlTracer, err)
 		return nil, err
 	}
 
@@ -258,7 +258,7 @@ func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlAuditor *Download
 		}
 
 		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
-			ae.auditor.FailedOlderThanPrevious(aIssuer, crlUrl, dlAuditor, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
+			ae.auditor.FailedOlderThanPrevious(aIssuer, crlUrl, dlTracer, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
 				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
 		}
