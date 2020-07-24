@@ -1,6 +1,7 @@
 module github.com/mozilla/crlite/go
 
 require (
+	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/google/certificate-transparency-go v1.1.0
 	github.com/gopherjs/gopherjs v0.0.0-20190915194858-d3ddacdb130f // indirect

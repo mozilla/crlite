@@ -591,3 +591,18 @@ func Test_LoadInvalidWithNoLocal(t *testing.T) {
 		t.Error("Expected failure")
 	}
 }
+
+func Test_DatasetAge(t *testing.T) {
+	mi, err := loadSampleIssuers(kEmptyAKI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if mi.DatasetAge().Microseconds() == 0 {
+		t.Error("Expected a nonzero dataset age, got zero.")
+	}
+
+	if mi.DatasetAge().Truncate(time.Second) != 0 {
+		t.Errorf("expected less than one second of age, got %v", mi.DatasetAge())
+	}
+}

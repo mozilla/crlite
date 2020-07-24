@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
@@ -51,6 +52,7 @@ type MozIssuers struct {
 	mutex     *sync.Mutex
 	DiskPath  string
 	ReportUrl string
+	modTime   time.Time
 }
 
 func NewMozillaIssuers() *MozIssuers {
@@ -124,7 +126,20 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 		return err
 	}
 	defer fd.Close()
+
+	fi, err := os.Stat(aPath)
+	if err != nil {
+		return err
+	}
+	mi.modTime = fi.ModTime()
 	return mi.parseCCADB(fd)
+}
+
+func (mi *MozIssuers) DatasetAge() time.Duration {
+	if mi.modTime.IsZero() {
+		return 0
+	}
+	return time.Since(mi.modTime)
 }
 
 func (mi *MozIssuers) GetIssuers() []storage.Issuer {
