@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/vbauerster/mpb/v5"
@@ -68,7 +69,7 @@ func Test_NotFoundNotLocal(t *testing.T) {
 	if dataAtPathIsValid {
 		t.Error("Expected not dataAtPathIsValid")
 	}
-	if err.Error() != "Non-OK status: 404 Not Found" {
+	if !strings.Contains(err.Error(), "Local error=Empty file, Caused by=Non-OK status: 404 Not Found") {
 		t.Error(err)
 	}
 

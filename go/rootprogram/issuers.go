@@ -101,6 +101,7 @@ func (mi *MozIssuers) Load() error {
 	dataUrl, err := url.Parse(mi.ReportUrl)
 	if err != nil {
 		glog.Fatalf("Couldn't parse CCADB URL of %s: %s", mi.ReportUrl, err)
+		return err
 	}
 
 	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},

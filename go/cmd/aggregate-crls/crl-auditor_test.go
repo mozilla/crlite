@@ -149,7 +149,7 @@ func assertAuditorReportHasEntries(t *testing.T, auditor *CrlAuditor, count int)
 	}
 
 	if len(report.Entries) != count {
-		t.Errorf("Expected %d entries but found %d", count, len(report.Entries))
+		t.Errorf("Expected %d audit report entries but found %d", count, len(report.Entries))
 	}
 	for _, e := range report.Entries {
 		e.assertOkay(t)

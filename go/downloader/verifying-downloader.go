@@ -32,38 +32,40 @@ func DownloadAndVerifyFileSync(ctx context.Context, verifyFunc DownloadVerifier,
 		}
 	}()
 
+	attemptFallbackToExistingFile := func(err error) (bool, error) {
+		existingValidErr := verifyFunc.IsValid(finalPath)
+		if existingValidErr == nil {
+			// The existing file at finalPath is OK.
+			return true, err
+		}
+		// We don't log to the auditor here since the local file being bad isn't necessarily this run's fault,
+		// and it will be handled later in aggregate-crls if it is relevant at that stage.
+		combinedError := fmt.Errorf("[%s] Couldn't verify already-on-disk path %s. Local error=%s, Caused by=%s",
+			identifier.ID(), finalPath, existingValidErr, err)
+		glog.Error(combinedError)
+		return false, combinedError
+	}
+
 	dlErr := DownloadFileSync(auditCtx, display, crlUrl, tmpPath, maxRetries)
 	if dlErr != nil {
 		auditor.FailedDownload(identifier, &crlUrl, dlTracer, dlErr)
 		glog.Warningf("[%s] Failed to download from %s to tmp file %s: %s", identifier.ID(), crlUrl.String(), tmpPath, dlErr)
 
-		existingValidErr := verifyFunc.IsValid(finalPath)
-		if existingValidErr == nil {
-			// The existing file at finalPath is OK.
-			return true, dlErr
-		}
-		return false, dlErr
+		return attemptFallbackToExistingFile(dlErr)
 	}
 
 	dlValidErr := verifyFunc.IsValid(tmpPath)
 	if dlValidErr != nil {
 		auditor.FailedVerifyUrl(identifier, &crlUrl, dlTracer, dlValidErr)
 
-		existingValidErr := verifyFunc.IsValid(finalPath)
-		if existingValidErr == nil {
-			// The existing file at finalPath is OK.
-			return true, dlValidErr
-		}
-
-		auditor.FailedVerifyPath(identifier, finalPath, existingValidErr)
-		glog.Errorf("[%s] Couldn't verify already-on-disk path %s: %s", identifier.ID(), finalPath, existingValidErr)
-		return false, existingValidErr
+		return attemptFallbackToExistingFile(dlValidErr)
 	}
 
 	renameErr := os.Rename(tmpPath, finalPath)
 	if renameErr != nil {
 		glog.Errorf("[%s] Couldn't rename %s to %s: %s", identifier.ID(), tmpPath, finalPath, renameErr)
-		return false, renameErr
+
+		return attemptFallbackToExistingFile(renameErr)
 	}
 
 	return true, nil
