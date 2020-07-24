@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/certificate-transparency-go/x509/pkix"
@@ -565,7 +566,10 @@ func main() {
 	err = mozIssuers.Load()
 	if err != nil {
 		glog.Fatalf("Unable to load the Mozilla issuers: %s", err)
+		return
 	}
+
+	metrics.SetGauge([]string{"IssuersAge"}, float32(mozIssuers.DatasetAge().Hours()))
 
 	// Exit signal, used by signals from the OS
 	sigChan := make(chan os.Signal, 1)
