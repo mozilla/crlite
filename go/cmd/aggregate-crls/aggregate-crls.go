@@ -569,7 +569,7 @@ func main() {
 		return
 	}
 
-	metrics.SetGauge([]string{"IssuersAge"}, float32(mozIssuers.DatasetAge().Hours()))
+	metrics.SetGauge([]string{"IssuersAgeSeconds"}, float32(mozIssuers.DatasetAge().Seconds()))
 
 	// Exit signal, used by signals from the OS
 	sigChan := make(chan os.Signal, 1)
