@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func Test_DlAuditorBlank(t *testing.T) {
-	dla := NewDownloadAuditor()
+func Test_DownloadTracerBlank(t *testing.T) {
+	dla := NewDownloadTracer()
 	if len(dla.DNSResults()) != 0 {
 		t.Error("Should have no DNS results")
 	}
@@ -17,7 +17,7 @@ func Test_DlAuditorBlank(t *testing.T) {
 }
 
 func Test_SingleLookup(t *testing.T) {
-	dla := NewDownloadAuditor()
+	dla := NewDownloadTracer()
 
 	ctx := dla.Configure(context.Background())
 
@@ -41,7 +41,7 @@ func Test_SingleLookup(t *testing.T) {
 }
 
 func Test_SingleLookupError(t *testing.T) {
-	dla := NewDownloadAuditor()
+	dla := NewDownloadTracer()
 
 	ctx := dla.Configure(context.Background())
 

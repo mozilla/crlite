@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
 
@@ -62,7 +63,8 @@ func assertOnlyEntryInList(t *testing.T, a *CrlAuditor, entryKind CrlAuditEntryK
 	return nil
 }
 
-func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer, url *url.URL) {
+func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
+	issuersObj *rootprogram.MozIssuers, url *url.URL) {
 	t.Helper()
 	if ent.Url != url.String() {
 		t.Errorf("Expected URL of %v got %v", url, ent.Url)
@@ -70,10 +72,18 @@ func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Is
 	if ent.Issuer.ID() != issuer.ID() {
 		t.Errorf("Expected Issuer of %v got %v", issuer, ent.Issuer)
 	}
+	expectedSubject, err := issuersObj.GetSubjectForIssuer(issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if ent.IssuerSubject != expectedSubject {
+		t.Errorf("Expected Issuer Subject of %v got %v", expectedSubject, ent.IssuerSubject)
+	}
 	assertValidEntry(t, ent)
 }
 
-func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer, path string) {
+func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
+	issuersObj *rootprogram.MozIssuers, path string) {
 	t.Helper()
 	if ent.Path != path {
 		t.Errorf("Expected Path of %v got %v", path, ent.Path)
@@ -81,11 +91,46 @@ func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.I
 	if ent.Issuer.ID() != issuer.ID() {
 		t.Errorf("Expected Issuer of %v got %v", issuer, ent.Issuer)
 	}
+	expectedSubject, err := issuersObj.GetSubjectForIssuer(issuer)
+	if err != nil {
+		t.Error(err)
+	}
+	if ent.IssuerSubject != expectedSubject {
+		t.Errorf("Expected Issuer Subject of %v got %v", expectedSubject, ent.IssuerSubject)
+	}
 	assertValidEntry(t, ent)
 }
 
-type OutReport struct {
-	Entries []CrlAuditEntry
+type testOutReport struct {
+	Entries []testCrlAuditEntry
+}
+type testCrlAuditEntry struct {
+	Timestamp     time.Time
+	Url           string
+	Path          string
+	Age           string
+	Issuer        string
+	IssuerSubject string
+	Kind          CrlAuditEntryKind
+	Errors        []string
+	DNSResults    []string
+}
+
+func (ent *testCrlAuditEntry) assertOkay(t *testing.T) {
+	if ent.Timestamp.IsZero() {
+		t.Error("Timestamp should not be zero")
+	}
+	if len(ent.Url) == 0 && len(ent.Path) == 0 {
+		t.Errorf("Either URL or Path must be set: %+v", ent)
+	}
+	if ent.Issuer == "" {
+		t.Error("Issuer is mandatory")
+	}
+	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
+		if len(ent.Errors) == 0 {
+			t.Error("Expecting an error message")
+		}
+	}
 }
 
 func assertAuditorReportHasEntries(t *testing.T, auditor *CrlAuditor, count int) {
@@ -97,17 +142,17 @@ func assertAuditorReportHasEntries(t *testing.T, auditor *CrlAuditor, count int)
 	}
 
 	dec := json.NewDecoder(&b)
-	report := OutReport{}
-	err = dec.Decode(&report)
+	report := &testOutReport{}
+	err = dec.Decode(report)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(report.Entries) != count {
-		t.Errorf("Expected %d entries but found %d", count, len(report.Entries))
+		t.Errorf("Expected %d audit report entries but found %d", count, len(report.Entries))
 	}
 	for _, e := range report.Entries {
-		assertValidEntry(t, &e)
+		e.assertOkay(t)
 	}
 }
 
@@ -119,10 +164,10 @@ func Test_FailedDownload(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedDownload(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
+	auditor.FailedDownload(&issuer, url, downloader.NewDownloadTracer(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedDownload)
-	assertEntryUrlAndIssuer(t, ent, issuer, url)
+	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
 func Test_FailedVerify(t *testing.T) {
@@ -133,10 +178,10 @@ func Test_FailedVerify(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyUrl(issuer, url, NewDownloadAuditor(), fmt.Errorf("bad error"))
+	auditor.FailedVerifyUrl(&issuer, url, downloader.NewDownloadTracer(), fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
-	assertEntryUrlAndIssuer(t, ent, issuer, url)
+	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
 func Test_FailedProcessLocal(t *testing.T) {
@@ -147,10 +192,10 @@ func Test_FailedProcessLocal(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedProcessLocal(issuer, path, fmt.Errorf("bad error"))
+	auditor.FailedProcessLocal(&issuer, path, fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedProcessLocal)
-	assertEntryPathAndIssuer(t, ent, issuer, path)
+	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
 }
 
 func Test_FailedVerifyLocal(t *testing.T) {
@@ -161,10 +206,10 @@ func Test_FailedVerifyLocal(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyPath(issuer, path, fmt.Errorf("bad error"))
+	auditor.FailedVerifyPath(&issuer, path, fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
-	assertEntryPathAndIssuer(t, ent, issuer, path)
+	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
 }
 
 func Test_FailedNoRevocations(t *testing.T) {
@@ -175,10 +220,10 @@ func Test_FailedNoRevocations(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.NoRevocations(issuer, path)
+	auditor.NoRevocations(&issuer, path)
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindNoRevocations)
-	assertEntryPathAndIssuer(t, ent, issuer, path)
+	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
 }
 
 func Test_FailedOld(t *testing.T) {
@@ -194,10 +239,10 @@ func Test_FailedOld(t *testing.T) {
 		t.Error(err)
 	}
 
-	auditor.Old(issuer, url, age)
+	auditor.Old(&issuer, url, age)
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindOld)
-	assertEntryUrlAndIssuer(t, ent, issuer, url)
+	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
 func Test_FailedOlderThanPrevious(t *testing.T) {
@@ -208,10 +253,10 @@ func Test_FailedOlderThanPrevious(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedOlderThanPrevious(issuer, url, NewDownloadAuditor(), time.Now(), time.Now().AddDate(0, 0, -1))
+	auditor.FailedOlderThanPrevious(&issuer, url, downloader.NewDownloadTracer(), time.Now(), time.Now().AddDate(0, 0, -1))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindOlderThanLast)
-	assertEntryUrlAndIssuer(t, ent, issuer, url)
+	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
 func Test_FailedExpired(t *testing.T) {
@@ -222,10 +267,10 @@ func Test_FailedExpired(t *testing.T) {
 
 	assertEmptyList(t, auditor)
 
-	auditor.Expired(issuer, url, time.Now().AddDate(0, 0, -1))
+	auditor.Expired(&issuer, url, time.Now().AddDate(0, 0, -1))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindExpired)
-	assertEntryUrlAndIssuer(t, ent, issuer, url)
+	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
 func Test_EmptyReport(t *testing.T) {
@@ -260,22 +305,22 @@ func Test_SeveralFailures(t *testing.T) {
 		t.Error(err)
 	}
 
-	auditor.Old(issuer, url, age)
-	auditor.Old(issuer, url, age)
-	auditor.Old(issuer, url, age)
+	auditor.Old(&issuer, url, age)
+	auditor.Old(&issuer, url, age)
+	auditor.Old(&issuer, url, age)
 
 	if len(auditor.GetEntries()) != 3 {
 		t.Errorf("Expected 3 entries")
 	}
 	for _, e := range auditor.GetEntries() {
-		assertEntryUrlAndIssuer(t, &e, issuer, url)
+		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, url)
 	}
 
 	path := "/var/tmp/issuer.crl"
 
-	auditor.NoRevocations(issuer, path)
-	auditor.NoRevocations(issuer, path)
-	auditor.NoRevocations(issuer, path)
+	auditor.NoRevocations(&issuer, path)
+	auditor.NoRevocations(&issuer, path)
+	auditor.NoRevocations(&issuer, path)
 
 	if len(auditor.GetEntries()) != 6 {
 		t.Errorf("Expected 6 entries")
@@ -283,9 +328,9 @@ func Test_SeveralFailures(t *testing.T) {
 
 	for i, e := range auditor.GetEntries() {
 		if i < 3 {
-			assertEntryUrlAndIssuer(t, &e, issuer, url)
+			assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, url)
 		} else {
-			assertEntryPathAndIssuer(t, &e, issuer, path)
+			assertEntryPathAndIssuer(t, &e, issuer, issuersObj, path)
 		}
 	}
 

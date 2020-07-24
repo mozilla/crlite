@@ -21,6 +21,7 @@ import (
 	"github.com/google/certificate-transparency-go/x509/pkix"
 	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
+	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/vbauerster/mpb/v5"
 )
@@ -143,7 +144,7 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 
 func Test_verifyCRL(t *testing.T) {
 	issuersObj := rootprogram.NewMozillaIssuers()
-	dlauditor := NewDownloadAuditor()
+	dlTracer := downloader.NewDownloadTracer()
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
@@ -196,13 +197,13 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ae.verifyCRL(issuer, dlauditor, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlTracer, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "CRL is older than the previous CRL") {
 		t.Error(err)
 	}
 
 	// Should work fine this orientation
-	list, err := ae.verifyCRL(issuer, dlauditor, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
+	list, err := ae.verifyCRL(issuer, dlTracer, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
 	if err != nil {
 		t.Error(err)
 	}
@@ -230,7 +231,7 @@ func Test_verifyCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ae.verifyCRL(issuer, dlauditor, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
+	_, err = ae.verifyCRL(issuer, dlTracer, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}
@@ -361,7 +362,7 @@ func Test_crlFetchWorker(t *testing.T) {
 
 	assertAuditorReportHasEntries(t, auditor, 3)
 	for _, e := range auditor.GetEntries() {
-		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
+		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, unavailableUrl)
 	}
 }
 
@@ -396,8 +397,8 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 
 	path, err := ae.crlFetchWorkerProcessOne(context.TODO(), *unavailableUrl, issuer)
-	if err == nil || !strings.Contains(err.Error(), "no such file or directory") {
-		t.Errorf("expected no such file or directory error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "connect: connection refused") {
+		t.Errorf("expected connect: connection refused error, got %v", err)
 	}
 	if path != "" {
 		t.Errorf("Should not have gotten a path for the unavailable URL: %s", path)
@@ -429,6 +430,6 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 
 	assertAuditorReportHasEntries(t, auditor, 1)
 	for _, e := range auditor.GetEntries() {
-		assertEntryUrlAndIssuer(t, &e, issuer, unavailableUrl)
+		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, unavailableUrl)
 	}
 }

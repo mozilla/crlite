@@ -8,8 +8,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +62,9 @@ cxhzf8XjZXECKL54a/4o9ISBcA==
 `
 	kFirstTwoLinesIssuerID = "6z9CPfvSI57njPXWYOU61nQPaO9b2blTtyMZoCaRT4g="
 	kFirstTwoLinesSubject  = "SERIALNUMBER=A82743287,CN=RACER,O=AC Camerfirma SA,L=Madrid (see current address at www.camerfirma.com/address),C=ES"
+
+	kFirstTwoLinesNoPem = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
+"AC Camerfirma, S.A.","AC Camerfirma","RACER","AC Camerfirma","AC Camerfirma SA","","RACER","AC Camerfirma SA","01","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2003 Dec 04","2023 Dec 04","http://crl.camerfirma.com/racer.crl","RSA 2047 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","",""`
 
 	kEmptyAKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
 "Test Corporation","Test Corporation","test","Test Corporation","Test Corporation CA","","test","Test Corporation CA","71:8a:bd:2f:20:13:18:ea:a2:73:67:b0:3d:b5:3f:6b:24:3c:f6:f5","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2016 Nov 27","2019 Feb 05","http://crl.example.com/test.crl","RSA 2048 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","","'-----BEGIN CERTIFICATE-----
@@ -385,5 +392,202 @@ func Test_NewTestIssuerFromSubjectString(t *testing.T) {
 	}
 	if subject != "a subject" {
 		t.Errorf("Unexpected subject: %v", subject)
+	}
+}
+
+func Test_LoadFromURL(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, kFirstTwoLines)
+	}))
+	defer ts.Close()
+
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
+
+	err = mi.Load()
+	if err != nil {
+		t.Error(err)
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if subject != kFirstTwoLinesSubject {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.DiskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func Test_LoadFromURLToDefaultLocation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, kFirstTwoLines)
+	}))
+	defer ts.Close()
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	defer os.Remove(mi.DiskPath)
+
+	err := mi.Load()
+	if err != nil {
+		t.Error(err)
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if subject != kFirstTwoLinesSubject {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.DiskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func Test_LoadFrom404URLNoLocal(t *testing.T) {
+	ts := httptest.NewServer(http.NotFoundHandler())
+	defer ts.Close()
+
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
+
+	err = mi.Load()
+	if err == nil {
+		t.Error("Expected failure")
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err == nil || !strings.Contains(err.Error(), "Unknown issuer") {
+		t.Errorf("Expected error, got: %s", err)
+	}
+	if len(subject) != 0 {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.DiskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func Test_LoadFrom404URLWithLocal(t *testing.T) {
+	ts := httptest.NewServer(http.NotFoundHandler())
+	defer ts.Close()
+
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	err = ioutil.WriteFile(tmpfile.Name(), []byte(kFirstTwoLines), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
+
+	err = mi.Load()
+	if err != nil {
+		t.Errorf("Expected success with local file, got %s", err)
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if subject != kFirstTwoLinesSubject {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.DiskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func Test_LoadInvalidWithLocal(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, kFirstTwoLinesNoPem)
+	}))
+	defer ts.Close()
+
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	err = ioutil.WriteFile(tmpfile.Name(), []byte(kFirstTwoLines), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
+
+	err = mi.Load()
+	if err != nil {
+		t.Errorf("Expected success with local file, got %s", err)
+	}
+
+	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if subject != kFirstTwoLinesSubject {
+		t.Errorf("Unexpected certificate subject: %s", subject)
+	}
+
+	_, err = os.Stat(mi.DiskPath)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func Test_LoadInvalidWithNoLocal(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, kFirstTwoLinesNoPem)
+	}))
+	defer ts.Close()
+
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	mi := NewMozillaIssuers()
+	mi.ReportUrl = ts.URL
+	mi.DiskPath = tmpfile.Name()
+
+	err = mi.Load()
+	if err == nil {
+		t.Error("Expected failure")
 	}
 }

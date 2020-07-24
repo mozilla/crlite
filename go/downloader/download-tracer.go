@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"context"
@@ -7,22 +7,22 @@ import (
 	"github.com/golang/glog"
 )
 
-type DownloadAuditor struct {
+type DownloadTracer struct {
 	DNSDone []httptrace.DNSDoneInfo
 }
 
-func NewDownloadAuditor() *DownloadAuditor {
-	return &DownloadAuditor{
+func NewDownloadTracer() *DownloadTracer {
+	return &DownloadTracer{
 		DNSDone: []httptrace.DNSDoneInfo{},
 	}
 }
 
-func (da *DownloadAuditor) dnsDone(ddi httptrace.DNSDoneInfo) {
+func (da *DownloadTracer) dnsDone(ddi httptrace.DNSDoneInfo) {
 	glog.V(1).Infof("DNS result: %+v", ddi)
 	da.DNSDone = append(da.DNSDone, ddi)
 }
 
-func (da *DownloadAuditor) Configure(ctx context.Context) context.Context {
+func (da *DownloadTracer) Configure(ctx context.Context) context.Context {
 	traceObj := &httptrace.ClientTrace{
 		DNSDone: da.dnsDone,
 	}
@@ -30,7 +30,7 @@ func (da *DownloadAuditor) Configure(ctx context.Context) context.Context {
 	return httptrace.WithClientTrace(ctx, traceObj)
 }
 
-func (da *DownloadAuditor) DNSResults() []string {
+func (da *DownloadTracer) DNSResults() []string {
 	results := []string{}
 	for _, ddi := range da.DNSDone {
 		for _, addr := range ddi.Addrs {
@@ -40,7 +40,7 @@ func (da *DownloadAuditor) DNSResults() []string {
 	return results
 }
 
-func (da *DownloadAuditor) Errors() []string {
+func (da *DownloadTracer) Errors() []string {
 	results := []string{}
 	for _, ddi := range da.DNSDone {
 		if ddi.Err != nil {
