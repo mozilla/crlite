@@ -40,10 +40,10 @@ def main():
 
     cmdline = cmdline + args.identifier
 
-    if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+    all_runs = workflow.get_run_identifiers(args.filter_bucket)
+    if all_runs and not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
-            latest = workflow.get_run_identifiers(args.filter_bucket).pop()
-
+            latest = all_runs.pop()
             dest = Path(tempfile.mkdtemp()) / Path(latest)
             dest.mkdir()
 
@@ -61,6 +61,8 @@ def main():
             cmdline = cmdline + ["-previd", dest]
         except exceptions.NotFound as e:
             log.error(f"Could not download existing filter: {e}")
+        except Exception as e:
+            log.error(f"Could not get any existing filter: {e}")
 
     log.info(f"Running {cmdline}")
     subprocess.run(cmdline, check=True)
