@@ -15,7 +15,7 @@ setup(
         "google-cloud-storage",
         "kinto-http>=9.1",
         "moz_crlite_lib>=0.2",
-        "moz_crlite_query>=0.3.2",
+        "moz_crlite_query>=0.3.3",
         "progressbar2>=3.40",
         "psutil>=5",
         "pyOpenSSL>=17.5",
