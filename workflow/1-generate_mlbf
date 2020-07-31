@@ -40,25 +40,26 @@ def main():
 
     cmdline = cmdline + args.identifier
 
-    all_runs = workflow.get_run_identifiers(args.filter_bucket)
-    if all_runs and not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+    if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
-            latest = all_runs.pop()
-            dest = Path(tempfile.mkdtemp()) / Path(latest)
-            dest.mkdir()
+            all_runs = workflow.get_run_identifiers(args.filter_bucket)
+            if all_runs:
+                latest = all_runs.pop()
+                dest = Path(tempfile.mkdtemp()) / Path(latest)
+                dest.mkdir()
 
-            workflow.download_from_google_cloud(
-                args.filter_bucket,
-                f"{latest}/mlbf/list-revoked.keys",
-                dest / Path("list-revoked.keys"),
-            )
-            workflow.download_from_google_cloud(
-                args.filter_bucket,
-                f"{latest}/mlbf/list-valid.keys",
-                dest / Path("list-valid.keys"),
-            )
+                workflow.download_from_google_cloud(
+                    args.filter_bucket,
+                    f"{latest}/mlbf/list-revoked.keys",
+                    dest / Path("list-revoked.keys"),
+                )
+                workflow.download_from_google_cloud(
+                    args.filter_bucket,
+                    f"{latest}/mlbf/list-valid.keys",
+                    dest / Path("list-valid.keys"),
+                )
 
-            cmdline = cmdline + ["-previd", dest]
+                cmdline = cmdline + ["-previd", dest]
         except exceptions.NotFound as e:
             log.error(f"Could not download existing filter: {e}")
         except Exception as e:
