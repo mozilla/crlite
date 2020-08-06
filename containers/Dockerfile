@@ -19,7 +19,7 @@ RUN apt update && apt install -y ca-certificates && \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN adduser --system --home /app appuser
+RUN adduser --system --uid 10001 --group --home /app app
 
 ENV crlite_log /var/log
 ENV crlite_processing /processing
@@ -27,7 +27,7 @@ ENV crlite_persistent /persistent
 ENV crlite_workflow /app/workflow
 ENV crlite_bin /app
 
-RUN mkdir /processing && chown appuser /processing && chmod 777 /processing
+RUN mkdir /processing && chown app /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
 
 COPY --from=builder /build/bin /app/
@@ -46,7 +46,7 @@ ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
 ENTRYPOINT ["/tini", "-g", "--"]
 
-USER appuser
+USER app
 WORKDIR /app
 
 ENV outputRefreshMs 60000
