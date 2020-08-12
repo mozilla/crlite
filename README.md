@@ -61,9 +61,7 @@ pipenv install
 
 ### Configuration
 
-You can configure via a config file, or use environment variables.
-
-To use a configuration file,  `~/.ct-fetch.ini` (or any file selected on the CLI using `-config`), construct it as so:
+You can configure via environment variables, or via a config file. Environment variables are specified in the [`/containers/*.properties.example`](https://github.com/mozilla/crlite/tree/main/containers) files. To use a configuration file,  `~/.ct-fetch.ini` (or any file selected on the CLI using `-config`), construct it as so:
 
 ```
 certPath = /ct
@@ -76,14 +74,14 @@ cacheSize = 128
 
 You'll want to set a collection of configuration parameters:
 
-* `runForever` [true/false]
-* `logExpiredEntries` [true/false]
-* `numThreads` 16
-* `cacheSize` [number of cache entries. An individual entry contains an issuer-day's worth of serial numbers, which could be as much as 64 MB of RAM, but is generally closer to 1 MB.]
-* `outputRefreshMs` [milliseconds]
+* `runForever [true/false]`
+* `logExpiredEntries [true/false]`
+* `numThreads 16`
+* `cacheSize [number of cache entries. An individual entry contains an issuer-day's worth of serial numbers, which could be as much as 64 MB of RAM, but is generally closer to 1 MB.]`
+* `outputRefreshMs [milliseconds]`
 
 The log list is all the logs you want to sync, comma separated, as URLs:
-* `logList` https://ct.googleapis.com/icarus, https://oak.ct.letsencrypt.org/2021/
+* `logList = https://ct.googleapis.com/icarus, https://oak.ct.letsencrypt.org/2021/`
 
 To get all current ones from
 [certificate-transparency.org](https://certificate-transparency.org/):
