@@ -1,32 +1,20 @@
-This collection of tools is designed to assemble a cascading
-bloom filter containing all TLS certificate revocations, as described
-in the [CRLite paper](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
-
-These tools were built from scratch, using the original CRLite research code as a design reference and closely following the documentation in their paper, however it is a separate implementation, and should still be considered a work in progress, particularly the details of filter generation in [`create_filter_cascade`](https://github.com/mozilla/crlite/tree/main/create_filter_cascade).
+CRLite uses a Bloom filter cascade [and whole-ecosystem analysis of the Web PKI](https://www.certificate-transparency.org/) to push the entire web’s TLS revocation information to Firefox clients, replacing [OCSP](https://en.wikipedia.org/wiki/Online_Certificate_Status_Protocol) for most browser TLS connections, speeding up connection time while continuing to support PKI revocations. The system was [originally proposed at IEEE S&P 2017](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
 
 For details about CRLite, [Mozilla Security Engineering has a blog post series](https://blog.mozilla.org/security/tag/crlite/), and [this repository has a FAQ](https://github.com/mozilla/crlite/wiki#faq).
 
-
-## Dependencies
-1. `ct-fetch` from [`ct-mapreduce`](https://github.com/jcjones/ct-mapreduce)
-1. Python 3
-1. Redis 4
-1. Kubernetes / Docker
-1. Patience
+There are also useful end-user tools for querying CRLite: [moz_crlite_query](https://github.com/mozilla/moz_crlite_query), to query the current CRLite filter for revocations, and a diagnostic tool [crlite_status](https://github.com/jcjones/crlite_status) to monitor filter generation metrics.
 
 
 ## General Structure
 
-At this point, CRLite is intended to be run in a series of Docker containers, run as differing kinds of jobs:
+CRLite is designed to run in Kubernetes, with the following services:
 
 1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/main/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
 1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
 1. [`containers/crlite-publish`](https://github.com/mozilla/crlite/tree/main/containers/crlite-publish), a periodic (cron) job that publishes the results of a `crlite-generate` run to a Kinto instance.
 1. [`containers/crlite-signoff`](https://github.com/mozilla/crlite/tree/main/containers/crlite-signoff), a periodic (cron) job that verifies and approves data `crlite-publish` placed in a Kinto instance.
 
-Each of these jobs has a `pod.yaml` intended for use in Kubernetes.
-
-There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main/containers) to build Docker images both using Docker, see`build-local.sh`. There are also builds for the `staging` and all tags at Docker Hub in the [`mozilla/crlite`](https://hub.docker.com/r/mozilla/crlite) project.
+There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main/containers) to build Docker images both using Docker, see`build-local.sh`. There are also builds at Docker Hub in the [`mozilla/crlite`](https://hub.docker.com/r/mozilla/crlite) project.
 
 
 ### Storage
@@ -46,7 +34,6 @@ This tooling monitors Certificate Transparency logs and, upon secheduled executi
 The process for producing a CRLite filter, is run by [`system/crlite-fullrun`](https://github.com/mozilla/crlite/blob/main/system/crlite-fullrun), which is described in block form in this diagram:
 
 ![Process for building a CRLite Bloom filter](docs/figure2-filter_process.png)
-
 
 The output Bloom filter cascade is built by the Python [`mozilla/filter-cascade`](https://github.com/mozilla/filter-cascade) tool and then read in Firefox by the Rust [`mozilla/rust-cascade`](https://github.com/mozilla/rust-cascade) package.
 
@@ -179,7 +166,7 @@ Collates all CT entries' unexpired certificates into `*issuer SKI base64*.known`
 
 ## Credits
 
-* Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis)
-* Mark Goodwin for the original Python [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py)
-* Dana Keeler and Mark Goodwin together for the Rust [`rust-cascade`](https://github.com/mozilla/rust-cascade)
-* The CRLite research team: James Larsich, David Choffnes, Dave Levin, Bruce M. Maggs, Alan Mislove, and Christo Wilson
+* The CRLite research team: James Larsich, David Choffnes, Dave Levin, Bruce M. Maggs, Alan Mislove, and Christo Wilson.
+* Benton Case for [certificate-revocation-analysis](https://github.com/casebenton/certificate-revocation-analysis), which kicked off this effort.
+* Mark Goodwin for the original Python [`filter_cascade`](https://gist.githubusercontent.com/mozmark/c48275e9c07ccca3f8b530b88de6ecde/raw/19152f7f10925379420aa7721319a483273d867d/sample.py) and the [`filter-cascade`](https://github.com/mozilla/filter-cascade) project.
+* Dana Keeler and Mark Goodwin together for the Rust [`rust-cascade`](https://github.com/mozilla/rust-cascade).
