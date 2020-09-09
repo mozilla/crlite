@@ -43,10 +43,10 @@ def list_google_storage_directories(bucket_name, *, prefix=None):
 
 
 def normalize_identifier(s):
-    """ The first part of the identifier is a date with no separators and is
-        obvious to sort. The second part is a number which is generally a
-        single digit, but in a degenerate case could end up with multiple, so
-        we pad it here.
+    """The first part of the identifier is a date with no separators and is
+    obvious to sort. The second part is a number which is generally a
+    single digit, but in a degenerate case could end up with multiple, so
+    we pad it here.
     """
     parts = s.rstrip("/").split("-")
     return f"{parts[0]}{int(parts[1]):06d}"

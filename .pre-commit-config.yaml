@@ -36,6 +36,6 @@
       pass_filenames: false
       files: '.py$'
 - repo:  git://github.com/psf/black
-  rev: HEAD
+  rev: 20.8b1
   hooks:
     - id: black
