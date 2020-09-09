@@ -879,7 +879,10 @@ def publish_intermediates(*, args, ro_client, rw_client):
                     "Local/Remote PEM mismatch for uniqueId={}".format(unique_id)
                 )
             else:
-                breakpoint()
+                log.warning(
+                    f"Local/Remote metadata mismatch, uniqueID={unique_id}, "
+                    + f"local={local_int.details()}, remote={remote_int.details()}"
+                )
                 raise KintoException(
                     "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
                 )
