@@ -142,7 +142,8 @@ class TestPublishDecisions(unittest.TestCase):
         ]
         db = MockRunDB(identifiers)
         main.crlite_verify_run_id_sanity(
-            run_db=db, identifiers_to_check=identifiers,
+            run_db=db,
+            identifiers_to_check=identifiers,
         )
 
     def test_run_id_sanity_empty(self):

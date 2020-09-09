@@ -162,7 +162,8 @@ class PublisherClient(Client):
         )
 
         response = requests.get(
-            self.session.server_url + collectionEnd, auth=self.session.auth,
+            self.session.server_url + collectionEnd,
+            auth=self.session.auth,
         )
         if response.status_code > 200:
             raise KintoException(
@@ -287,7 +288,9 @@ def main():
     )
 
     ro_client = PublisherClient(
-        server_url=settings.KINTO_RO_SERVER_URL, bucket=settings.KINTO_BUCKET, retry=5,
+        server_url=settings.KINTO_RO_SERVER_URL,
+        bucket=settings.KINTO_BUCKET,
+        retry=5,
     )
 
     try:
@@ -500,7 +503,8 @@ class Intermediate:
                 "Cannot delete a record not at Kinto: {}".format(self)
             )
         rw_client.delete_record(
-            collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=self.kinto_id,
+            collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+            id=self.kinto_id,
         )
 
     def update_kinto(self, *, remote_record=None, rw_client=None):
@@ -560,7 +564,8 @@ class Intermediate:
                 )
             )
             rw_client.delete_record(
-                collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=self.kinto_id,
+                collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+                id=self.kinto_id,
             )
             log.error("Stale record deleted.")
             raise ke
@@ -757,7 +762,8 @@ def publish_intermediates(*, args, ro_client, rw_client):
         for record in remote_error_records:
             try:
                 rw_client.delete_record(
-                    collection=settings.KINTO_INTERMEDIATES_COLLECTION, id=record["id"],
+                    collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+                    id=record["id"],
                 )
             except KintoException as ke:
                 log.warning(f"Couldn't delete record id {record['id']}: {ke}")
@@ -783,7 +789,8 @@ def publish_intermediates(*, args, ro_client, rw_client):
         if not local_int.equals(remote_record=remote_int):
             try:
                 local_int.update_kinto(
-                    rw_client=rw_client, remote_record=remote_int,
+                    rw_client=rw_client,
+                    remote_record=remote_int,
                 )
             except KintoException as ke:
                 update_error_records.append((local_int, remote_int, ke))
@@ -910,7 +917,8 @@ def clear_crlite_filters(*, rw_client, noop):
     for filter_record in existing_filters:
         log.info(f"Cleaning up stale filter record {filter_record['id']}.")
         rw_client.delete_record(
-            collection=settings.KINTO_CRLITE_COLLECTION, id=filter_record["id"],
+            collection=settings.KINTO_CRLITE_COLLECTION,
+            id=filter_record["id"],
         )
 
 
@@ -925,7 +933,8 @@ def clear_crlite_stashes(*, rw_client, noop):
     for stash in existing_stashes:
         log.info(f"Cleaning up stale stash record {stash['id']}.")
         rw_client.delete_record(
-            collection=settings.KINTO_CRLITE_COLLECTION, id=stash["id"],
+            collection=settings.KINTO_CRLITE_COLLECTION,
+            id=stash["id"],
         )
 
 
@@ -973,7 +982,8 @@ def publish_crlite_record(
                 f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}"
             )
             rw_client.delete_record(
-                collection=settings.KINTO_CRLITE_COLLECTION, id=recordid,
+                collection=settings.KINTO_CRLITE_COLLECTION,
+                id=recordid,
             )
             log.error("Stale record deleted.")
             raise ke

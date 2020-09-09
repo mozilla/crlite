@@ -45,7 +45,9 @@ def main():
             filter_path = Path(tempDir) / f"{timestamp.decode('utf-8')}Z-full"
 
             workflow.download_from_google_cloud(
-                args.filter_bucket, f"{latest}/mlbf/filter", filter_path,
+                args.filter_bucket,
+                f"{latest}/mlbf/filter",
+                filter_path,
             )
 
             sub_args = [
