@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-from pathlib import Path
+from decouple import config
 from google.api_core import exceptions
+from pathlib import Path
 
 import argparse
 import hashlib
@@ -10,12 +11,15 @@ import requests
 import subprocess
 import sys
 import tempfile
-import workflow
+
+KINTO_RO_SERVER_URL = config(
+    "KINTO_RO_SERVER_URL", default="https://settings.stage.mozaws.net/v1/"
+)
+KINTO_BUCKET = config("KINTO_BUCKET", default="security-state-preview")
+KINTO_CRLITE_COLLECTION = config("KINTO_CRLITE_COLLECTION", default="cert-revocations")
+CRLITE_FRESHNESS_HOURS = config("CRLITE_FRESHNESS_HOURS", default="2")
 
 parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
-)
 parser.add_argument(
     "--moz-crlite-query", help="Path to the moz-crlite-query tool", required=True
 )
@@ -36,26 +40,24 @@ def main():
 
     try:
         with tempfile.TemporaryDirectory() as tempDir:
-            latest = workflow.get_run_identifiers(args.filter_bucket).pop()
-
-            timestamp = workflow.download_from_google_cloud_to_string(
-                args.filter_bucket, f"{latest}/timestamp"
-            )
-
-            filter_path = Path(tempDir) / f"{timestamp.decode('utf-8')}Z-full"
-
-            workflow.download_from_google_cloud(
-                args.filter_bucket,
-                f"{latest}/mlbf/filter",
-                filter_path,
-            )
-
             sub_args = [
                 sys.executable,
                 args.moz_crlite_query,
-                "--use-filter",
-                filter_path,
+                "--force-update",
+                "--db",
+                tempDir,
+                "--crlite-url",
+                KINTO_RO_SERVER_URL
+                + str(
+                    Path("buckets")
+                    / KINTO_BUCKET
+                    / "collections"
+                    / KINTO_CRLITE_COLLECTION
+                    / "records"
+                ),
                 "--check-not-revoked",
+                "--check-freshness",
+                CRLITE_FRESHNESS_HOURS,
                 "--structured",
             ]
 
