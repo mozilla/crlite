@@ -56,6 +56,7 @@ def main():
                 "--use-filter",
                 filter_path,
                 "--check-not-revoked",
+                "--structured",
             ]
 
             for host_url in args.host_file_urls:
