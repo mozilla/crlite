@@ -10,7 +10,6 @@ if [ "x${DoNotUpload}x" != "xx" ] || [ "x${KINTO_NOOP}x" != "xx" ] ; then
 fi
 
 python3 /app/scripts/crlite-signoff-tool.py \
-  --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
   --moz-crlite-query /usr/local/bin/moz_crlite_query \
   --host-file-urls ${crlite_verify_host_file_urls}
 
