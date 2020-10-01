@@ -276,9 +276,7 @@ def main():
             )
         )
 
-    log.info(
-        f"Connecting... RW={settings.KINTO_RW_SERVER_URL}"
-    )
+    log.info(f"Connecting... RW={settings.KINTO_RW_SERVER_URL}")
 
     rw_client = PublisherClient(
         server_url=settings.KINTO_RW_SERVER_URL,
