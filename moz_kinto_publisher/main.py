@@ -277,18 +277,12 @@ def main():
         )
 
     log.info(
-        f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
+        f"Connecting... RW={settings.KINTO_RW_SERVER_URL}"
     )
 
     rw_client = PublisherClient(
         server_url=settings.KINTO_RW_SERVER_URL,
         auth=auth,
-        bucket=settings.KINTO_BUCKET,
-        retry=5,
-    )
-
-    ro_client = PublisherClient(
-        server_url=settings.KINTO_RO_SERVER_URL,
         bucket=settings.KINTO_BUCKET,
         retry=5,
     )
@@ -304,7 +298,7 @@ def main():
             return
 
         if args.crlite:
-            publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
+            publish_crlite(args=args, rw_client=rw_client)
             if not args.noop and args.request_review:
                 log.info("Set for review")
                 rw_client.request_review_of_collection(
@@ -313,7 +307,7 @@ def main():
             return
 
         if args.intermediates:
-            publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
+            publish_intermediates(args=args, rw_client=rw_client)
             return
 
         parser.print_help()
@@ -590,7 +584,7 @@ def export_intermediates(writer, keys, intermediates, *, old=None):
             writer.write("\n---------------\n\n")
 
 
-def publish_intermediates(*, args, ro_client, rw_client):
+def publish_intermediates(*, args, rw_client):
     local_intermediates = {}
     remote_intermediates = {}
     remote_error_records = []
@@ -631,7 +625,7 @@ def publish_intermediates(*, args, ro_client, rw_client):
                 log.error("Record: {}".format(entry))
                 raise e
 
-    for record in ro_client.get_records(
+    for record in rw_client.get_records(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
     ):
         try:
@@ -753,9 +747,6 @@ def publish_intermediates(*, args, ro_client, rw_client):
     if args.noop:
         log.info(f"Noop flag set, exiting before any intermediate updates")
         return
-
-    # Don't accidentally use the ro_client beyond this point
-    ro_client = None
 
     if len(remote_error_records) > 0:
         log.info(f"Cleaning {len(remote_error_records)} broken records")
@@ -1160,8 +1151,8 @@ def crlite_determine_publish(*, existing_records, run_db):
     return {"upload": unpublished_run_ids}
 
 
-def publish_crlite(*, args, ro_client, rw_client):
-    existing_records = ro_client.get_records(
+def publish_crlite(*, args, rw_client):
+    existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
@@ -1185,9 +1176,6 @@ def publish_crlite(*, args, ro_client, rw_client):
     if not result["upload"]:
         log.info("Nothing to do.")
         return
-
-    # Don't accidentally use the ro_client beyond this point
-    ro_client = None
 
     if "clear_all" in result:
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
