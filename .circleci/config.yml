@@ -17,6 +17,7 @@ commands:
         type: string
 
     steps:
+      - docker/check
       - run:
           name: Generate version.json
           command: |
