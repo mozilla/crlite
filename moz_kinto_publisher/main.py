@@ -156,7 +156,7 @@ class PublisherClient(Client):
                 + f"{response.content.decode('utf-8')}"
             )
 
-    def collection_needs_review(self, *, collection=None):
+    def collection_check_state(self, *, collection=None, state):
         collectionEnd = "buckets/{}/collections/{}".format(
             self._bucket_name, collection or self._collection_name
         )
@@ -171,8 +171,18 @@ class PublisherClient(Client):
             )
 
         status = response.json()["data"]["status"]
-        log.debug(f"Collection review status: {status}")
-        return status == "work-in-progress"
+        log.debug(
+            f"Collection review status: {status}, expecting {state} ({status==state})"
+        )
+        return status == state
+
+    def collection_needs_review(self, *, collection=None):
+        return self.collection_check_state(
+            collection=collection, state="work-in-progress"
+        )
+
+    def collection_needs_sign(self, *, collection=None):
+        return self.collection_check_state(collection=collection, state="to-review")
 
     def request_review_of_collection(self, *, collection=None):
         if not self.collection_needs_review(collection=collection):
@@ -194,6 +204,10 @@ class PublisherClient(Client):
             )
 
     def sign_collection(self, *, collection=None):
+        if not self.collection_needs_sign(collection=collection):
+            log.info("Collection does not require sign. Skipping.")
+            return
+
         collectionEnd = "buckets/{}/collections/{}".format(
             self._bucket_name, collection or self._collection_name
         )
