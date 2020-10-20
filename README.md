@@ -1,3 +1,7 @@
+[![Build Status](https://circleci.com/gh/mozilla/crlite.svg?style=shield)](https://circleci.com/gh/mozilla/crlite)
+![Maturity Level: Beta](https://img.shields.io/badge/maturity-beta-blue.svg)
+![Docker Version](https://img.shields.io/docker/v/mozilla/crlite)
+
 CRLite uses a Bloom filter cascade [and whole-ecosystem analysis of the Web PKI](https://www.certificate-transparency.org/) to push the entire web’s TLS revocation information to Firefox clients, replacing [OCSP](https://en.wikipedia.org/wiki/Online_Certificate_Status_Protocol) for most browser TLS connections, speeding up connection time while continuing to support PKI revocations. The system was [originally proposed at IEEE S&P 2017](http://www.ccs.neu.edu/home/cbw/static/pdf/larisch-oakland17.pdf).
 
 For details about CRLite, [Mozilla Security Engineering has a blog post series](https://blog.mozilla.org/security/tag/crlite/), and [this repository has a FAQ](https://github.com/mozilla/crlite/wiki#faq).
