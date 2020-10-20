@@ -204,6 +204,10 @@ class PublisherClient(Client):
             )
 
     def sign_collection(self, *, collection=None):
+        if not self.collection_needs_sign(collection=collection):
+            log.info("Collection does not require sign. Skipping.")
+            return
+
         collectionEnd = "buckets/{}/collections/{}".format(
             self._bucket_name, collection or self._collection_name
         )
@@ -1300,11 +1304,6 @@ def crlite_sign(*, args, rw_client):
     log.info(f"Signing collection {settings.KINTO_CRLITE_COLLECTION}, noop={args.noop}")
     if args.noop:
         return
-    if not rw_client.collection_needs_sign(collection=settings.KINTO_CRLITE_COLLECTION):
-        log.info(
-            f"Collection {settings.KINTO_CRLITE_COLLECTION} does not need a signature."
-        )
-        return
     rw_client.sign_collection(collection=settings.KINTO_CRLITE_COLLECTION)
 
 
@@ -1313,10 +1312,6 @@ def intermediates_sign(*, args, rw_client):
         f"Signing collection {settings.KINTO_INTERMEDIATES_COLLECTION}, noop={args.noop}"
     )
     if args.noop:
-        return
-    if not rw_client.collection_needs_sign(
-        collection=settings.KINTO_INTERMEDIATES_COLLECTION
-    ):
         return
     rw_client.sign_collection(collection=settings.KINTO_INTERMEDIATES_COLLECTION)
 
