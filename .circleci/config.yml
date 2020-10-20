@@ -17,6 +17,7 @@ commands:
         type: string
 
     steps:
+      - docker/check
       - run:
           name: Generate version.json
           command: |
@@ -89,6 +90,9 @@ jobs:
     docker:
       # specify the version
       - image: circleci/golang:1.13
+        auth:
+          username: ${DOCKER_LOGIN}
+          password: ${DOCKER_PASSWORD}
 
 
     working_directory: /go/src/github.com/mozilla.com/crlite
@@ -145,6 +149,9 @@ jobs:
   deploy-to-gke:
     docker:
       - image: 'cimg/base:stable'
+        auth:
+          username: ${DOCKER_LOGIN}
+          password: ${DOCKER_PASSWORD}
     steps:
       - gcp-gke/update-kubeconfig-with-credentials:
           cluster: ${GKE_CLUSTER_ID}
