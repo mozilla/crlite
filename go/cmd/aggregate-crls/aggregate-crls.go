@@ -286,7 +286,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 	defer wg.Done()
 
 	for tuple := range workChan {
-		issuerEnrolled := false
+		anyCrlFailed := false
 
 		cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
 		if err != nil {
@@ -303,6 +303,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			default:
 				crl, err := loadAndCheckSignatureOfCRL(crlPath, cert)
 				if err != nil {
+					anyCrlFailed = true
 					ae.auditor.FailedVerifyPath(&tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
 					continue
@@ -310,6 +311,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
+					anyCrlFailed = true
 					ae.auditor.FailedProcessLocal(&tuple.Issuer, crlPath, err)
 					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
 					continue
@@ -321,18 +323,16 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					continue
 				}
 
-				// Issuer is considered enrolled if at least one CRL processed successfully
-				if !issuerEnrolled {
-					issuerEnrolled = true
-					ae.issuers.Enroll(tuple.Issuer)
-				}
-
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
 			}
 		}
 
-		if issuerEnrolled {
+		// Issuer is considered enrolled if no CRLs failed to download or process,
+		// and at least one revocation was collected
+		if anyCrlFailed == false && serialCount > 0 {
+			ae.issuers.Enroll(tuple.Issuer)
+
 			glog.Infof("[%s] Saving %d revoked serials", tuple.Issuer.ID(), serialCount)
 			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
