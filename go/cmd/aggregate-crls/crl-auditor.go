@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
+	"github.com/mozilla/crlite/go/storage"
 )
 
 var (

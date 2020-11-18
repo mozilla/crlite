@@ -18,7 +18,7 @@ import (
 	"time"
 
 	newx509 "github.com/google/certificate-transparency-go/x509"
-	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/storage"
 )
 
 const (

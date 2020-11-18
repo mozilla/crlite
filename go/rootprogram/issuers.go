@@ -18,8 +18,8 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
-	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go/downloader"
+	"github.com/mozilla/crlite/go/storage"
 	"github.com/vbauerster/mpb/v5"
 )
 

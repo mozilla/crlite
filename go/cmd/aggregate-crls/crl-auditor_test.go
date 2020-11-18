@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
+	"github.com/mozilla/crlite/go/storage"
 )
 
 func assertEmptyList(t *testing.T, a *CrlAuditor) {
