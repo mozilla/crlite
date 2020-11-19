@@ -122,7 +122,7 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := loadAndCheckSignatureOfCRL(crlPath.Name(), ca)
+	list, sha256sum, err := loadAndCheckSignatureOfCRL(crlPath.Name(), ca)
 	if err != nil {
 		t.Error(err)
 	}
@@ -135,8 +135,12 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 		t.Error("This Update didn't match")
 	}
 
+	if len(sha256sum) != 32 {
+		t.Error("Expected a 32-byte sha256 digest")
+	}
+
 	otherCa, _ := makeCA(t)
-	_, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
+	_, _, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}

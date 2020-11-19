@@ -39,10 +39,13 @@ func assertValidEntry(t *testing.T, ent *CrlAuditEntry) {
 	if ent.IssuerSubject == "" {
 		t.Error("IssuerSubject is mandatory")
 	}
-	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
+	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld && ent.Kind != AuditKindValid {
 		if len(ent.Errors) == 0 {
 			t.Error("Expecting an error message")
 		}
+	}
+	if ent.Kind == AuditKindValid && ent.NumRevocations < 1 {
+		t.Error("Valid kinds should have at least one revocation")
 	}
 }
 
@@ -271,6 +274,25 @@ func Test_FailedExpired(t *testing.T) {
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindExpired)
 	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
+}
+
+func Test_Valid(t *testing.T) {
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
+	path := "/var/tmp/issuer.crl"
+
+	assertEmptyList(t, auditor)
+
+	age, err := time.ParseDuration("900h")
+	if err != nil {
+		t.Error(err)
+	}
+
+	auditor.ValidAndProcessed(&issuer, path, 42, age, []byte{0x42})
+
+	ent := assertOnlyEntryInList(t, auditor, AuditKindValid)
+	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
 }
 
 func Test_EmptyReport(t *testing.T) {

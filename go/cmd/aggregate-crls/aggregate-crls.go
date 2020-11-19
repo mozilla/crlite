@@ -124,7 +124,7 @@ type CrlVerifier struct {
 }
 
 func (cv *CrlVerifier) IsValid(path string) error {
-	_, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
+	_, _, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
 	return err
 }
 
@@ -216,35 +216,36 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 	}
 }
 
-func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*pkix.CertificateList, error) {
+func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*pkix.CertificateList, []byte, error) {
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Error parsing, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Error parsing, will not process revocations: %s", err)
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
-		return nil, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
 	}
 
-	return crl, err
+	shasum := sha256.Sum256(crlBytes)
+	return crl, shasum[:], err
 }
 
 func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
 	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
-	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
+	crl, _, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
 	if err != nil {
 		ae.auditor.FailedVerifyUrl(&aIssuer, crlUrl, dlTracer, err)
 		return nil, err
 	}
 
 	if _, err = os.Stat(aPreviousPath); err == nil {
-		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
+		previousCrl, _, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
 			ae.auditor.FailedVerifyPath(&aIssuer, aPreviousPath, err)
 			return nil, err
@@ -301,7 +302,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			case <-ctx.Done():
 				return
 			default:
-				crl, err := loadAndCheckSignatureOfCRL(crlPath, cert)
+				crl, sha256sum, err := loadAndCheckSignatureOfCRL(crlPath, cert)
 				if err != nil {
 					anyCrlFailed = true
 					ae.auditor.FailedVerifyPath(&tuple.Issuer, crlPath, err)
@@ -323,6 +324,9 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					continue
 				}
 
+				age := time.Since(crl.TBSCertList.ThisUpdate)
+
+				ae.auditor.ValidAndProcessed(&tuple.Issuer, crlPath, revokedCount, age, sha256sum)
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
 			}
