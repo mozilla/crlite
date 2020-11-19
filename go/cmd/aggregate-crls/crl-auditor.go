@@ -155,26 +155,28 @@ func (auditor *CrlAuditor) Expired(issuer downloader.DownloadIdentifier, crlUrl 
 	})
 }
 
-func (auditor *CrlAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string, err error) {
+func (auditor *CrlAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:     time.Now().UTC(),
 		Kind:          AuditKindFailedVerify,
+		Url:           crlUrl.String(),
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
 		Errors:        []string{err.Error()},
 	})
 }
-func (auditor *CrlAuditor) FailedProcessLocal(issuer downloader.DownloadIdentifier, crlPath string, err error) {
+func (auditor *CrlAuditor) FailedProcessLocal(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:     time.Now().UTC(),
 		Kind:          AuditKindFailedProcessLocal,
+		Url:           crlUrl.String(),
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
@@ -182,26 +184,28 @@ func (auditor *CrlAuditor) FailedProcessLocal(issuer downloader.DownloadIdentifi
 	})
 }
 
-func (auditor *CrlAuditor) NoRevocations(issuer downloader.DownloadIdentifier, crlPath string) {
+func (auditor *CrlAuditor) NoRevocations(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:     time.Now().UTC(),
 		Kind:          AuditKindNoRevocations,
+		Url:           crlUrl.String(),
 		Path:          crlPath,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
 	})
 }
 
-func (auditor *CrlAuditor) ValidAndProcessed(issuer downloader.DownloadIdentifier, crlPath string, numRevocations int, age time.Duration, sha256 []byte) {
+func (auditor *CrlAuditor) ValidAndProcessed(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string, numRevocations int, age time.Duration, sha256 []byte) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()
 
 	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
 		Timestamp:      time.Now().UTC(),
 		Kind:           AuditKindValid,
+		Url:            crlUrl.String(),
 		Path:           crlPath,
 		Issuer:         issuer,
 		IssuerSubject:  auditor.getSubject(issuer),

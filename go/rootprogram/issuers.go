@@ -82,9 +82,9 @@ func (ta *loggingAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, 
 	dlTracer *downloader.DownloadTracer, err error) {
 	glog.Warningf("Failed verify of %s: %s", crlUrl.String(), err)
 }
-func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlPath string,
+func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string,
 	err error) {
-	glog.Warningf("Failed verify of %s: %s", crlPath, err)
+	glog.Warningf("Failed verify of %s (local: %s): %s", crlUrl.String(), crlPath, err)
 }
 
 type identifier struct{}

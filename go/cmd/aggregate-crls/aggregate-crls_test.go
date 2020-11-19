@@ -285,7 +285,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	bar := display.AddBar(1)
 
 	urlChan := make(chan types.IssuerCrlUrls, 16)
-	resultChan := make(chan types.IssuerCrlPaths, 16)
+	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
 
 	ca, caPrivKey := makeCA(t)
 	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "")
@@ -330,32 +330,32 @@ func Test_crlFetchWorker(t *testing.T) {
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 0 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 0 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 0 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 0 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 1 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 1 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 2 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 2 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	select {

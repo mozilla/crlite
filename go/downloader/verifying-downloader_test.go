@@ -39,7 +39,8 @@ func (ta *testAuditor) FailedDownload(issuer DownloadIdentifier, crlUrl *url.URL
 }
 func (ta *testAuditor) FailedVerifyUrl(issuer DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error) {
 }
-func (ta *testAuditor) FailedVerifyPath(issuer DownloadIdentifier, crlPath string, err error) {}
+func (ta *testAuditor) FailedVerifyPath(issuer DownloadIdentifier, crlUrl *url.URL, crlPath string, err error) {
+}
 
 func Test_NotFoundNotLocal(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())

@@ -179,11 +179,11 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 }
 
 func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGroup,
-	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
+	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	for tuple := range crlsChan {
-		paths := make([]string, 0)
+		urlPaths := make([]types.UrlPath, 0)
 
 		for _, crlUrl := range tuple.Urls {
 			select {
@@ -197,7 +197,7 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 			}
 			if path != "" {
-				paths = append(paths, path)
+				urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
 			}
 		}
 
@@ -206,10 +206,10 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			glog.Error(err)
 		}
 
-		resultChan <- types.IssuerCrlPaths{
-			Issuer:   tuple.Issuer,
-			IssuerDN: subj,
-			CrlPaths: paths,
+		resultChan <- types.IssuerCrlUrlPaths{
+			Issuer:      tuple.Issuer,
+			IssuerDN:    subj,
+			CrlUrlPaths: urlPaths,
 		}
 
 		progBar.Increment()
@@ -247,7 +247,7 @@ func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloade
 	if _, err = os.Stat(aPreviousPath); err == nil {
 		previousCrl, _, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
-			ae.auditor.FailedVerifyPath(&aIssuer, aPreviousPath, err)
+			ae.auditor.FailedVerifyPath(&aIssuer, crlUrl, aPreviousPath, err)
 			return nil, err
 		}
 
@@ -283,7 +283,7 @@ func processCRL(aCRL *pkix.CertificateList) ([]storage.Serial, error) {
 }
 
 func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.WaitGroup,
-	workChan <-chan types.IssuerCrlPaths, progBar *mpb.Bar) {
+	workChan <-chan types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	for tuple := range workChan {
@@ -297,36 +297,36 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		serialCount := 0
 		serials := make([]storage.Serial, 0, 128*1024)
 
-		for _, crlPath := range tuple.CrlPaths {
+		for _, crlUrlPath := range tuple.CrlUrlPaths {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				crl, sha256sum, err := loadAndCheckSignatureOfCRL(crlPath, cert)
+				crl, sha256sum, err := loadAndCheckSignatureOfCRL(crlUrlPath.Path, cert)
 				if err != nil {
 					anyCrlFailed = true
-					ae.auditor.FailedVerifyPath(&tuple.Issuer, crlPath, err)
-					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
+					ae.auditor.FailedVerifyPath(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					glog.Errorf("[%+v] Failed to verify: %s", crlUrlPath, err)
 					continue
 				}
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
 					anyCrlFailed = true
-					ae.auditor.FailedProcessLocal(&tuple.Issuer, crlPath, err)
-					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
+					ae.auditor.FailedProcessLocal(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					glog.Errorf("[%+v] Failed to process: %s", crlUrlPath, err)
 					continue
 				}
 
 				revokedCount := len(revokedSerials)
 				if revokedCount == 0 {
-					ae.auditor.NoRevocations(&tuple.Issuer, crlPath)
+					ae.auditor.NoRevocations(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path)
 					continue
 				}
 
 				age := time.Since(crl.TBSCertList.ThisUpdate)
 
-				ae.auditor.ValidAndProcessed(&tuple.Issuer, crlPath, revokedCount, age, sha256sum)
+				ae.auditor.ValidAndProcessed(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, revokedCount, age, sha256sum)
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
 			}
@@ -428,7 +428,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(ctx context.Context) types.Issue
 	return mergedCrls
 }
 
-func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlPaths, int64) {
+func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlUrlPaths, int64) {
 	var wg sync.WaitGroup
 
 	crlChan := make(chan types.IssuerCrlUrls, 16*1024*1024)
@@ -468,7 +468,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 		mpb.BarRemoveOnComplete(),
 	)
 
-	resultChan := make(chan types.IssuerCrlPaths, count)
+	resultChan := make(chan types.IssuerCrlUrlPaths, count)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -491,7 +491,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 	}
 }
 
-func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPaths <-chan types.IssuerCrlPaths) {
+func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPaths <-chan types.IssuerCrlUrlPaths) {
 	var wg sync.WaitGroup
 
 	progressBar := ae.display.AddBar(count,

@@ -11,5 +11,5 @@ type DownloadIdentifier interface {
 type DownloadAuditor interface {
 	FailedDownload(identifier DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
 	FailedVerifyUrl(identifier DownloadIdentifier, crlUrl *url.URL, dlTracer *DownloadTracer, err error)
-	FailedVerifyPath(identifier DownloadIdentifier, crlPath string, err error)
+	FailedVerifyPath(identifier DownloadIdentifier, crlUrl *url.URL, crlPath string, err error)
 }
