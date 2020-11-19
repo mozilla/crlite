@@ -196,9 +196,9 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			if err != nil {
 				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 			}
-			if path != "" {
-				urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
-			}
+			// Even if err is set, pass the blank path to the results, so we
+			// can use it in enrolled/not enrolled determination
+			urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
 		}
 
 		subj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
@@ -302,6 +302,13 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			case <-ctx.Done():
 				return
 			default:
+				if crlUrlPath.Path == "" {
+					anyCrlFailed = true
+					// DownloadAndVerifyFileSync already notified the auditor
+					glog.Errorf("[%+v] Failed to download: %s", crlUrlPath, err)
+					continue
+				}
+
 				crl, sha256sum, err := loadAndCheckSignatureOfCRL(crlUrlPath.Path, cert)
 				if err != nil {
 					anyCrlFailed = true

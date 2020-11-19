@@ -338,14 +338,6 @@ func Test_crlFetchWorker(t *testing.T) {
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlUrlPaths) != 0 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
-	}
-
-	result = <-resultChan
-	if result.Issuer.ID() != issuer.ID() {
-		t.Error("Unexpected issuer")
-	}
 	if len(result.CrlUrlPaths) != 1 {
 		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
@@ -355,6 +347,14 @@ func Test_crlFetchWorker(t *testing.T) {
 		t.Error("Unexpected issuer")
 	}
 	if len(result.CrlUrlPaths) != 2 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
+	}
+
+	result = <-resultChan
+	if result.Issuer.ID() != issuer.ID() {
+		t.Error("Unexpected issuer")
+	}
+	if len(result.CrlUrlPaths) != 3 {
 		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
