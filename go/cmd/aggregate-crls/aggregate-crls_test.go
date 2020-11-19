@@ -19,10 +19,10 @@ import (
 
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/certificate-transparency-go/x509/pkix"
-	"github.com/jcjones/ct-mapreduce/storage"
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
+	"github.com/mozilla/crlite/go/storage"
 	"github.com/vbauerster/mpb/v5"
 )
 

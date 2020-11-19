@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/storage"
 )
 
 const (

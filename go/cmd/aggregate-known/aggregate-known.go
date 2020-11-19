@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/jcjones/ct-mapreduce/config"
-	"github.com/jcjones/ct-mapreduce/engine"
-	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/config"
+	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
+	"github.com/mozilla/crlite/go/storage"
 	"github.com/vbauerster/mpb/v5"
 	"github.com/vbauerster/mpb/v5/decor"
 )

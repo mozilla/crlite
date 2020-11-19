@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/storage"
 )
 
 type IssuerCrlMap map[string]map[string]bool
