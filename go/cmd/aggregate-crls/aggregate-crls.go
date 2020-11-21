@@ -169,7 +169,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 
 	if age > allowableAgeOfLocalCRL {
 		ae.auditor.Old(&issuer, &crlUrl, age)
-		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
+		glog.Warningf("[%s] CRL appears not very fresh, but proceeding with expiration check. Age: %s", crlUrl.String(), age)
 	}
 
 	glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", issuer.ID(), crlUrl.String(),

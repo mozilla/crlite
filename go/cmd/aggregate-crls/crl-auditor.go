@@ -21,7 +21,7 @@ var (
 	AuditKindFailedVerify       CrlAuditEntryKind = "Failed Verify"
 	AuditKindOlderThanLast      CrlAuditEntryKind = "Older Than Previous"
 	AuditKindNoRevocations      CrlAuditEntryKind = "Empty Revocation List"
-	AuditKindOld                CrlAuditEntryKind = "Very Old, Warning"
+	AuditKindOld                CrlAuditEntryKind = "Not Fresh, Warning"
 	AuditKindExpired            CrlAuditEntryKind = "Expired, Allowed"
 	AuditKindValid              CrlAuditEntryKind = "Valid, Processed"
 )
