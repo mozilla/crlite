@@ -124,7 +124,7 @@ type CrlVerifier struct {
 }
 
 func (cv *CrlVerifier) IsValid(path string) error {
-	_, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
+	_, _, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
 	return err
 }
 
@@ -169,7 +169,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 
 	if age > allowableAgeOfLocalCRL {
 		ae.auditor.Old(&issuer, &crlUrl, age)
-		glog.Warningf("[%s] CRL appears very old. Age: %s", crlUrl.String(), age)
+		glog.Warningf("[%s] CRL appears not very fresh, but proceeding with expiration check. Age: %s", crlUrl.String(), age)
 	}
 
 	glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", issuer.ID(), crlUrl.String(),
@@ -179,11 +179,11 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 }
 
 func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGroup,
-	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlPaths, progBar *mpb.Bar) {
+	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	for tuple := range crlsChan {
-		paths := make([]string, 0)
+		urlPaths := make([]types.UrlPath, 0)
 
 		for _, crlUrl := range tuple.Urls {
 			select {
@@ -196,9 +196,9 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			if err != nil {
 				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 			}
-			if path != "" {
-				paths = append(paths, path)
-			}
+			// Even if err is set, pass the blank path to the results, so we
+			// can use it in enrolled/not enrolled determination
+			urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
 		}
 
 		subj, err := ae.issuers.GetSubjectForIssuer(tuple.Issuer)
@@ -206,47 +206,48 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			glog.Error(err)
 		}
 
-		resultChan <- types.IssuerCrlPaths{
-			Issuer:   tuple.Issuer,
-			IssuerDN: subj,
-			CrlPaths: paths,
+		resultChan <- types.IssuerCrlUrlPaths{
+			Issuer:      tuple.Issuer,
+			IssuerDN:    subj,
+			CrlUrlPaths: urlPaths,
 		}
 
 		progBar.Increment()
 	}
 }
 
-func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*pkix.CertificateList, error) {
+func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*pkix.CertificateList, []byte, error) {
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
 	}
 
 	crl, err := x509.ParseCRL(crlBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Error parsing, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Error parsing, will not process revocations: %s", err)
 	}
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
-		return nil, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
+		return nil, []byte{}, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
 	}
 
-	return crl, err
+	shasum := sha256.Sum256(crlBytes)
+	return crl, shasum[:], err
 }
 
 func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
 	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
-	crl, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
+	crl, _, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
 	if err != nil {
 		ae.auditor.FailedVerifyUrl(&aIssuer, crlUrl, dlTracer, err)
 		return nil, err
 	}
 
 	if _, err = os.Stat(aPreviousPath); err == nil {
-		previousCrl, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
+		previousCrl, _, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
 		if err != nil {
-			ae.auditor.FailedVerifyPath(&aIssuer, aPreviousPath, err)
+			ae.auditor.FailedVerifyPath(&aIssuer, crlUrl, aPreviousPath, err)
 			return nil, err
 		}
 
@@ -282,11 +283,11 @@ func processCRL(aCRL *pkix.CertificateList) ([]storage.Serial, error) {
 }
 
 func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.WaitGroup,
-	workChan <-chan types.IssuerCrlPaths, progBar *mpb.Bar) {
+	workChan <-chan types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
 	defer wg.Done()
 
 	for tuple := range workChan {
-		issuerEnrolled := false
+		anyCrlFailed := false
 
 		cert, err := ae.issuers.GetCertificateForIssuer(tuple.Issuer)
 		if err != nil {
@@ -296,43 +297,53 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		serialCount := 0
 		serials := make([]storage.Serial, 0, 128*1024)
 
-		for _, crlPath := range tuple.CrlPaths {
+		for _, crlUrlPath := range tuple.CrlUrlPaths {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				crl, err := loadAndCheckSignatureOfCRL(crlPath, cert)
+				if crlUrlPath.Path == "" {
+					anyCrlFailed = true
+					// DownloadAndVerifyFileSync already notified the auditor
+					glog.Errorf("[%+v] Failed to download: %s", crlUrlPath, err)
+					continue
+				}
+
+				crl, sha256sum, err := loadAndCheckSignatureOfCRL(crlUrlPath.Path, cert)
 				if err != nil {
-					ae.auditor.FailedVerifyPath(&tuple.Issuer, crlPath, err)
-					glog.Errorf("[%s] Failed to verify: %s", crlPath, err)
+					anyCrlFailed = true
+					ae.auditor.FailedVerifyPath(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					glog.Errorf("[%+v] Failed to verify: %s", crlUrlPath, err)
 					continue
 				}
 
 				revokedSerials, err := processCRL(crl)
 				if err != nil {
-					ae.auditor.FailedProcessLocal(&tuple.Issuer, crlPath, err)
-					glog.Errorf("[%s] Failed to process: %s", crlPath, err)
+					anyCrlFailed = true
+					ae.auditor.FailedProcessLocal(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					glog.Errorf("[%+v] Failed to process: %s", crlUrlPath, err)
 					continue
 				}
 
 				revokedCount := len(revokedSerials)
 				if revokedCount == 0 {
-					ae.auditor.NoRevocations(&tuple.Issuer, crlPath)
+					ae.auditor.NoRevocations(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path)
 					continue
 				}
 
-				// Issuer is considered enrolled if at least one CRL processed successfully
-				if !issuerEnrolled {
-					issuerEnrolled = true
-					ae.issuers.Enroll(tuple.Issuer)
-				}
+				age := time.Since(crl.TBSCertList.ThisUpdate)
 
+				ae.auditor.ValidAndProcessed(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, revokedCount, age, sha256sum)
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
 			}
 		}
 
-		if issuerEnrolled {
+		// Issuer is considered enrolled if no CRLs failed to download or process,
+		// and at least one revocation was collected
+		if anyCrlFailed == false && serialCount > 0 {
+			ae.issuers.Enroll(tuple.Issuer)
+
 			glog.Infof("[%s] Saving %d revoked serials", tuple.Issuer.ID(), serialCount)
 			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
@@ -424,7 +435,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(ctx context.Context) types.Issue
 	return mergedCrls
 }
 
-func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlPaths, int64) {
+func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlUrlPaths, int64) {
 	var wg sync.WaitGroup
 
 	crlChan := make(chan types.IssuerCrlUrls, 16*1024*1024)
@@ -464,7 +475,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 		mpb.BarRemoveOnComplete(),
 	)
 
-	resultChan := make(chan types.IssuerCrlPaths, count)
+	resultChan := make(chan types.IssuerCrlUrlPaths, count)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
@@ -487,7 +498,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 	}
 }
 
-func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPaths <-chan types.IssuerCrlPaths) {
+func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPaths <-chan types.IssuerCrlUrlPaths) {
 	var wg sync.WaitGroup
 
 	progressBar := ae.display.AddBar(count,

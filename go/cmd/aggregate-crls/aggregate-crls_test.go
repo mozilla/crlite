@@ -122,7 +122,7 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := loadAndCheckSignatureOfCRL(crlPath.Name(), ca)
+	list, sha256sum, err := loadAndCheckSignatureOfCRL(crlPath.Name(), ca)
 	if err != nil {
 		t.Error(err)
 	}
@@ -135,8 +135,12 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 		t.Error("This Update didn't match")
 	}
 
+	if len(sha256sum) != 32 {
+		t.Error("Expected a 32-byte sha256 digest")
+	}
+
 	otherCa, _ := makeCA(t)
-	_, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
+	_, _, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}
@@ -281,7 +285,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	bar := display.AddBar(1)
 
 	urlChan := make(chan types.IssuerCrlUrls, 16)
-	resultChan := make(chan types.IssuerCrlPaths, 16)
+	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
 
 	ca, caPrivKey := makeCA(t)
 	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "")
@@ -326,32 +330,32 @@ func Test_crlFetchWorker(t *testing.T) {
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 0 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 0 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 0 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 1 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 1 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 2 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	result = <-resultChan
 	if result.Issuer.ID() != issuer.ID() {
 		t.Error("Unexpected issuer")
 	}
-	if len(result.CrlPaths) != 2 {
-		t.Errorf("Unexpected CRLs: %+v", result.CrlPaths)
+	if len(result.CrlUrlPaths) != 3 {
+		t.Errorf("Unexpected CRLs: %+v", result.CrlUrlPaths)
 	}
 
 	select {

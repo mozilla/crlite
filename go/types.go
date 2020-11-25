@@ -37,10 +37,15 @@ type IssuerCrlUrls struct {
 	Urls   []url.URL
 }
 
-type IssuerCrlPaths struct {
-	Issuer   storage.Issuer
-	IssuerDN string
-	CrlPaths []string
+type UrlPath struct {
+	Url  url.URL
+	Path string
+}
+
+type IssuerCrlUrlPaths struct {
+	Issuer      storage.Issuer
+	IssuerDN    string
+	CrlUrlPaths []UrlPath
 }
 
 type TBSCertificateListWithRawSerials struct {

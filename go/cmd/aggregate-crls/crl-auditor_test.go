@@ -39,10 +39,13 @@ func assertValidEntry(t *testing.T, ent *CrlAuditEntry) {
 	if ent.IssuerSubject == "" {
 		t.Error("IssuerSubject is mandatory")
 	}
-	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld {
+	if ent.Kind != AuditKindNoRevocations && ent.Kind != AuditKindOld && ent.Kind != AuditKindValid {
 		if len(ent.Errors) == 0 {
 			t.Error("Expecting an error message")
 		}
+	}
+	if ent.Kind == AuditKindValid && ent.NumRevocations < 1 {
+		t.Error("Valid kinds should have at least one revocation")
 	}
 }
 
@@ -82,11 +85,14 @@ func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Is
 	assertValidEntry(t, ent)
 }
 
-func assertEntryPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
-	issuersObj *rootprogram.MozIssuers, path string) {
+func assertEntryUrlPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
+	issuersObj *rootprogram.MozIssuers, url *url.URL, path string) {
 	t.Helper()
 	if ent.Path != path {
 		t.Errorf("Expected Path of %v got %v", path, ent.Path)
+	}
+	if ent.Url != url.String() {
+		t.Errorf("Expected URL of %v got %v", url, ent.Url)
 	}
 	if ent.Issuer.ID() != issuer.ID() {
 		t.Errorf("Expected Issuer of %v got %v", issuer, ent.Issuer)
@@ -189,13 +195,14 @@ func Test_FailedProcessLocal(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
+	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedProcessLocal(&issuer, path, fmt.Errorf("bad error"))
+	auditor.FailedProcessLocal(&issuer, url, path, fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedProcessLocal)
-	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
+	assertEntryUrlPathAndIssuer(t, ent, issuer, issuersObj, url, path)
 }
 
 func Test_FailedVerifyLocal(t *testing.T) {
@@ -203,13 +210,14 @@ func Test_FailedVerifyLocal(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
+	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
 
-	auditor.FailedVerifyPath(&issuer, path, fmt.Errorf("bad error"))
+	auditor.FailedVerifyPath(&issuer, url, path, fmt.Errorf("bad error"))
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindFailedVerify)
-	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
+	assertEntryUrlPathAndIssuer(t, ent, issuer, issuersObj, url, path)
 }
 
 func Test_FailedNoRevocations(t *testing.T) {
@@ -217,13 +225,14 @@ func Test_FailedNoRevocations(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	path := "crls/crl.pem"
+	url, _ := url.Parse("http://test/crl")
 
 	assertEmptyList(t, auditor)
 
-	auditor.NoRevocations(&issuer, path)
+	auditor.NoRevocations(&issuer, url, path)
 
 	ent := assertOnlyEntryInList(t, auditor, AuditKindNoRevocations)
-	assertEntryPathAndIssuer(t, ent, issuer, issuersObj, path)
+	assertEntryUrlPathAndIssuer(t, ent, issuer, issuersObj, url, path)
 }
 
 func Test_FailedOld(t *testing.T) {
@@ -273,6 +282,26 @@ func Test_FailedExpired(t *testing.T) {
 	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
+func Test_Valid(t *testing.T) {
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
+	url, _ := url.Parse("http://test/crl")
+	path := "/var/tmp/issuer.crl"
+
+	assertEmptyList(t, auditor)
+
+	age, err := time.ParseDuration("900h")
+	if err != nil {
+		t.Error(err)
+	}
+
+	auditor.ValidAndProcessed(&issuer, url, path, 42, age, []byte{0x42})
+
+	ent := assertOnlyEntryInList(t, auditor, AuditKindValid)
+	assertEntryUrlPathAndIssuer(t, ent, issuer, issuersObj, url, path)
+}
+
 func Test_EmptyReport(t *testing.T) {
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
@@ -318,9 +347,9 @@ func Test_SeveralFailures(t *testing.T) {
 
 	path := "/var/tmp/issuer.crl"
 
-	auditor.NoRevocations(&issuer, path)
-	auditor.NoRevocations(&issuer, path)
-	auditor.NoRevocations(&issuer, path)
+	auditor.NoRevocations(&issuer, url, path)
+	auditor.NoRevocations(&issuer, url, path)
+	auditor.NoRevocations(&issuer, url, path)
 
 	if len(auditor.GetEntries()) != 6 {
 		t.Errorf("Expected 6 entries")
@@ -330,7 +359,7 @@ func Test_SeveralFailures(t *testing.T) {
 		if i < 3 {
 			assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, url)
 		} else {
-			assertEntryPathAndIssuer(t, &e, issuer, issuersObj, path)
+			assertEntryUrlPathAndIssuer(t, &e, issuer, issuersObj, url, path)
 		}
 	}
 
