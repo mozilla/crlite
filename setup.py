@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name="crlite",
-    version="1.0.0",
+    version="1.0.3",
     packages=["create_filter_cascade", "moz_kinto_publisher", "workflow"],
     install_requires=[
         "bsdiff4>=1.1",
@@ -15,7 +15,7 @@ setup(
         "google-cloud-storage",
         "kinto-http>=9.1",
         "moz_crlite_lib>=0.2",
-        "moz_crlite_query>=0.4.0",
+        "moz_crlite_query>=0.4.2",
         "progressbar2>=3.40",
         "psutil>=5",
         "pyOpenSSL>=17.5",
