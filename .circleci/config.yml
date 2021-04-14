@@ -1,19 +1,19 @@
 version: 2.1
 
 orbs:
-  python: circleci/python@0.2.1
-  docker: circleci/docker@1.2.1
-  gcp-gke: circleci/gcp-gke@1.0.4
-  kubernetes: circleci/kubernetes@0.11.0
+  python: circleci/python@1.3.4
+  docker: circleci/docker@1.5.0
 
 commands:
-  build-and-publish:
+  build-and-publish-image:
     description: Build and publish a single image
 
     parameters:
       tag:
+        default: ${CIRCLE_SHA1}
         type: string
       path:
+        default: containers
         type: string
 
     steps:
@@ -37,22 +37,6 @@ commands:
           image: ${DOCKER_IMAGE}
           tag: <<parameters.tag>>
           step-name: push crlite container
-
-  publish-docker-pods:
-    description: Build and publish the CRLite containers
-
-    parameters:
-      tag-param:
-        default: ${CIRCLE_SHA1}
-        description: |
-          the environment variable to use as a tag
-        type: string
-
-    steps:
-      - docker/check
-      - build-and-publish:
-          path: containers
-          tag: <<parameters.tag-param>>
 
 jobs:
   python-build-and-test:
@@ -122,59 +106,29 @@ jobs:
           command: go test -race -short ./...
           working_directory: /go/src/github.com/mozilla.com/crlite/go
 
-  publish-dev-pods:
+  publish-dev-image:
     executor: docker/docker
     steps:
       - setup_remote_docker
       - checkout
-      - publish-docker-pods:
-          tag-param: ${CIRCLE_SHA1}
+      - build-and-publish-image:
+          tag: ${CIRCLE_SHA1}
 
-  publish-tagged-pods:
+  publish-tagged-image:
     executor: docker/docker
     steps:
       - setup_remote_docker
       - checkout
-      - publish-docker-pods:
-          tag-param: ${CIRCLE_TAG}
+      - build-and-publish-image:
+          tag: ${CIRCLE_TAG}
 
-  publish-latest-pods:
+  publish-latest-image:
     executor: docker/docker
     steps:
       - setup_remote_docker
       - checkout
-      - publish-docker-pods:
-          tag-param: latest
-
-  deploy-to-gke:
-    docker:
-      - image: 'cimg/base:stable'
-        auth:
-          username: ${DOCKER_LOGIN}
-          password: ${DOCKER_PASSWORD}
-    steps:
-      - gcp-gke/update-kubeconfig-with-credentials:
-          cluster: ${GKE_CLUSTER_ID}
-          install-kubectl: true
-          perform-login: true
-      - kubernetes/update-container-image:
-          container-image-updates: crlite-fetch=docker.io/${DOCKER_IMAGE}:${CIRCLE_SHA1}
-          resource-name: deployment/crlite-fetch
-          show-kubectl-command: true
-          get-rollout-status: true
-          watch-timeout: 5m
-      - kubernetes/update-container-image:
-          container-image-updates: crlite-generate=docker.io/${DOCKER_IMAGE}:${CIRCLE_SHA1}
-          resource-name: cronjob/crlite-generate
-          show-kubectl-command: true
-      - kubernetes/update-container-image:
-          container-image-updates: crlite-publish=docker.io/${DOCKER_IMAGE}:${CIRCLE_SHA1}
-          resource-name: cronjob/crlite-publish
-          show-kubectl-command: true
-      - kubernetes/update-container-image:
-          container-image-updates: crlite-signoff=docker.io/${DOCKER_IMAGE}:${CIRCLE_SHA1}
-          resource-name: cronjob/crlite-signoff
-          show-kubectl-command: true
+      - build-and-publish-image:
+          tag: latest
 
 workflows:
   version: 2
@@ -183,26 +137,20 @@ workflows:
     jobs:
       - python-build-and-test
       - golang-build-and-test
-      - publish-dev-pods:
+      - publish-dev-image:
           filters:
             branches:
               only: dev
           requires:
             - python-build-and-test
             - golang-build-and-test
-      - publish-latest-pods:
+      - publish-latest-image:
           filters:
             branches:
               only: main
           requires:
             - python-build-and-test
             - golang-build-and-test
-      - deploy-to-gke:
-          filters:
-            branches:
-              only: dev
-          requires:
-            - publish-dev-pods
 
   tagged-build:
     jobs:
@@ -218,7 +166,7 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v.*/
-      - publish-tagged-pods:
+      - publish-tagged-image:
           filters:
             branches:
               ignore: /.*/
