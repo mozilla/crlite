@@ -55,7 +55,7 @@ The keys used into the CRLite data structure consist of the SHA256 digest of the
 It's possible to run the tools locally, though you will need local instances of Redis and Firestore. First, install the tools and their dependnecnies
 
 ```sh
-go install -u github.com/jcjones/ct-mapreduce/cmd/ct-fetch
+go install -u github.com/mozilla/crlite/go/cmd/ct-fetch
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-crls
 go install -u github.com/mozilla/crlite/go/cmd/aggregate-known
 

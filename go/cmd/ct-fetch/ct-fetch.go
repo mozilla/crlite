@@ -28,9 +28,9 @@ import (
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
-	"github.com/jcjones/ct-mapreduce/config"
-	"github.com/jcjones/ct-mapreduce/engine"
-	"github.com/jcjones/ct-mapreduce/storage"
+	"github.com/mozilla/crlite/go/config"
+	"github.com/mozilla/crlite/go/engine"
+	"github.com/mozilla/crlite/go/storage"
 	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb/v5"
 	"github.com/vbauerster/mpb/v5/decor"
@@ -259,7 +259,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 				ExpectContinueTimeout: 1 * time.Second,
 			},
 		}, jsonclient.Options{
-			UserAgent: "ct-mapreduce; https://github.com/jcjones/ct-mapreduce",
+			UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
 		})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
