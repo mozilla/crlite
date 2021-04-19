@@ -28,10 +28,10 @@ import (
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/jpillora/backoff"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/jpillora/backoff"
 	"github.com/vbauerster/mpb/v5"
 	"github.com/vbauerster/mpb/v5/decor"
 )
