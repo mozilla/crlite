@@ -30,7 +30,6 @@ RUN mkdir /processing && chown app /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
 
 COPY --from=builder /build/bin /app/
-COPY --from=builder /build/gopath/bin /app/
 
 COPY moz_crlite_lib /app/moz_crlite_lib
 COPY create_filter_cascade /app/create_filter_cascade
