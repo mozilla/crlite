@@ -1,16 +1,9 @@
 package storage
 
 import (
-	"bytes"
-	"context"
-	"encoding/pem"
 	"net/url"
 	"reflect"
-	"sort"
 	"testing"
-	"time"
-
-	"github.com/google/certificate-transparency-go/x509"
 )
 
 const (
@@ -67,7 +60,7 @@ EA==
 func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase) {
 	mockBackend := NewMockBackend()
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(mockBackend, mockCache)
+	storageDB, err := NewFilesystemDatabase(mockCache)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
@@ -75,39 +68,6 @@ func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase)
 		t.Fatalf("Can't find DB")
 	}
 	return mockBackend, mockCache, storageDB
-}
-
-func Test_GetSpkiRealSPKI(t *testing.T) {
-	b, _ := pem.Decode([]byte(kRealSPKI))
-
-	cert, err := x509.ParseCertificate(b.Bytes)
-	if err != nil {
-		t.Error(err)
-	}
-
-	spki := getSpki(cert)
-	if bytes.Equal(spki.spki, cert.SubjectKeyId) == false {
-		t.Error("SPKI should be out of the certificate")
-	}
-}
-
-func Test_GetSpkiSyntheticSPKI(t *testing.T) {
-	b, _ := pem.Decode([]byte(kEmptySPKI))
-
-	cert, err := x509.ParseCertificate(b.Bytes)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if len(cert.SubjectKeyId) != 0 {
-		t.Fatal("The empty SPKI should be length 0")
-	}
-
-	spki := getSpki(cert)
-
-	if len(spki.spki) != 20 {
-		t.Errorf("Synthetic SPKI should be 20 bytes long: %d %s", len(spki.spki), spki.ID())
-	}
 }
 
 func mkExp(s string) ExpDate {
@@ -127,92 +87,6 @@ func expDatesAndStringsEqual(t *testing.T, expected []string, found ExpDateList)
 			t.Errorf("Mismatch at idx=%d: expected %s got %s", i, val, found[i])
 		}
 	}
-}
-
-func Test_ListExpiration(t *testing.T) {
-	mockBackend, _, storageDB := getTestHarness(t)
-
-	testIssuer := NewIssuerFromString("test issuer")
-
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2017-11-28"), testIssuer); err != nil {
-		t.Error(err)
-	}
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2018-11-28"), testIssuer); err != nil {
-		t.Error(err)
-	}
-	if err := mockBackend.AllocateExpDateAndIssuer(context.TODO(), mkExp("2019-11-28"), testIssuer); err != nil {
-		t.Error(err)
-	}
-
-	var refTime time.Time
-	var expDates ExpDateList
-	var err error
-
-	// All dirs valid.
-	expectedDates := []string{"2017-11-28", "2018-11-28", "2019-11-28"}
-	refTime, err = time.Parse(time.RFC3339, "2016-11-29T15:04:05Z")
-	if err != nil {
-		t.Fatalf("Couldn't parse time %+v", err)
-	}
-	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Sort(expDates)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
-
-	expDatesAndStringsEqual(t, expectedDates, expDates)
-
-	// Some dirs valid.
-	expectedDates = []string{"2019-11-28"}
-	refTime, err = time.Parse(time.RFC3339, "2018-11-29T15:04:05Z")
-	if err != nil {
-		t.Fatalf("Couldn't parse time %+v", err)
-	}
-	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Sort(expDates)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
-	expDatesAndStringsEqual(t, expectedDates, expDates)
-
-	// Close-in date, it's the same day as the expiration tag
-	expectedDates = []string{"2019-11-28"}
-	refTime, err = time.Parse(time.RFC3339, "2019-11-28T01:04:05Z")
-	if err != nil {
-		t.Fatalf("Couldn't parse time %+v", err)
-	}
-	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Sort(expDates)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
-	expDatesAndStringsEqual(t, expectedDates, expDates)
-
-	// No dirs valid
-	expectedDates = []string{}
-	refTime, err = time.Parse(time.RFC3339, "2020-11-29T15:04:05Z")
-	if err != nil {
-		t.Fatalf("Couldn't parse time %+v", err)
-	}
-	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Sort(expDates)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
-	expDatesAndStringsEqual(t, expectedDates, expDates)
-
-	// Some dirs valid with ref year, month, and day equal to a dir name
-	expectedDates = []string{"2018-11-28", "2019-11-28"}
-	refTime, err = time.Parse(time.RFC3339, "2018-11-28T23:59:59Z")
-	if err != nil {
-		t.Fatalf("Couldn't parse time %+v", err)
-	}
-	expDates, err = storageDB.ListExpirationDates(refTime)
-	sort.Sort(expDates)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
-	expDatesAndStringsEqual(t, expectedDates, expDates)
 }
 
 func Test_GetIssuerAndDatesFromCache(t *testing.T) {
@@ -338,40 +212,10 @@ func Test_LogStateFirestoreBackend(t *testing.T) {
 }
 
 func Test_LogStateNoopBackend(t *testing.T) {
-	noopBackend := NewNoopBackend()
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(noopBackend, mockCache)
+	storageDB, err := NewFilesystemDatabase(mockCache)
 	if err != nil {
 		t.Error(err)
 	}
 	test_LogState(t, mockCache, storageDB)
-}
-
-func Test_NoopBackend(t *testing.T) {
-	noopBackend := NewNoopBackend()
-	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(noopBackend, mockCache)
-	if err != nil {
-		t.Error(err)
-	}
-
-	expDate, err := NewExpDate("2040-02-03")
-	if err != nil {
-		t.Error(err)
-	}
-
-	err = storageDB.markDirty(&time.Time{})
-	if err != nil {
-		t.Error(err)
-	}
-
-	_, err = storageDB.ListExpirationDates(time.Time{})
-	if err == nil {
-		t.Errorf("Should have emitted an error")
-	}
-
-	_, err = storageDB.ListIssuersForExpirationDate(expDate)
-	if err == nil {
-		t.Errorf("Should have emitted an error")
-	}
 }

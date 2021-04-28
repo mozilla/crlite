@@ -152,7 +152,7 @@ func Test_verifyCRL(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
-	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockRemoteCache())
 	display := mpb.New(
 		mpb.WithOutput(ioutil.Discard),
 	)
@@ -270,7 +270,7 @@ func Test_crlFetchWorker(t *testing.T) {
 		mpb.WithOutput(ioutil.Discard),
 	)
 
-	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
 
@@ -382,7 +382,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 		mpb.WithOutput(ioutil.Discard),
 	)
 
-	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockBackend(), storage.NewMockRemoteCache())
+	storageDB, _ := storage.NewFilesystemDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
 

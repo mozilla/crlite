@@ -545,7 +545,7 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 func main() {
 	ctconfig.Init()
 	ctx, cancel := context.WithCancel(context.Background())
-	storageDB, remoteCache, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, remoteCache := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	checkPathArg(*revokedpath, "revokedpath", ctconfig)

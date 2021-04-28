@@ -68,13 +68,10 @@ type StorageBackend interface {
 }
 
 type CertDatabase interface {
-	Cleanup() error
 	SaveLogState(aLogObj *CertificateLog) error
 	GetLogState(url *url.URL) (*CertificateLog, error)
 	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string,
 		aEntryId int64) error
-	ListExpirationDates(aNotBefore time.Time) ([]ExpDate, error)
-	ListIssuersForExpirationDate(expDate ExpDate) ([]Issuer, error)
 	GetKnownCertificates(aExpDate ExpDate, aIssuer Issuer) *KnownCertificates
 	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
 	GetIssuerAndDatesFromCache() ([]IssuerDate, error)

@@ -112,7 +112,7 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 func main() {
 	ctconfig.Init()
 	ctx := context.Background()
-	storageDB, remoteCache, loadBackend := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, remoteCache := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
@@ -227,7 +227,6 @@ func main() {
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
 		worker := knownWorker{
-			loadStorage: loadBackend,
 			saveStorage: saveBackend,
 			progBar:     progressBar,
 			remoteCache: remoteCache,

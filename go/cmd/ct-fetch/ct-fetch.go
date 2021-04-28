@@ -170,13 +170,6 @@ func (ld *LogSyncEngine) Stop() {
 	ld.display.Wait()
 }
 
-func (ld *LogSyncEngine) Cleanup() {
-	err := ld.database.Cleanup()
-	if err != nil {
-		glog.Errorf("Cache cleanup error caught: %s", err)
-	}
-}
-
 func (ld *LogSyncEngine) insertCTWorker() {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
@@ -492,7 +485,7 @@ func main() {
 	ctx := context.Background()
 	rand.Seed(time.Now().UnixNano())
 
-	storageDB, _, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
@@ -617,7 +610,6 @@ func main() {
 		}()
 		syncEngine.Stop()                 // Stop workers
 		syncEngine.ThreadWaitGroup.Wait() // Wait for workers to stop
-		syncEngine.Cleanup()              // Ensure cache is coherent
 
 		if err := healthServer.Shutdown(ctx); err != nil {
 			glog.Infof("HTTP server shutdown error: %v", err)
