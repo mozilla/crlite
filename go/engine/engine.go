@@ -16,12 +16,9 @@ import (
 	"github.com/mozilla/crlite/go/telemetry"
 )
 
-func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache, storage.StorageBackend) {
+func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache) {
 	var err error
 	var storageDB storage.CertDatabase
-	var backend storage.StorageBackend
-
-	hasLocalDiskConfig := ctconfig.CertPath != nil && len(*ctconfig.CertPath) > 0
 
 	redisTimeoutDuration, err := time.ParseDuration(*ctconfig.RedisTimeout)
 	if err != nil {
@@ -33,18 +30,12 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 		glog.Fatalf("Unable to configure Redis cache for host %v", *ctconfig.RedisHost)
 	}
 
-	if hasLocalDiskConfig {
-		glog.Fatalf("Local Disk Backend currently disabled")
-	} else {
-		backend = storage.NewNoopBackend()
-
-		storageDB, err = storage.NewFilesystemDatabase(backend, remoteCache)
-		if err != nil {
-			glog.Fatalf("Unable to construct cache-only DB: %v", err)
-		}
+	storageDB, err = storage.NewFilesystemDatabase(remoteCache)
+	if err != nil {
+		glog.Fatalf("Unable to construct cache-only DB: %v", err)
 	}
 
-	return storageDB, remoteCache, backend
+	return storageDB, remoteCache
 }
 
 func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
