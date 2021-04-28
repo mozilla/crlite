@@ -11,15 +11,15 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 )
 
-type FilesystemDatabase struct {
+type CertDatabase struct {
 	extCache        RemoteCache
 	knownCertsCache gcache.Cache
 	metaMutex       *sync.RWMutex
 	meta            map[string]*IssuerMetadata
 }
 
-func NewFilesystemDatabase(aExtCache RemoteCache) (*FilesystemDatabase, error) {
-	db := &FilesystemDatabase{
+func NewCertDatabase(aExtCache RemoteCache) (CertDatabase, error) {
+	db := CertDatabase{
 		extCache:        aExtCache,
 		knownCertsCache: gcache.New(8 * 1024).ARC().Build(),
 		metaMutex:       &sync.RWMutex{},
@@ -29,7 +29,7 @@ func NewFilesystemDatabase(aExtCache RemoteCache) (*FilesystemDatabase, error) {
 	return db, nil
 }
 
-func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
+func (db *CertDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
 	db.metaMutex.RLock()
 
 	im, ok := db.meta[aIssuer.ID()]
@@ -48,7 +48,7 @@ func (db *FilesystemDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata 
 	return im
 }
 
-func (db *FilesystemDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
+func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
 	issuerMap := make(map[string]IssuerDate)
 	allChan := make(chan string)
 	go func() {
@@ -91,11 +91,11 @@ func (db *FilesystemDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error)
 	return issuerList, nil
 }
 
-func (db *FilesystemDatabase) SaveLogState(aLogObj *CertificateLog) error {
+func (db *CertDatabase) SaveLogState(aLogObj *CertificateLog) error {
 	return db.extCache.StoreLogState(aLogObj)
 }
 
-func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
+func (db *CertDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
 	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, aUrl.Path)
 
 	log, cacheErr := db.extCache.LoadLogState(shortUrl)
@@ -109,7 +109,7 @@ func (db *FilesystemDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error
 	}, nil
 }
 
-func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
+func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
 	aLogURL string, aEntryId int64) error {
 	expDate := NewExpDateFromTime(aCert.NotAfter)
 	issuer := NewIssuer(aIssuer)
@@ -122,7 +122,7 @@ func (db *FilesystemDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certi
 	return err
 }
 
-func (db *FilesystemDatabase) GetKnownCertificates(aExpDate ExpDate,
+func (db *CertDatabase) GetKnownCertificates(aExpDate ExpDate,
 	aIssuer Issuer) *KnownCertificates {
 	var kc *KnownCertificates
 

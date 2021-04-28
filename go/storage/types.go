@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/url"
 	"strings"
 	"time"
 
@@ -65,16 +64,6 @@ type StorageBackend interface {
 		issuer Issuer) ([]Serial, error)
 	StreamSerialsForExpirationDateAndIssuer(ctx context.Context, expDate ExpDate,
 		issuer Issuer, quitChan <-chan struct{}, stream chan<- UniqueCertIdentifier) error
-}
-
-type CertDatabase interface {
-	SaveLogState(aLogObj *CertificateLog) error
-	GetLogState(url *url.URL) (*CertificateLog, error)
-	Store(aCert *x509.Certificate, aIssuer *x509.Certificate, aURL string,
-		aEntryId int64) error
-	GetKnownCertificates(aExpDate ExpDate, aIssuer Issuer) *KnownCertificates
-	GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata
-	GetIssuerAndDatesFromCache() ([]IssuerDate, error)
 }
 
 type RemoteCache interface {

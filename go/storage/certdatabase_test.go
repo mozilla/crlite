@@ -60,12 +60,9 @@ EA==
 func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase) {
 	mockBackend := NewMockBackend()
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(mockCache)
+	storageDB, err := NewCertDatabase(mockCache)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
-	}
-	if storageDB == nil {
-		t.Fatalf("Can't find DB")
 	}
 	return mockBackend, mockCache, storageDB
 }
@@ -213,7 +210,7 @@ func Test_LogStateFirestoreBackend(t *testing.T) {
 
 func Test_LogStateNoopBackend(t *testing.T) {
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewFilesystemDatabase(mockCache)
+	storageDB, err := NewCertDatabase(mockCache)
 	if err != nil {
 		t.Error(err)
 	}
