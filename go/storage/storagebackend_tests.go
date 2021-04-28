@@ -62,7 +62,6 @@ func BackendTestListFiles(t *testing.T, db StorageBackend) {
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
-	// Normally the FilesystemDatabase object is responsible for this allocation
 	err = db.AllocateExpDateAndIssuer(context.TODO(), expDate, issuerObj)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +183,6 @@ func BackendTestListingCertificates(t *testing.T, db StorageBackend) {
 				t.Fatalf("%s", err.Error())
 			}
 		}
-		// Normally the FilesystemDatabase object is responsible for this allocation
 		err := db.AllocateExpDateAndIssuer(context.TODO(), mkExpDate(date), issuer)
 		if err != nil {
 			t.Fatal(err)

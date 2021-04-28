@@ -30,7 +30,7 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 		glog.Fatalf("Unable to configure Redis cache for host %v", *ctconfig.RedisHost)
 	}
 
-	storageDB, err = storage.NewFilesystemDatabase(remoteCache)
+	storageDB, err = storage.NewCertDatabase(remoteCache)
 	if err != nil {
 		glog.Fatalf("Unable to construct cache-only DB: %v", err)
 	}
