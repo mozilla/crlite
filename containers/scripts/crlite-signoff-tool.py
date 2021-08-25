@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 KINTO_RO_SERVER_URL = config(
-    "KINTO_RO_SERVER_URL", default="https://settings.stage.mozaws.net/v1/"
+    "KINTO_RO_SERVER_URL", default="https://settings-cdn.stage.mozaws.net/v1/"
 )
 KINTO_BUCKET = config("KINTO_BUCKET", default="security-state-preview")
 KINTO_CRLITE_COLLECTION = config("KINTO_CRLITE_COLLECTION", default="cert-revocations")

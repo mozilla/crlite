@@ -1,7 +1,7 @@
 # Be sure not to use quotes for strings in this file
 
 # Kinto information. RO and RW can be the same server, but don't have to be.
-KINTO_RO_SERVER_URL=https://settings.stage.mozaws.net/v1/
+KINTO_RO_SERVER_URL=https://settings-cdn.stage.mozaws.net/v1/
 KINTO_RW_SERVER_URL=https://settings-writer.stage.mozaws.net/v1/
 KINTO_AUTH_USER=kinto_publisher_example_user
 KINTO_AUTH_PASSWORD=kinto_publisher_example_password
