@@ -21,11 +21,12 @@ ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
               -enrolledpath ${ID}/enrolled.json \
               -auditpath ${ID}/crl-audit.json \
               -ccadb ${crlite_persistent:-/ct}/ccadb-intermediates.csv \
-              -nobars -alsologtostderr -log_dir ${ID}/log
+              -stderrthreshold=INFO -alsologtostderr \
+              -log_dir ${ID}/log
 
 ${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${ID}/known \
               -enrolledpath ${ID}/enrolled.json \
-              -stderrthreshold=INFO -nobars -alsologtostderr \
+              -stderrthreshold=INFO -alsologtostderr \
               -log_dir ${WORKDIR}/log
 
 

@@ -20,7 +20,6 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/vbauerster/mpb/v5"
 )
 
 const (
@@ -96,10 +95,6 @@ func (i *identifier) ID() string {
 func (mi *MozIssuers) Load() error {
 	ctx := context.Background()
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	dataUrl, err := url.Parse(mi.ReportUrl)
 	if err != nil {
 		glog.Fatalf("Couldn't parse CCADB URL of %s: %s", mi.ReportUrl, err)
@@ -107,7 +102,7 @@ func (mi *MozIssuers) Load() error {
 	}
 
 	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},
-		display, *dataUrl, mi.DiskPath, 3, 300*time.Second)
+		*dataUrl, mi.DiskPath, 3, 300*time.Second)
 
 	if !isAcceptable {
 		return err
