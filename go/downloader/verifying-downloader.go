@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/vbauerster/mpb/v5"
 )
 
 type DownloadVerifier interface {
@@ -21,7 +20,7 @@ type DownloadVerifier interface {
  * log the error as needed.
  */
 func DownloadAndVerifyFileSync(ctx context.Context, verifyFunc DownloadVerifier, auditor DownloadAuditor,
-	identifier DownloadIdentifier, display *mpb.Progress, crlUrl url.URL, finalPath string, maxRetries uint,
+	identifier DownloadIdentifier, crlUrl url.URL, finalPath string, maxRetries uint,
 	timeout time.Duration) (bool, error) {
 
 	dlTracer := NewDownloadTracer()
@@ -49,7 +48,7 @@ func DownloadAndVerifyFileSync(ctx context.Context, verifyFunc DownloadVerifier,
 		return false, combinedError
 	}
 
-	dlErr := DownloadFileSync(auditCtx, display, crlUrl, tmpPath, maxRetries, timeout)
+	dlErr := DownloadFileSync(auditCtx, crlUrl, tmpPath, maxRetries, timeout)
 	if dlErr != nil {
 		auditor.FailedDownload(identifier, &crlUrl, dlTracer, dlErr)
 		glog.Warningf("[%s] Failed to download from %s to tmp file %s: %s", identifier.ID(), crlUrl.String(), tmpPath, dlErr)

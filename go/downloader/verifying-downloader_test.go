@@ -10,8 +10,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/vbauerster/mpb/v5"
 )
 
 type testIdentifier struct{}
@@ -46,10 +44,6 @@ func Test_NotFoundNotLocal(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())
 	defer ts.Close()
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	tmpfile, err := ioutil.TempFile("", "Test_NotFoundNotLocal")
 	if err != nil {
 		t.Error(err)
@@ -61,7 +55,7 @@ func Test_NotFoundNotLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		&testIdentifier{}, display, *testUrl,
+		&testIdentifier{}, *testUrl,
 		tmpfile.Name(), 1, 0)
 
 	if err == nil {
@@ -84,10 +78,6 @@ func Test_NotFoundButIsLocal(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())
 	defer ts.Close()
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	tmpfile, err := ioutil.TempFile("", "Test_NotFoundButIsLocal")
 	if err != nil {
 		t.Error(err)
@@ -100,7 +90,7 @@ func Test_NotFoundButIsLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		&testIdentifier{}, display, *testUrl,
+		&testIdentifier{}, *testUrl,
 		tmpfile.Name(), 1, 0)
 
 	if err == nil {
@@ -125,10 +115,6 @@ func Test_FoundRemoteButNotLocal(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	tmpfile, err := ioutil.TempFile("", "Test_FoundRemoteButNotLocal")
 	if err != nil {
 		t.Error(err)
@@ -140,7 +126,7 @@ func Test_FoundRemoteButNotLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		&testIdentifier{}, display, *testUrl,
+		&testIdentifier{}, *testUrl,
 		tmpfile.Name(), 1, 0)
 
 	if err != nil {
@@ -161,10 +147,6 @@ func Test_FoundRemoteAndAlsoLocal(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	tmpfile, err := ioutil.TempFile("", "Test_FoundRemoteAndAlsoLocal")
 	if err != nil {
 		t.Error(err)
@@ -177,7 +159,7 @@ func Test_FoundRemoteAndAlsoLocal(t *testing.T) {
 	ctx := context.TODO()
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
-		&testIdentifier{}, display, *testUrl,
+		&testIdentifier{}, *testUrl,
 		tmpfile.Name(), 1, 0)
 
 	if err != nil {
