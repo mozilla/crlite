@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/vbauerster/mpb/v5"
-	"github.com/vbauerster/mpb/v5/decor"
 )
 
 type DownloadAction int
@@ -89,7 +87,7 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 	return Create, szOnDisk, szOnServer
 }
 
-func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path string, timeout time.Duration) error {
+func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Duration) error {
 	client := &http.Client{Timeout: timeout}
 
 	action, offset, size := determineAction(client, crlUrl, path)
@@ -138,32 +136,13 @@ func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path s
 		return ctx.Err()
 	}
 
-	// Fpr partial content, resp.ContentLength will
-	// be the partial length.
-	progBar := display.AddBar(resp.ContentLength,
-		mpb.PrependDecorators(
-			decor.Name(crlUrl.String()),
-		),
-		mpb.AppendDecorators(
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersKibiByte(" %6.1f / %6.1f"),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
-	defer progBar.Abort(true)
-
 	defer resp.Body.Close()
-	reader := progBar.ProxyReader(resp.Body)
 
 	// and copy from reader, propagating errors
-	totalBytes, err := io.Copy(outFile, reader)
+	totalBytes, err := io.Copy(outFile, resp.Body)
 	if err != nil {
 		return err
 	}
-
-	// Sometimes ContentLength is crazy far off.
-	progBar.SetTotal(totalBytes, true)
 
 	if action == Create && size != 0 && totalBytes != size {
 		glog.Warningf("[%s] Didn't seem to download the right number of bytes, expected=%d got %d",
@@ -194,7 +173,7 @@ func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path s
 	return nil
 }
 
-func DownloadFileSync(ctx context.Context, display *mpb.Progress, crlUrl url.URL,
+func DownloadFileSync(ctx context.Context, crlUrl url.URL,
 	path string, maxRetries uint, timeout time.Duration) error {
 	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String())
 
@@ -207,7 +186,7 @@ func DownloadFileSync(ctx context.Context, display *mpb.Progress, crlUrl url.URL
 			glog.Infof("Signal caught, stopping threads at next opportunity.")
 			return nil
 		default:
-			err = download(ctx, display, crlUrl, path, timeout)
+			err = download(ctx, crlUrl, path, timeout)
 			if err == nil {
 				return nil
 			}

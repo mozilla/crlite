@@ -16,24 +16,23 @@ import (
 )
 
 type CTConfig struct {
-	LogUrlList          *string
-	CertPath            *string
-	GoogleProjectId     *string
-	RedisHost           *string
-	RedisTimeout        *string
-	BatchSize           *uint64
-	NumThreads          *int
-	RunForever          *bool
-	IssuerCNFilter      *string
-	LogExpiredEntries   *bool
-	SavePeriod          *string
-	PollingDelay        *uint64
-	StatsRefreshPeriod  *string
-	OutputRefreshPeriod *string
-	Config              *string
-	StatsDHost          *string
-	StatsDPort          *int
-	HealthAddr          *string
+	LogUrlList         *string
+	CertPath           *string
+	GoogleProjectId    *string
+	RedisHost          *string
+	RedisTimeout       *string
+	BatchSize          *uint64
+	NumThreads         *int
+	RunForever         *bool
+	IssuerCNFilter     *string
+	LogExpiredEntries  *bool
+	SavePeriod         *string
+	PollingDelay       *uint64
+	StatsRefreshPeriod *string
+	Config             *string
+	StatsDHost         *string
+	StatsDPort         *int
+	HealthAddr         *string
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
@@ -122,33 +121,30 @@ func confString(p *string, section *ini.Section, key string, def string) {
 
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
-		BatchSize:           new(uint64),
-		LogUrlList:          new(string),
-		NumThreads:          new(int),
-		LogExpiredEntries:   new(bool),
-		RunForever:          new(bool),
-		IssuerCNFilter:      new(string),
-		CertPath:            new(string),
-		GoogleProjectId:     new(string),
-		StatsDHost:          new(string),
-		StatsDPort:          new(int),
-		HealthAddr:          new(string),
-		RedisHost:           new(string),
-		RedisTimeout:        new(string),
-		SavePeriod:          new(string),
-		OutputRefreshPeriod: new(string),
-		StatsRefreshPeriod:  new(string),
-		PollingDelay:        new(uint64),
+		BatchSize:          new(uint64),
+		LogUrlList:         new(string),
+		NumThreads:         new(int),
+		LogExpiredEntries:  new(bool),
+		RunForever:         new(bool),
+		IssuerCNFilter:     new(string),
+		CertPath:           new(string),
+		GoogleProjectId:    new(string),
+		StatsDHost:         new(string),
+		StatsDPort:         new(int),
+		HealthAddr:         new(string),
+		RedisHost:          new(string),
+		RedisTimeout:       new(string),
+		SavePeriod:         new(string),
+		StatsRefreshPeriod: new(string),
+		PollingDelay:       new(uint64),
 	}
 }
 
 func (c *CTConfig) Init() {
 	var confFile string
 	var flagBatchSize uint64
-	var flagOutputRefreshPeriod string
 	flag.StringVar(&confFile, "config", "", "configuration .ini file")
 	flag.Uint64Var(&flagBatchSize, "batchSize", 0, "limit on number of CT log entries to download per job")
-	flag.StringVar(&flagOutputRefreshPeriod, "outputRefreshPeriod", "125ms", "Speed for refreshing progress")
 
 	flag.Parse()
 
@@ -187,7 +183,6 @@ func (c *CTConfig) Init() {
 	confString(c.GoogleProjectId, section, "googleProjectId", "")
 	confString(c.RedisHost, section, "redisHost", "")
 	confString(c.RedisTimeout, section, "redisTimeout", "5s")
-	confString(c.OutputRefreshPeriod, section, "outputRefreshPeriod", "125ms")
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 	confString(c.StatsDHost, section, "statsdHost", "")
 	confInt(c.StatsDPort, section, "statsdPort", 0)
@@ -196,9 +191,6 @@ func (c *CTConfig) Init() {
 	// Finally, CLI flags override
 	if flagBatchSize > 0 {
 		*c.BatchSize = flagBatchSize
-	}
-	if flagOutputRefreshPeriod != "125ms" {
-		*c.OutputRefreshPeriod = flagOutputRefreshPeriod
 	}
 }
 
@@ -223,7 +215,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("numThreads = Use this many threads for normal operations")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
 	fmt.Println("logList = URLs of the CT Logs, comma delimited")
-	fmt.Println("outputRefreshPeriod = Period between output publications")
 	fmt.Println("statsRefreshPeriod = Period between stats being dumped to stderr, only if statsdDhost and statsdPort are not set")
 	fmt.Println("statsdHost = host for StatsD information")
 	fmt.Println("statsdPort = port for StatsD information")
