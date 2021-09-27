@@ -23,7 +23,6 @@ import (
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/vbauerster/mpb/v5"
 )
 
 func Test_makeFilenameFromUrl(t *testing.T) {
@@ -153,16 +152,12 @@ func Test_verifyCRL(t *testing.T) {
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
 
 	ae := AggregateEngine{
 		loadStorageDB: storageDB,
 		saveStorage:   storage.NewMockBackend(),
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
-		display:       display,
 		auditor:       auditor,
 	}
 
@@ -266,10 +261,6 @@ func Test_crlFetchWorker(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
@@ -279,10 +270,8 @@ func Test_crlFetchWorker(t *testing.T) {
 		saveStorage:   storage.NewMockBackend(),
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
-		display:       display,
 		auditor:       auditor,
 	}
-	bar := display.AddBar(1)
 
 	urlChan := make(chan types.IssuerCrlUrls, 16)
 	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
@@ -298,7 +287,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	defer server.Close()
 
 	wg.Add(1)
-	go ae.crlFetchWorker(ctx, &wg, urlChan, resultChan, bar)
+	go ae.crlFetchWorker(ctx, &wg, urlChan, resultChan)
 
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 	crl1Url, _ := url.Parse(server.URL + "/crl-1.crl")
@@ -378,10 +367,6 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	*crlpath = tmpDir
 	defer os.RemoveAll(tmpDir)
 
-	display := mpb.New(
-		mpb.WithOutput(ioutil.Discard),
-	)
-
 	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
@@ -391,7 +376,6 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 		saveStorage:   storage.NewMockBackend(),
 		remoteCache:   storage.NewMockRemoteCache(),
 		issuers:       issuersObj,
-		display:       display,
 		auditor:       auditor,
 	}
 

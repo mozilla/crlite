@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -15,8 +14,6 @@ import (
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/vbauerster/mpb/v5"
-	"github.com/vbauerster/mpb/v5/decor"
 )
 
 const (
@@ -27,7 +24,6 @@ const (
 var (
 	enrolledpath = flag.String("enrolledpath", "<path>", "input enrolled issuers JSON")
 	knownpath    = flag.String("knownpath", "<dir>", "output directory for <issuer> files")
-	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 )
 
@@ -41,7 +37,6 @@ type knownWorker struct {
 	loadStorage storage.StorageBackend
 	saveStorage storage.StorageBackend
 	remoteCache storage.RemoteCache
-	progBar     *mpb.Bar
 }
 
 func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, quitChan <-chan struct{}) {
@@ -87,8 +82,6 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 					glog.Fatalf("expDate=%s issuer=%s serial count math error! expected %d but got %d", expDate,
 						tuple.issuer.ID(), serialCount, len(serials))
 				}
-
-				kw.progBar.Increment()
 			}
 		}
 
@@ -121,12 +114,6 @@ func main() {
 	if err := os.MkdirAll(*knownpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the output directory: %s", err)
 	}
-
-	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
 
 	engine.PrepareTelemetry("aggregate-known", ctconfig)
 
@@ -190,27 +177,6 @@ func main() {
 	// Signal that was the last work
 	close(workChan)
 
-	var barOutput io.Writer = nil
-	if nobars != nil && !*nobars {
-		barOutput = os.Stdout
-	}
-
-	// Start the display
-	display := mpb.NewWithContext(ctx,
-		mpb.WithRefreshRate(refreshDur),
-		mpb.WithOutput(barOutput),
-	)
-
-	progressBar := display.AddBar(count,
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
 	glog.Infof("Starting worker processes to handle %d work units", count)
 
 	// Handle signals from the OS
@@ -228,7 +194,6 @@ func main() {
 		wg.Add(1)
 		worker := knownWorker{
 			saveStorage: saveBackend,
-			progBar:     progressBar,
 			remoteCache: remoteCache,
 		}
 		go worker.run(&wg, workChan, quitChan)

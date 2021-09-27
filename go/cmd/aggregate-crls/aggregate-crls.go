@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -29,8 +28,6 @@ import (
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/vbauerster/mpb/v5"
-	"github.com/vbauerster/mpb/v5/decor"
 )
 
 const (
@@ -44,7 +41,6 @@ var (
 	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
 	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
 	auditpath    = flag.String("auditpath", "<path>", "output JSON audit report")
-	nobars       = flag.Bool("nobars", false, "disable display of download bars")
 	ctconfig     = config.NewCTConfig()
 
 	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\./]`)
@@ -58,7 +54,6 @@ type AggregateEngine struct {
 	remoteCache   storage.RemoteCache
 
 	issuers *rootprogram.MozIssuers
-	display *mpb.Progress
 	auditor *CrlAuditor
 }
 
@@ -75,7 +70,7 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 }
 
 func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup,
-	issuerChan <-chan storage.Issuer, resultChan chan<- types.IssuerCrlMap, progBar *mpb.Bar) {
+	issuerChan <-chan storage.Issuer, resultChan chan<- types.IssuerCrlMap) {
 	defer wg.Done()
 
 	issuerCrls := make(types.IssuerCrlMap)
@@ -111,8 +106,6 @@ func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup
 				crls[url] = true
 			}
 			issuerCrls[issuer.ID()] = crls
-
-			progBar.Increment()
 		}
 	}
 
@@ -148,7 +141,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 	}
 
 	fileOnDiskIsAcceptable, dlErr := downloader.DownloadAndVerifyFileSync(ctx, verifyFunc, ae.auditor,
-		&issuer, ae.display, crlUrl, finalPath, 3, 300*time.Second)
+		&issuer, crlUrl, finalPath, 3, 300*time.Second)
 	if !fileOnDiskIsAcceptable {
 		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
 			"revocations: %s", crlUrl.String(), dlErr)
@@ -180,7 +173,7 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 }
 
 func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGroup,
-	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
+	crlsChan <-chan types.IssuerCrlUrls, resultChan chan<- types.IssuerCrlUrlPaths) {
 	defer wg.Done()
 
 	for tuple := range crlsChan {
@@ -212,8 +205,6 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			IssuerDN:    subj,
 			CrlUrlPaths: urlPaths,
 		}
-
-		progBar.Increment()
 	}
 }
 
@@ -284,7 +275,7 @@ func processCRL(aCRL *pkix.CertificateList) ([]storage.Serial, error) {
 }
 
 func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.WaitGroup,
-	workChan <-chan types.IssuerCrlUrlPaths, progBar *mpb.Bar) {
+	workChan <-chan types.IssuerCrlUrlPaths) {
 	defer wg.Done()
 
 	for tuple := range workChan {
@@ -355,8 +346,6 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		} else {
 			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
 		}
-
-		progBar.Increment()
 	}
 }
 
@@ -391,25 +380,12 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(ctx context.Context) types.Issue
 	// Signal that was the last work
 	close(issuerChan)
 
-	progressBar := ae.display.AddBar(count,
-		mpb.PrependDecorators(
-			decor.Name("Identify CRLs"),
-		),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
 	resultChan := make(chan types.IssuerCrlMap, *ctconfig.NumThreads)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go ae.findCrlWorker(ctx, &wg, issuerChan, resultChan, progressBar)
+		go ae.findCrlWorker(ctx, &wg, issuerChan, resultChan)
 	}
 
 	// Set up a notifier for the workers closing
@@ -463,75 +439,29 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 	}
 	close(crlChan)
 
-	progressBar := ae.display.AddBar(count,
-		mpb.PrependDecorators(
-			decor.Name("Download CRLs"),
-		),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
 	resultChan := make(chan types.IssuerCrlUrlPaths, count)
 
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go ae.crlFetchWorker(ctx, &wg, crlChan, resultChan, progressBar)
+		go ae.crlFetchWorker(ctx, &wg, crlChan, resultChan)
 	}
+	wg.Wait()
+	close(resultChan)
 
-	// Set up a notifier for the workers closing
-	doneChan := make(chan bool)
-	go func(wait *sync.WaitGroup) {
-		wait.Wait()
-		doneChan <- true
-	}(&wg)
-
-	select {
-	case <-doneChan:
-		progressBar.SetTotal(progressBar.Current(), true)
-		close(resultChan)
-		return resultChan, count
-	}
+	return resultChan, count
 }
 
 func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPaths <-chan types.IssuerCrlUrlPaths) {
 	var wg sync.WaitGroup
 
-	progressBar := ae.display.AddBar(count,
-		mpb.PrependDecorators(
-			decor.Name("Aggregate CRLs"),
-		),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
 	// Start the workers
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
-		go ae.aggregateCRLWorker(ctx, &wg, crlPaths, progressBar)
+		go ae.aggregateCRLWorker(ctx, &wg, crlPaths)
 	}
 
-	// Set up a notifier for the workers closing
-	doneChan := make(chan bool)
-	go func(wait *sync.WaitGroup) {
-		wait.Wait()
-		doneChan <- true
-	}(&wg)
-
-	select {
-	case <-doneChan:
-		progressBar.SetTotal(progressBar.Current(), true)
-	}
+	wg.Wait()
 }
 
 func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfig) {
@@ -560,12 +490,6 @@ func main() {
 		glog.Fatalf("Unable to make the CRL directory: %s", err)
 	}
 
-	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
-
 	engine.PrepareTelemetry("aggregate-crls", ctconfig)
 
 	saveBackend := storage.NewLocalDiskBackend(permMode, *revokedpath)
@@ -575,7 +499,7 @@ func main() {
 		mozIssuers.DiskPath = *inccadb
 	}
 
-	err = mozIssuers.Load()
+	err := mozIssuers.Load()
 	if err != nil {
 		glog.Fatalf("Unable to load the Mozilla issuers: %s", err)
 		return
@@ -595,16 +519,6 @@ func main() {
 		signal.Stop(sigChan)
 	}()
 
-	var barOutput io.Writer = nil
-	if nobars != nil && !*nobars {
-		barOutput = os.Stdout
-	}
-
-	display := mpb.NewWithContext(ctx,
-		mpb.WithRefreshRate(refreshDur),
-		mpb.WithOutput(barOutput),
-	)
-
 	auditor := NewCrlAuditor(mozIssuers)
 
 	ae := AggregateEngine{
@@ -612,7 +526,6 @@ func main() {
 		saveStorage:   saveBackend,
 		remoteCache:   remoteCache,
 		issuers:       mozIssuers,
-		display:       display,
 		auditor:       auditor,
 	}
 
@@ -628,7 +541,7 @@ func main() {
 	}
 
 	ae.aggregateCRLs(ctx, count, crlPaths)
-	if err = mozIssuers.SaveIssuersList(*enrolledpath); err != nil {
+	if err := mozIssuers.SaveIssuersList(*enrolledpath); err != nil {
 		glog.Fatalf("Unable to save the crlite-informed intermediate issuers to %s: %s", *enrolledpath, err)
 	}
 	glog.Infof("Saved crlite-informed intermediate issuers to %s", *enrolledpath)
