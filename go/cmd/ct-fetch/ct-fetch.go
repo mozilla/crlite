@@ -35,13 +35,10 @@ import (
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/storage"
-	"github.com/vbauerster/mpb/v5"
-	//	"github.com/vbauerster/mpb/v5/decor"
 )
 
 var (
 	ctconfig = config.NewCTConfig()
-	nobars   = flag.Bool("nobars", false, "disable display of download bars")
 )
 
 func uint64Min(x, y uint64) uint64 {
@@ -263,7 +260,6 @@ type LogSyncEngine struct {
 	DownloaderWaitGroup *sync.WaitGroup
 	database            storage.CertDatabase
 	entryChan           chan CtLogEntry
-	display             *mpb.Progress
 	cancelTrigger       context.CancelFunc
 	lastUpdateTime      time.Time
 	lastUpdateMutex     *sync.RWMutex
@@ -296,25 +292,12 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 	if err != nil {
 		glog.Fatal(err)
 	}
-	glog.Infof("Progress bar refresh rate is every %s.\n", refreshDur.String())
-
-	var barOutput io.Writer = nil
-	if nobars != nil && !*nobars {
-		barOutput = os.Stdout
-	}
-
-	display := mpb.NewWithContext(ctx,
-		mpb.WithWaitGroup(twg),
-		mpb.WithRefreshRate(refreshDur),
-		mpb.WithOutput(barOutput),
-	)
 
 	return &LogSyncEngine{
 		ThreadWaitGroup:     twg,
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
 		entryChan:           make(chan CtLogEntry, 1024*16),
-		display:             display,
 		cancelTrigger:       cancel,
 		lastUpdateTime:      time.Time{},
 		lastUpdateMutex:     &sync.RWMutex{},
