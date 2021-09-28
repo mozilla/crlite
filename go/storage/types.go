@@ -25,13 +25,14 @@ type CertificateLog struct {
 	ShortURL       string    `db:"url"`            // URL to the log
 	MinEntry       uint64    `db:"minEntry"`       // The smallest index we've downloaded
 	MaxEntry       uint64    `db:"maxEntry"`       // The largest index we've downloaded
-	LastEntryTime  time.Time `db:"lastEntryTime"`  // Date of the most recently logged entry
+	MinTimestamp   uint64    `db:"minTimestamp"`   // Unix timestamp of the earliest entry we've downloaded
+	MaxTimestamp   uint64    `db:"maxTimestamp"`   // Unix timestamp of the most recent entry we've downloaded
 	LastUpdateTime time.Time `db:"lastUpdateTime"` // Date when we completed the last update
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("[%s] MinEntry=%d MaxEntry=%d, LastEntryTime=%s LastUpdateTime=%s",
-		o.ShortURL, o.MinEntry, o.MaxEntry, o.LastEntryTime, o.LastUpdateTime)
+	return fmt.Sprintf("[%s] MinEntry=%d, MaxEntry=%d, MaxTimestamp=%d, LastUpdateTime=%s",
+		o.ShortURL, o.MinEntry, o.MaxEntry, o.MaxTimestamp, o.LastUpdateTime)
 }
 
 func CertificateLogIDFromShortURL(shortURL string) string {
