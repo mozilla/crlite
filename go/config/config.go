@@ -27,8 +27,7 @@ type CTConfig struct {
 	IssuerCNFilter      *string
 	LogExpiredEntries   *bool
 	SavePeriod          *string
-	PollingDelayMean    *string
-	PollingDelayStdDev  *int
+	PollingDelay        *uint64
 	StatsRefreshPeriod  *string
 	OutputRefreshPeriod *string
 	Config              *string
@@ -139,8 +138,7 @@ func NewCTConfig() *CTConfig {
 		SavePeriod:          new(string),
 		OutputRefreshPeriod: new(string),
 		StatsRefreshPeriod:  new(string),
-		PollingDelayMean:    new(string),
-		PollingDelayStdDev:  new(int),
+		PollingDelay:        new(uint64),
 	}
 }
 
@@ -182,8 +180,7 @@ func (c *CTConfig) Init() {
 	confInt(c.NumThreads, section, "numThreads", 1)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
-	confInt(c.PollingDelayStdDev, section, "pollingDelayStdDev", 10)
-	confString(c.PollingDelayMean, section, "pollingDelayMean", "10m")
+	confUint64(c.PollingDelay, section, "pollingDelay", 600)
 	confString(c.SavePeriod, section, "savePeriod", "15m")
 	confString(c.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(c.CertPath, section, "certPath", "")
@@ -220,9 +217,8 @@ func (c *CTConfig) Usage() {
 	fmt.Println("Options:")
 	fmt.Println("googleProjectId = Google Cloud Platform Project ID, used for stackdriver logging")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
-	fmt.Println("runForever = Run forever, pausing `pollingDelay` between runs")
-	fmt.Println("pollingDelayMean = Wait a mean of this long between polls")
-	fmt.Println("pollingDelayStdDev = Use this standard deviation between polls")
+	fmt.Println("runForever = Run forever, pausing `pollingDelay` seconds between runs")
+	fmt.Println("pollingDelay= Wait time in seconds between polls. Jitter will be added.")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for normal operations")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
