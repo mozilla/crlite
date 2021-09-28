@@ -10,9 +10,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
-	"flag"
 	"fmt"
-	"io"
 	"math/bits"
 	"math/rand"
 	"net/http"
@@ -277,21 +275,17 @@ type LogWorker struct {
 }
 
 type LogWorkerTask int
+
 const (
-	Init LogWorkerTask = iota // Initialize db with one batch of recent certs
-	Backfill                  // Download old certs
-	Update                    // Download new certs
-	Sleep                     // Wait for an STH update
+	Init     LogWorkerTask = iota // Initialize db with one batch of recent certs
+	Backfill                      // Download old certs
+	Update                        // Download new certs
+	Sleep                         // Wait for an STH update
 )
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	twg := new(sync.WaitGroup)
-
-	refreshDur, err := time.ParseDuration(*ctconfig.OutputRefreshPeriod)
-	if err != nil {
-		glog.Fatal(err)
-	}
 
 	return &LogSyncEngine{
 		ThreadWaitGroup:     twg,
@@ -334,7 +328,6 @@ func (ld *LogSyncEngine) ApproximateMostRecentUpdateTimestamp() time.Time {
 func (ld *LogSyncEngine) Stop() {
 	close(ld.entryChan)
 	ld.cancelTrigger()
-	ld.display.Wait()
 }
 
 func (ld *LogSyncEngine) insertCTWorker() {
@@ -493,12 +486,13 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 func (lw *LogWorker) sleep() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	// TODO(jms) make the sleep time configurable
-	glog.Infof("[%s] Stopped. Sleeping for 10m", lw.LogURL)
+	// Sleep for ctconfig.PollingDelay seconds (+/- 10%).
+	duration := time.Duration((1 + 0.1*rand.NormFloat64()) * float64(*ctconfig.PollingDelay))
+	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.LogURL, duration)
 	select {
 	case <-sigChan:
 		glog.Infof("[%s] Signal caught. Exiting.", lw.LogURL)
-	case <-time.After(10 * time.Second):
+	case <-time.After(duration * time.Second):
 	}
 	signal.Stop(sigChan)
 	close(sigChan)
@@ -810,11 +804,6 @@ func main() {
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
-	pollingDelayMean, err := time.ParseDuration(*ctconfig.PollingDelayMean)
-	if err != nil {
-		glog.Fatalf("Could not parse PollingDelayMean: %v", err)
-	}
-
 	logUrls := []url.URL{}
 
 	if ctconfig.LogUrlList != nil && len(*ctconfig.LogUrlList) > 5 {
@@ -882,10 +871,10 @@ func main() {
 			}
 
 			duration := time.Since(approxUpdateTimestamp)
-			evaluationTime := 2 * pollingDelayMean
+			evaluationTime := 2 * time.Duration(*ctconfig.PollingDelay)
 			if duration > evaluationTime {
 				w.WriteHeader(500)
-				_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelayMean (%v)", duration, evaluationTime)))
+				_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelay (%v)", duration, evaluationTime)))
 				if err != nil {
 					glog.Warningf("Couldn't return poor health status: %+v", err)
 				}
@@ -893,7 +882,7 @@ func main() {
 			}
 
 			w.WriteHeader(200)
-			_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelayMean (%v)", duration, evaluationTime)))
+			_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelay (%v)", duration, evaluationTime)))
 			if err != nil {
 				glog.Warningf("Couldn't return ok health status: %+v", err)
 			}
