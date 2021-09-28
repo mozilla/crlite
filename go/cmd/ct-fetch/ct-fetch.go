@@ -44,6 +44,20 @@ var (
 	nobars   = flag.Bool("nobars", false, "disable display of download bars")
 )
 
+func uint64Min(x, y uint64) uint64 {
+	if x < y {
+		return x
+	}
+	return y
+}
+
+func uint64Max(x, y uint64) uint64 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
 func certIsFilteredOut(aCert *x509.Certificate) bool {
 	// Skip unimportant entries, if configured
 
@@ -639,7 +653,11 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 				lw.LogURL, verifier.Subtree.First, verifier.Subtree.Last, err)
 			return err
 		}
-		lw.saveState(&verifier.Subtree, minTimestamp, maxTimestamp)
+		err = lw.saveState(&verifier.Subtree, minTimestamp, maxTimestamp)
+		if err != nil {
+			glog.Errorf("[%s] Failed to update log state: %s", lw.LogURL, err)
+			return err
+		}
 	}
 
 	glog.Infof("[%s] Verified entries %d-%d", lw.LogURL, verifiers[0].Subtree.First, verifiers[len(verifiers)-1].Subtree.Last)
@@ -647,51 +665,56 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	return err
 }
 
-func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimestamp uint64) {
+func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimestamp uint64) error {
 	// TODO(jms) Block until entry channel is empty and database writes are complete
 	// Depends on: using a separate entry channel per log
 
 	// Ensure that the entries in newSubtree are contiguous with the DB.
 	switch lw.WorkOrder {
 	case Init:
-		if lw.LogState.MinEntry == 0 && lw.LogState.MaxEntry == 0 {
-			// Init jobs work towards the tree head, but we need to store
-			// the MinEntry for the first subtree that we merge.
+		if lw.LogState.LastUpdateTime.IsZero() {
+			// New log. We need to initialize Min{Entry,Timestamp}.
+			// Subsequent calls with WorkOrder=Init only update Max{Entry,Timestamp}
 			lw.LogState.MinEntry = newSubtree.First
-		} else if lw.LogState.MaxEntry != newSubtree.First-1 {
-			glog.Errorf("[%s] Cannot update log state. Missing entries.")
-			return
+			lw.LogState.MaxEntry = newSubtree.Last
+			lw.LogState.MinTimestamp = minTimestamp
+			lw.LogState.MaxTimestamp = maxTimestamp
+		} else if lw.LogState.MaxEntry == newSubtree.First-1 {
+			lw.LogState.MaxEntry = newSubtree.Last
+		} else {
+			return fmt.Errorf("Missing entries")
 		}
-		lw.LogState.MaxEntry = newSubtree.Last
-		// TODO(jms) Store timestamps
 	case Update:
-		if lw.LogState.MaxEntry != newSubtree.First-1 {
-			glog.Errorf("[%s] Cannot update log state. Missing entries.")
-			return
+		if lw.LogState.MaxEntry == newSubtree.First-1 {
+			lw.LogState.MaxEntry = newSubtree.Last
+		} else {
+			return fmt.Errorf("Missing entries")
 		}
-		lw.LogState.MaxEntry = newSubtree.Last
-		// TODO(jms) Store timestamps
 	case Backfill:
-		if lw.LogState.MinEntry != newSubtree.Last+1 {
-			glog.Errorf("[%s] Cannot update log state. Missing entries.")
-			return
+		if lw.LogState.MinEntry == newSubtree.Last+1 {
+			lw.LogState.MinEntry = newSubtree.First
+		} else {
+			return fmt.Errorf("Missing entries")
 		}
-		lw.LogState.MinEntry = newSubtree.First
-		// TODO(jms) Store timestamps
 	default:
-		glog.Errorf("[%s] Cannot update log state. Invalid work order.")
+		return fmt.Errorf("Unknown work order")
 	}
 
+	// TODO(jms): We could do some sanity checks here. E.g. if the work order is
+	// Update and LogState.MaxTimestamp is >= 1 MMD ahead of LogState.MinTimestamp
+	// then LogState.MinTimestamp should not change.
+	lw.LogState.MinTimestamp = uint64Min(lw.LogState.MinTimestamp, minTimestamp)
+	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
 	defer metrics.MeasureSince([]string{"LogWorker", "saveState"}, time.Now())
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
-		glog.Errorf("[%s] Failed to save log state: %s [SaveErr=%s]", lw.LogURL, lw.LogState, saveErr)
-		return
+		return fmt.Errorf("Database error: %s", saveErr)
 	}
 
 	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
+	return nil
 }
 
 func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
