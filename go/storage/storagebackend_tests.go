@@ -117,7 +117,7 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 	if log.ShortURL != testLogURL {
 		t.Errorf("Unexpected URL %s", log.ShortURL)
 	}
-	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
+	if log.MaxEntry != 0 || log.MaxTimestamp != 0 {
 		t.Errorf("Expected a blank log  %s", log.String())
 	}
 
@@ -135,13 +135,13 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 		if updatedLog.ShortURL != testLogURL {
 			t.Errorf("Unexpected URL %s", updatedLog.ShortURL)
 		}
-		if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
+		if updatedLog.MaxEntry != 9 || updatedLog.MaxTimestamp != 0 {
 			t.Errorf("Expected the MaxEntry to be 9 and the time to be unset %s", updatedLog.String())
 		}
 	}
 
 	log.MaxEntry = 0xDEADBEEF
-	log.LastEntryTime = time.Unix(1567016306, 0)
+	log.MaxTimestamp = 1567016306
 	err = db.StoreLogState(context.TODO(), log)
 	if err != nil {
 		t.Errorf("Shouldn't have errored saving %v", err)
@@ -158,11 +158,11 @@ func BackendTestLogState(t *testing.T, db StorageBackend) {
 		if updatedLog.MaxEntry != 0xDEADBEEF {
 			t.Errorf("Expected the MaxEntry to be 0xDEADBEEF %s", updatedLog.String())
 		}
-		if updatedLog.LastEntryTime.IsZero() {
+		if updatedLog.MaxTimestamp == 0 {
 			t.Errorf("Expected the MaxEntry to be non-zero %s", updatedLog.String())
 		}
-		if updatedLog.LastEntryTime.Unix() != 1567016306 {
-			t.Errorf("Expected the LastEntryTime to be 1567016306. %s", updatedLog.String())
+		if updatedLog.MaxTimestamp != 1567016306 {
+			t.Errorf("Expected the MaxTimestamp to be 1567016306. %s", updatedLog.String())
 		}
 	}
 }

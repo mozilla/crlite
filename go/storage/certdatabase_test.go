@@ -173,7 +173,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	if log.ShortURL != "log.ct/2019" {
 		t.Errorf("Unexpected ShortURL %s", log.ShortURL)
 	}
-	if log.MaxEntry != 0 || !log.LastEntryTime.IsZero() {
+	if log.MaxEntry != 0 || log.MaxTimestamp != 0 {
 		t.Errorf("Expected a blank log  %s", log.String())
 	}
 
@@ -198,7 +198,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	if updatedLog.ShortURL != "log.ct/2019" {
 		t.Errorf("Unexpected ShortURL %s", updatedLog.ShortURL)
 	}
-	if updatedLog.MaxEntry != 9 || !updatedLog.LastEntryTime.IsZero() {
+	if updatedLog.MaxEntry != 9 || updatedLog.MaxTimestamp != 0 {
 		t.Errorf("Expected the MaxEntry to be 9 %s", updatedLog.String())
 	}
 }
