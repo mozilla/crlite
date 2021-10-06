@@ -15,6 +15,7 @@ import workflow
 from datetime import datetime, timedelta, timezone
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
+from kinto_http.patch_type import BasicPatch
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
 from cryptography import x509
@@ -521,6 +522,17 @@ class Intermediate:
             id=self.kinto_id,
         )
 
+    def unenroll_from_crlite_in_kinto(self, *, rw_client=None):
+        if self.kinto_id is None:
+            raise IntermediateRecordError(
+                "Cannot unenroll a record not at Kinto: {}".format(self)
+            )
+        rw_client.patch_record(
+            collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+            id=self.kinto_id,
+            changes=BasicPatch({"crlite_enrolled": False}),
+        )
+
     def update_kinto(self, *, remote_record=None, rw_client=None):
         if self.pemData is None:
             raise IntermediateRecordError(
@@ -782,14 +794,26 @@ def publish_intermediates(*, args, ro_client, rw_client):
             except KintoException as ke:
                 log.warning(f"Couldn't delete record id {record['id']}: {ke}")
 
-    for unique_id in to_delete:
-        intermediate = remote_intermediates[unique_id]
-        log.info(f"Deleting {intermediate} from Kinto (delete={args.delete})")
-        if args.delete:
+    if args.delete:
+        for unique_id in to_delete:
+            intermediate = remote_intermediates[unique_id]
+            log.info(f"Deleting {intermediate} from Kinto")
             try:
                 intermediate.delete_from_kinto(rw_client=rw_client)
             except KintoException as ke:
                 log.warning(f"Couldn't delete record id {intermediate}: {ke}")
+    else:
+        # Locally deleted intermediates should be unenrolled from CRLite even
+        # if we aren't performing deletions.
+        for unique_id in to_delete:
+            intermediate = remote_intermediates[unique_id]
+            if not intermediate.crlite_enrolled:
+                continue
+            log.info(f"Unenrolling deleted {intermediate} from CRLite")
+            try:
+                intermediate.unenroll_from_crlite_in_kinto(rw_client=rw_client)
+            except KintoException as ke:
+                log.warning(f"Couldn't unenroll record id {intermediate}: {ke}")
 
     for unique_id in to_upload:
         intermediate = local_intermediates[unique_id]
