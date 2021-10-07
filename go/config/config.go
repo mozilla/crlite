@@ -21,8 +21,7 @@ type CTConfig struct {
 	GoogleProjectId     *string
 	RedisHost           *string
 	RedisTimeout        *string
-	Offset              *uint64
-	Limit               *uint64
+	BatchSize           *uint64
 	NumThreads          *int
 	RunForever          *bool
 	IssuerCNFilter      *string
@@ -124,8 +123,7 @@ func confString(p *string, section *ini.Section, key string, def string) {
 
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
-		Offset:              new(uint64),
-		Limit:               new(uint64),
+		BatchSize:           new(uint64),
 		LogUrlList:          new(string),
 		NumThreads:          new(int),
 		LogExpiredEntries:   new(bool),
@@ -148,12 +146,10 @@ func NewCTConfig() *CTConfig {
 
 func (c *CTConfig) Init() {
 	var confFile string
-	var flagOffset uint64
-	var flagLimit uint64
+	var flagBatchSize uint64
 	var flagOutputRefreshPeriod string
 	flag.StringVar(&confFile, "config", "", "configuration .ini file")
-	flag.Uint64Var(&flagOffset, "offset", 0, "offset from the beginning")
-	flag.Uint64Var(&flagLimit, "limit", 0, "limit processing to this many entries")
+	flag.Uint64Var(&flagBatchSize, "batchSize", 0, "limit on number of CT log entries to download per job")
 	flag.StringVar(&flagOutputRefreshPeriod, "outputRefreshPeriod", "125ms", "Speed for refreshing progress")
 
 	flag.Parse()
@@ -181,8 +177,7 @@ func (c *CTConfig) Init() {
 	}
 
 	// Fill in values, where conf file < env vars
-	confUint64(c.Offset, section, "offset", 0)
-	confUint64(c.Limit, section, "limit", 0)
+	confUint64(c.BatchSize, section, "batchSize", 4096)
 	confString(c.LogUrlList, section, "logList", "")
 	confInt(c.NumThreads, section, "numThreads", 1)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
@@ -202,11 +197,8 @@ func (c *CTConfig) Init() {
 	confString(c.HealthAddr, section, "healthAddr", ":8080")
 
 	// Finally, CLI flags override
-	if flagOffset > 0 {
-		*c.Offset = flagOffset
-	}
-	if flagLimit > 0 {
-		*c.Limit = flagLimit
+	if flagBatchSize > 0 {
+		*c.BatchSize = flagBatchSize
 	}
 	if flagOutputRefreshPeriod != "125ms" {
 		*c.OutputRefreshPeriod = flagOutputRefreshPeriod
