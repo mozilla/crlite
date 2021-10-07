@@ -24,7 +24,8 @@ const (
 
 type CertificateLog struct {
 	ShortURL       string    `db:"url"`            // URL to the log
-	MaxEntry       int64     `db:"maxEntry"`       // The most recent entryID logged
+	MinEntry       uint64    `db:"minEntry"`       // The earliest entryID logged
+	MaxEntry       uint64    `db:"maxEntry"`       // The most recent entryID logged
 	LastEntryTime  time.Time `db:"lastEntryTime"`  // Date of the most recently logged entry
 	LastUpdateTime time.Time `db:"lastUpdateTime"` // Date when we completed the last update
 }

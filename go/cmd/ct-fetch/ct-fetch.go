@@ -7,16 +7,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto"
 	"flag"
 	"fmt"
 	"io"
-	"math"
+	"math/bits"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -77,6 +80,167 @@ func uint64ToTimestamp(timestamp uint64) *time.Time {
 type CtLogEntry struct {
 	LogEntry *ct.LogEntry
 	LogURL   string
+}
+
+type CtLogSubtree struct {
+	Root  []byte
+	First uint64
+	Last  uint64
+}
+
+func (r *CtLogSubtree) Size() uint64 {
+	return r.Last - r.First + 1
+}
+
+func (r *CtLogSubtree) Midpoint() uint64 {
+	size := r.Size()
+	prevPow2 := uint64(0)
+	if size > 1 {
+		prevPow2 = 1 << (bits.Len64(size-1) - 1)
+	}
+	return r.First + prevPow2
+}
+
+func rfc6962LeafHash(leaf []byte) []byte {
+	// Specified in section 2.1 of RFC 6962
+	h := crypto.SHA256.New()
+	h.Write([]byte{0})
+	h.Write(leaf)
+	return h.Sum(nil)
+}
+
+func rfc6962PairHash(left, right []byte) []byte {
+	// Specified in section 2.1 of RFC 6962
+	h := crypto.SHA256.New()
+	h.Write([]byte{1})
+	h.Write(left)
+	h.Write(right)
+	return h.Sum(nil)
+}
+
+type CtLogSubtreeVerifier struct {
+	Subtree     CtLogSubtree
+	hashStack   [][]byte // Scratch space for computing tree hash
+	numConsumed uint64   // Number of leaves hashed into hashStack
+}
+
+func (v *CtLogSubtreeVerifier) Consume(leaf []byte) {
+	if v.numConsumed == 0 {
+		// The hash stack might need to store a full sibling path
+		v.hashStack = make([][]byte, 0, bits.Len64(v.Subtree.Size())+2)
+	}
+	// Push the new leaf hash, H(0 || leaf), onto the stack
+	v.hashStack = append(v.hashStack, rfc6962LeafHash(leaf))
+	v.numConsumed += 1
+
+	// Iteratively pop a pair of siblings off the stack and replace them
+	// by H(1 || Left || Right). The number of times we do this is equal
+	// to the height of the largest complete subtree that contains the leaf
+	// that we just consumed.
+	iter := bits.TrailingZeros64(v.numConsumed)
+	for iter > 0 {
+		n := len(v.hashStack) - 1
+		L := v.hashStack[n-1]
+		R := v.hashStack[n]
+		v.hashStack = v.hashStack[:n-1]
+		v.hashStack = append(v.hashStack, rfc6962PairHash(L, R))
+		iter -= 1
+	}
+}
+
+func (v *CtLogSubtreeVerifier) CheckClaim() error {
+	if len(v.Subtree.Root) != crypto.SHA256.Size() {
+		return fmt.Errorf("CtLogSubtreeVerifier: Claim has the wrong length.")
+	}
+	if v.numConsumed != v.Subtree.Size() {
+		return fmt.Errorf("CtLogSubtreeVerifier: Consumed %d leaves but needed %d.", v.numConsumed, v.Subtree.Size())
+	}
+	// Finish computing the Merkle tree head.
+	for len(v.hashStack) > 1 {
+		n := len(v.hashStack) - 1
+		L := v.hashStack[n-1]
+		R := v.hashStack[n]
+		v.hashStack = v.hashStack[:n-1]
+		v.hashStack = append(v.hashStack, rfc6962PairHash(L, R))
+	}
+	if bytes.Compare(v.Subtree.Root, v.hashStack[0]) != 0 {
+		return fmt.Errorf("CtLogSubtreeVerifier: Verification failed.")
+	}
+	return nil
+}
+
+func consistencyProofToSubtrees(proof [][]byte, oldSize, newSize uint64) ([]CtLogSubtree, error) {
+	// Annotates a consistency proof with the indices needed to check it.
+
+	if newSize <= oldSize {
+		return nil, fmt.Errorf("Empty proof")
+	}
+
+	terms := make([]CtLogSubtree, 0, bits.Len64(newSize)+2)
+
+	// A consistency proof between |oldSize| and |newSize| is
+	// "almost" an inclusion proof for index |oldSize|-1 in the tree
+	// of size |newSize|. "Almost" because we can omit terms from
+	// the old tree so long as we provide enough information to
+	// recover the old tree head.
+	//
+	// We represent the current node by the the set of leaves below
+	// it, so each internal node of the tree looks like:
+	//         [low, high]
+	//          /       \
+	// [low, mid-1]  [mid, high]
+	// (The value of mid is determined by the size of the [low, high]
+	// interval.)
+	//
+	// We will traverse from the root towards the leaf at index
+	// |oldSize|-1, and we will record the set of leaves that lie
+	// below the sibling of each node that we visit.
+	//
+	cursor := CtLogSubtree{First: uint64(0), Last: uint64(newSize - 1)}
+	target := uint64(oldSize - 1)
+
+	// We walk down the tree until we reach a leaf (low == high) or
+	// a node which is in the old tree (high <= target). Both conditions
+	// are necessary if we are to handle the |oldSize| = 0 case.
+	//
+	for cursor.First != cursor.Last && cursor.Last != target {
+		mid := cursor.Midpoint()
+		if target < mid {
+			terms = append(terms, CtLogSubtree{First: mid, Last: cursor.Last})
+			cursor.Last = mid - 1
+		} else {
+			terms = append(terms, CtLogSubtree{First: cursor.First, Last: mid - 1})
+			cursor.First = mid
+		}
+	}
+
+	// The cursor is at node [low, high] and we have just recorded
+	// this node's sibling. We need to record enough information to
+	// recover the old tree head. If |oldSize| is a power of two,
+	// then the current node is the old tree head and the caller
+	// already knows its value. Otherwise we need to record the
+	// current node so that the caller can recover the old tree
+	// head.
+	//
+	if (oldSize & (oldSize - 1)) != 0 { // 0 < |oldSize| is not a power of 2
+		terms = append(terms, cursor)
+	}
+
+	if len(terms) != len(proof) {
+		return nil, fmt.Errorf("Expected proof of length %d and got %d.",
+			len(terms), len(proof))
+	}
+
+	// Reverse the list to conform with the presentation from RFC 6962
+	for i, j := 0, len(terms)-1; i < j; i, j = i+1, j-1 {
+		terms[i], terms[j] = terms[j], terms[i]
+	}
+
+	for i := 0; i < len(proof); i++ {
+		terms[i].Root = proof[i]
+	}
+
+	return terms, nil
 }
 
 // Coordinates all workers
@@ -357,25 +521,71 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		return nil
 	}
 
-	finalIndex, finalTime, err := lw.downloadCTRangeToChannel(entryChan)
+	// We're given the indices of the leaves that we will download,
+	// but we also need the tree sizes.
+	oldSize := uint64(lw.StartPos)
+	newSize := uint64(lw.EndPos + 1)
+
+	// Fetch a consistency proof between |oldSize| and |newSize|.
+	// We won't verify this proof, as we might not have signed tree
+	// heads for the tree sizes. However, we will verify that the
+	// entries we download generate the corresponding entries in
+	// the proof.
+	proof, err := lw.Client.GetSTHConsistency(context.Background(), oldSize, newSize)
 	if err != nil {
-		lw.Bar.Abort(true)
-		glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s",
-			lw.LogURL, err, finalIndex, finalTime)
+		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.LogURL, err)
+		return err
 	}
 
-	lw.saveState(finalIndex, finalTime)
+	subtrees, err := consistencyProofToSubtrees(proof, oldSize, newSize)
+	if err != nil {
+		glog.Errorf("[%s] Invalid proof: %s", lw.LogURL, err)
+		return err
+	}
+
+	verifiers := make([]CtLogSubtreeVerifier, 0, len(subtrees))
+	// We're updating towards the latest STH. We want a
+	// contiguous set of verified entries in the database.
+	// So subtrees should be downloaded and verified in
+	// order of increasing first element.
+	for _, subtree := range subtrees {
+		if subtree.First <= lw.LogState.MaxEntry {
+			continue
+		}
+		if subtree.First < lw.StartPos {
+			continue
+		}
+		pos := sort.Search(len(verifiers),
+			func(i int) bool {
+				return subtree.First < verifiers[i].Subtree.First
+			})
+		verifiers = append(verifiers[:pos],
+			append([]CtLogSubtreeVerifier{CtLogSubtreeVerifier{Subtree: subtree}},
+				verifiers[pos:]...)...)
+	}
+
+	for _, verifier := range verifiers {
+		finalIndex, finalTime, err := lw.downloadCTRangeToChannel(&verifier, entryChan)
+		if err != nil {
+			lw.Bar.Abort(true)
+			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s",
+				lw.LogURL, err, finalIndex, finalTime)
+		}
+		err = verifier.CheckClaim()
+		if err != nil {
+			lw.Bar.Abort(true)
+			glog.Errorf("[%s] downloadCTRangeToChannel could not verify entries %d-%d: %s",
+				lw.LogURL, verifier.Subtree.First, verifier.Subtree.Last, err)
+		}
+		glog.Infof("[%s] %v == %v", lw.LogURL, verifier.Subtree.Root, verifier.hashStack[0])
+		lw.saveState(finalIndex, finalTime)
+	}
+
 	return err
 }
 
 func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
-	if index > math.MaxInt64 {
-		glog.Errorf("[%s] Log final index overflows int64. This shouldn't happen: %+v.",
-			lw.LogURL, index)
-		return
-	}
-
-	lw.LogState.MaxEntry = int64(index)
+	lw.LogState.MaxEntry = index
 	if entryTime != nil {
 		lw.LogState.LastEntryTime = *entryTime
 	}
@@ -395,7 +605,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 // less than upTo. If status is not nil then status updates will be written to
 // it until the function is complete, when it will be closed. The log entries
 // are provided to an output channel.
-func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint64, *time.Time, error) {
+func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, *time.Time, error) {
 	ctx := context.Background()
 
 	sigChan := make(chan os.Signal, 1)
@@ -412,11 +622,11 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 		Max:    5 * time.Minute,
 	}
 
-	index := lw.StartPos
-	for index < lw.EndPos {
-		max := index + 1000
-		if max >= lw.EndPos {
-			max = lw.EndPos - 1
+	index := verifier.Subtree.First
+	for index <= verifier.Subtree.Last {
+		max := index + 1024
+		if max > verifier.Subtree.Last {
+			max = verifier.Subtree.Last
 		}
 
 		cycleTime = time.Now()
@@ -478,6 +688,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(entryChan chan<- CtLogEntry) (uint
 					break entrySavedLoop // proceed
 				}
 			}
+
+			// Continue verifying the consistency proof
+			verifier.Consume(entry.LeafInput)
 
 			metrics.MeasureSince([]string{"LogWorker", "ProcessedEntry"}, cycleTime)
 			index++
