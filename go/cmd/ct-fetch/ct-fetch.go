@@ -36,7 +36,7 @@ import (
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/storage"
 	"github.com/vbauerster/mpb/v5"
-	"github.com/vbauerster/mpb/v5/decor"
+	//	"github.com/vbauerster/mpb/v5/decor"
 )
 
 var (
@@ -257,16 +257,22 @@ type LogSyncEngine struct {
 
 // Operates on a single log
 type LogWorker struct {
-	Bar        *mpb.Bar
-	Database   storage.CertDatabase
-	Client     *client.LogClient
-	LogURL     string
-	STH        *ct.SignedTreeHead
-	LogState   *storage.CertificateLog
-	StartPos   uint64
-	EndPos     uint64
-	SaveTicker *time.Ticker
+	Database  storage.CertDatabase
+	Client    *client.LogClient
+	LogURL    string
+	STH       *ct.SignedTreeHead
+	LogState  *storage.CertificateLog
+	WorkOrder LogWorkerTask
+	JobSize   uint64
 }
+
+type LogWorkerTask int
+const (
+	Init LogWorkerTask = iota // Initialize db with one batch of recent certs
+	Backfill                  // Download old certs
+	Update                    // Download new certs
+	Sleep                     // Wait for an STH update
+)
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -442,146 +448,240 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		return nil, err
 	}
 
-	var startPos uint64
-	// Now we're OK to use the DB
-	if *ctconfig.Offset > 0 {
-		glog.Infof("[%s] Starting from offset %d", ctLogUrl, *ctconfig.Offset)
-		startPos = *ctconfig.Offset
+	batchSize := *ctconfig.BatchSize
+
+	var task LogWorkerTask
+	if sth.TreeSize <= 3 {
+		// For technical reasons, we can't verify our download
+		// until there are at least 3 entries in the log. So
+		// we'll wait.
+		task = Sleep
+	} else if logObj.LastUpdateTime.IsZero() {
+		// First contact with log
+		task = Init
+	} else if logObj.MaxEntry < sth.TreeSize-batchSize {
+		// There are many new entries to download.
+		task = Update
+	} else if logObj.MinEntry > 0 {
+		// There are not many new entries, but there's a
+		// backlog of old entries. Prioritize the backlog.
+		task = Backfill
+	} else if time.Since(logObj.LastUpdateTime) < 10*time.Minute {
+		// There are few new entries, no old entries, and we updated
+		// recently. So sleep.
+		task = Sleep
+	} else if logObj.MaxEntry < sth.TreeSize-1 {
+		// There is at least one new entry and we haven't
+		// downloaded anything recently.
+		task = Update
 	} else {
-		glog.Infof("[%s] Counting existing entries... ", ctLogUrl)
-		startPos = uint64(logObj.MaxEntry)
-		if err != nil {
-			glog.Errorf("[%s] Failed to read entries file: %s", ctLogUrl, err)
-			return nil, err
-		}
+		// There are no new entries.
+		task = Sleep
 	}
-
-	var endPos = sth.TreeSize
-	if *ctconfig.Limit > 0 && (startPos+*ctconfig.Limit) < sth.TreeSize {
-		endPos = startPos + *ctconfig.Limit
-	}
-
-	savePeriod, err := time.ParseDuration(*ctconfig.SavePeriod)
-	if err != nil {
-		glog.Errorf("Couldn't parse save period: %s err=%v", savePeriod, err)
-		return nil, err
-	}
-	saveTicker := time.NewTicker(savePeriod)
 
 	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize,
 		uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 
-	progressBar := ld.display.AddBar((int64)(endPos-startPos),
-		mpb.PrependDecorators(
-			// display our name with one space on the right
-			decor.Name(logObj.ShortURL, decor.WC{W: 30, C: decor.DidentRight}),
-		),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-			decor.Name(""),
-			decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 14}),
-			decor.AverageSpeed(0, "%.1f/s", decor.WC{W: 10}),
-			decor.CountersNoUnit("%d / %d", decor.WCSyncSpace),
-		),
-		mpb.BarRemoveOnComplete(),
-	)
-
 	return &LogWorker{
-		Bar:        progressBar,
-		Database:   ld.database,
-		Client:     ctLog,
-		LogState:   logObj,
-		LogURL:     ctLogUrl,
-		STH:        sth,
-		StartPos:   startPos,
-		EndPos:     endPos,
-		SaveTicker: saveTicker,
+		Database:  ld.database,
+		Client:    ctLog,
+		LogState:  logObj,
+		LogURL:    ctLogUrl,
+		STH:       sth,
+		WorkOrder: task,
+		JobSize:   batchSize,
 	}, nil
 }
 
+func (lw *LogWorker) sleep() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// TODO(jms) make the sleep time configurable
+	glog.Infof("[%s] Stopped. Sleeping for 10m", lw.LogURL)
+	select {
+	case <-sigChan:
+		glog.Infof("[%s] Signal caught. Exiting.", lw.LogURL)
+	case <-time.After(10 * time.Second):
+	}
+	signal.Stop(sigChan)
+	close(sigChan)
+}
+
 func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
-	defer lw.SaveTicker.Stop()
+	var firstIndex, lastIndex uint64
 
-	glog.Infof("[%s] Going from %d to %d (%4.2f%% complete to head of log)",
-		lw.LogURL, lw.StartPos, lw.EndPos,
-		float64(lw.StartPos)/float64(lw.STH.TreeSize)*100)
-
-	if lw.StartPos == lw.EndPos {
-		glog.Infof("[%s] Nothing to do", lw.LogURL)
-		if lw.Bar != nil {
-			lw.Bar.SetTotal((int64)(lw.EndPos), true)
+	switch lw.WorkOrder {
+	case Init:
+		firstIndex = lw.STH.TreeSize - lw.JobSize
+		lastIndex = lw.STH.TreeSize - 1
+		glog.Infof("[%s] Running Init job %d %d", lw.LogURL, firstIndex, lastIndex)
+	case Update:
+		firstIndex = lw.LogState.MaxEntry + 1
+		lastIndex = lw.LogState.MaxEntry + lw.JobSize
+		glog.Infof("[%s] Running Update job %d %d", lw.LogURL, firstIndex, lastIndex)
+	case Backfill:
+		// We will make fewer get-entries requests to the CT Log if we align firstIndex
+		// to a power of two while backfilling.
+		// TODO(jms) document the fact that JobSize should be a power of two
+		if lw.LogState.MinEntry%lw.JobSize != 0 {
+			firstIndex = lw.LogState.MinEntry - (lw.LogState.MinEntry % lw.JobSize)
+		} else {
+			firstIndex = lw.LogState.MinEntry - lw.JobSize
 		}
+		lastIndex = lw.LogState.MinEntry - 1
+		glog.Infof("[%s] Running Backfill job %d %d", lw.LogURL, firstIndex, lastIndex)
+	case Sleep:
+		lw.sleep()
 		return nil
 	}
 
-	// We're given the indices of the leaves that we will download,
-	// but we also need the tree sizes.
-	oldSize := uint64(lw.StartPos)
-	newSize := uint64(lw.EndPos + 1)
+	if firstIndex < 0 {
+		firstIndex = 0
+	}
 
-	// Fetch a consistency proof between |oldSize| and |newSize|.
-	// We won't verify this proof, as we might not have signed tree
-	// heads for the tree sizes. However, we will verify that the
-	// entries we download generate the corresponding entries in
-	// the proof.
+	if lastIndex > lw.STH.TreeSize-1 {
+		lastIndex = lw.STH.TreeSize - 1
+	}
+
+	glog.Infof("[%s] Downloading entries %d through %d",
+		lw.LogURL, firstIndex, lastIndex)
+
+	// We're going to tell users that we downloaded entries
+	// |firstIndex| through |lastIndex|, and we want some assurance
+	// that we've actually done this (especially if we're not getting
+	// entries directly from the CT Log!). We'll ask the log for a
+	// consistency proof between the trees of size |firstIndex| and
+	// |lastIndex+1|. We'll then check that the entries we download
+	// generate the corresponding terms of the proof. We have to handle
+	// the case |firstIndex| = 0 specially.
+	//
+	// Note: we're essentially monitoring the log (as in section 5.3
+	// of RFC 6962). However, we can't always verify the consistency
+	// proofs that we request because we don't always have the
+	// necessary tree heads.
+	//
+	// TODO(jms): Check the proof when |newSize| = |lw.STH.TreeSize|
+	//
+	oldSize := firstIndex
+	newSize := lastIndex + 1
+	if oldSize == 0 {
+		// Special case: the consistency proof with |oldSize| =
+		// 0 is empty. With |oldSize| = 1 (or |oldSize| = 2) it
+		// doesn't include a hash that depends on entry 0 (resp.
+		// 0 or 1). We ensured newSize > 3 when we assigned this
+		// worker its job, so we can use oldSize = 3.
+		oldSize = 3
+	}
 	proof, err := lw.Client.GetSTHConsistency(context.Background(), oldSize, newSize)
 	if err != nil {
 		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.LogURL, err)
 		return err
 	}
 
+	// Annotate the proof with the leaves that influence each term.
 	subtrees, err := consistencyProofToSubtrees(proof, oldSize, newSize)
 	if err != nil {
-		glog.Errorf("[%s] Invalid proof: %s", lw.LogURL, err)
+		glog.Errorf("[%s] Could not annotate proof: %s", lw.LogURL, err)
 		return err
 	}
 
-	verifiers := make([]CtLogSubtreeVerifier, 0, len(subtrees))
-	// We're updating towards the latest STH. We want a
-	// contiguous set of verified entries in the database.
-	// So subtrees should be downloaded and verified in
-	// order of increasing first element.
-	for _, subtree := range subtrees {
-		if subtree.First <= lw.LogState.MaxEntry {
-			continue
+	// We want to keep a contiguous set of verified entries in the
+	// database at all times. We'll queue the verifiers in the right
+	// order for this to happen.
+	verifiers := make([]*CtLogSubtreeVerifier, 0, len(subtrees))
+	switch lw.WorkOrder {
+	case Init:
+		fallthrough
+	case Update:
+		// We're updating towards the latest STH. Download subtrees
+		// in order of increasing first element.
+		for _, subtree := range subtrees {
+			if !(firstIndex <= subtree.First && subtree.Last <= lastIndex) {
+				continue
+			}
+			item := CtLogSubtreeVerifier{Subtree: subtree}
+			pos := sort.Search(len(verifiers),
+				func(i int) bool {
+					return subtree.First < verifiers[i].Subtree.First
+				})
+			verifiers = append(verifiers, nil)
+			copy(verifiers[pos+1:], verifiers[pos:])
+			verifiers[pos] = &item
 		}
-		if subtree.First < lw.StartPos {
-			continue
+	case Backfill:
+		// We're backfilling towards index 0. Download subtrees
+		// in order of decreasing last element.
+		for _, subtree := range subtrees {
+			if !(firstIndex <= subtree.First && subtree.Last <= lastIndex) {
+				continue
+			}
+			item := CtLogSubtreeVerifier{Subtree: subtree}
+			pos := sort.Search(len(verifiers),
+				func(i int) bool {
+					return subtree.Last > verifiers[i].Subtree.Last
+				})
+			verifiers = append(verifiers, nil)
+			copy(verifiers[pos+1:], verifiers[pos:])
+			verifiers[pos] = &item
 		}
-		pos := sort.Search(len(verifiers),
-			func(i int) bool {
-				return subtree.First < verifiers[i].Subtree.First
-			})
-		verifiers = append(verifiers[:pos],
-			append([]CtLogSubtreeVerifier{CtLogSubtreeVerifier{Subtree: subtree}},
-				verifiers[pos:]...)...)
 	}
 
+	// Download entries and verify checksums
 	for _, verifier := range verifiers {
-		finalIndex, finalTime, err := lw.downloadCTRangeToChannel(&verifier, entryChan)
+		minTimestamp, maxTimestamp, err := lw.downloadCTRangeToChannel(verifier, entryChan)
 		if err != nil {
-			lw.Bar.Abort(true)
-			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %v, finalIndex=%d, finalTime=%s",
-				lw.LogURL, err, finalIndex, finalTime)
+			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %s.", lw.LogURL, err)
+			return err
 		}
 		err = verifier.CheckClaim()
 		if err != nil {
-			lw.Bar.Abort(true)
 			glog.Errorf("[%s] downloadCTRangeToChannel could not verify entries %d-%d: %s",
 				lw.LogURL, verifier.Subtree.First, verifier.Subtree.Last, err)
+			return err
 		}
-		glog.Infof("[%s] %v == %v", lw.LogURL, verifier.Subtree.Root, verifier.hashStack[0])
-		lw.saveState(finalIndex, finalTime)
+		lw.saveState(&verifier.Subtree, minTimestamp, maxTimestamp)
 	}
+
+	glog.Infof("[%s] Verified entries %d-%d", lw.LogURL, verifiers[0].Subtree.First, verifiers[len(verifiers)-1].Subtree.Last)
 
 	return err
 }
 
-func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
-	lw.LogState.MaxEntry = index
-	if entryTime != nil {
-		lw.LogState.LastEntryTime = *entryTime
+func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimestamp uint64) {
+	// TODO(jms) Block until entry channel is empty and database writes are complete
+	// Depends on: using a separate entry channel per log
+
+	// Ensure that the entries in newSubtree are contiguous with the DB.
+	switch lw.WorkOrder {
+	case Init:
+		if lw.LogState.MinEntry == 0 && lw.LogState.MaxEntry == 0 {
+			// Init jobs work towards the tree head, but we need to store
+			// the MinEntry for the first subtree that we merge.
+			lw.LogState.MinEntry = newSubtree.First
+		} else if lw.LogState.MaxEntry != newSubtree.First-1 {
+			glog.Errorf("[%s] Cannot update log state. Missing entries.")
+			return
+		}
+		lw.LogState.MaxEntry = newSubtree.Last
+		// TODO(jms) Store timestamps
+	case Update:
+		if lw.LogState.MaxEntry != newSubtree.First-1 {
+			glog.Errorf("[%s] Cannot update log state. Missing entries.")
+			return
+		}
+		lw.LogState.MaxEntry = newSubtree.Last
+		// TODO(jms) Store timestamps
+	case Backfill:
+		if lw.LogState.MinEntry != newSubtree.Last+1 {
+			glog.Errorf("[%s] Cannot update log state. Missing entries.")
+			return
+		}
+		lw.LogState.MinEntry = newSubtree.First
+		// TODO(jms) Store timestamps
+	default:
+		glog.Errorf("[%s] Cannot update log state. Invalid work order.")
 	}
+
 	lw.LogState.LastUpdateTime = time.Now()
 
 	defer metrics.MeasureSince([]string{"LogWorker", "saveState"}, time.Now())
@@ -594,11 +694,7 @@ func (lw *LogWorker) saveState(index uint64, entryTime *time.Time) {
 	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
 }
 
-// DownloadRange downloads log entries from the given starting index till one
-// less than upTo. If status is not nil then status updates will be written to
-// it until the function is complete, when it will be closed. The log entries
-// are provided to an output channel.
-func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, *time.Time, error) {
+func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
 	ctx := context.Background()
 
 	sigChan := make(chan os.Signal, 1)
@@ -606,7 +702,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 	defer signal.Stop(sigChan)
 	defer close(sigChan)
 
-	var lastEntryTimestamp *time.Time
+	var minTimestamp uint64
+	var maxTimestamp uint64
 	var cycleTime time.Time
 
 	b := &backoff.Backoff{
@@ -616,15 +713,13 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 	}
 
 	index := verifier.Subtree.First
-	for index <= verifier.Subtree.Last {
-		max := index + 1024
-		if max > verifier.Subtree.Last {
-			max = verifier.Subtree.Last
-		}
-
+	last := verifier.Subtree.Last
+	for index <= last {
 		cycleTime = time.Now()
 
-		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(max))
+		glog.Infof("[%s] Asking for %d entries", lw.LogURL, last-index+1)
+		// TODO(jms) Add an option to get entries from disk.
+		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
@@ -641,15 +736,13 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 
 			glog.Warningf("Failed to get entries: %v", err)
 			metrics.IncrCounter([]string{"LogWorker", "GetRawEntries", "error"}, 1)
-			return index, lastEntryTimestamp, err
+			return minTimestamp, maxTimestamp, err
 		}
 		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries"}, cycleTime)
 		b.Reset()
 
+		glog.Infof("[%s] Got %d entries", lw.LogURL, len(resp.Entries))
 		for _, entry := range resp.Entries {
-			if lw.Bar != nil {
-				lw.Bar.IncrBy(1)
-			}
 			cycleTime = time.Now()
 
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
@@ -664,25 +757,29 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 
 			metrics.MeasureSince([]string{"LogWorker", "LogEntryFromLeaf"}, cycleTime)
 
-			// Are there waiting signals?
-			submitToChannelTime := time.Now()
+			// We might block while waiting for space in entryChan.
+			// If we catch a signal here the verification will fail and the subtree
+			// will not get merged.
 		entrySavedLoop:
 			for {
 				select {
 				case sig := <-sigChan:
-					glog.Infof("[%s] Signal caught: %s, at %d time %v", lw.LogURL, sig, index, lastEntryTimestamp)
-					return index, lastEntryTimestamp, nil
-				case <-lw.SaveTicker.C:
-					lw.saveState(index, lastEntryTimestamp)
-					// continue trying to store logEntry
+					glog.Infof("[%s] Signal caught: %s", lw.LogURL, sig)
+					return minTimestamp, maxTimestamp, nil
 				case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
-					lastEntryTimestamp = uint64ToTimestamp(logEntry.Leaf.TimestampedEntry.Timestamp)
-					metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, submitToChannelTime)
+					metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
 					break entrySavedLoop // proceed
 				}
 			}
 
-			// Continue verifying the consistency proof
+			// Update the metadata that we will pass to mergeSubtree.
+			entryTimestamp := logEntry.Leaf.TimestampedEntry.Timestamp
+			if minTimestamp == 0 || entryTimestamp < minTimestamp {
+				minTimestamp = entryTimestamp
+			}
+			if maxTimestamp == 0 || maxTimestamp < entryTimestamp {
+				maxTimestamp = entryTimestamp
+			}
 			verifier.Consume(entry.LeafInput)
 
 			metrics.MeasureSince([]string{"LogWorker", "ProcessedEntry"}, cycleTime)
@@ -690,7 +787,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 		}
 	}
 
-	return index, lastEntryTimestamp, nil
+	return minTimestamp, maxTimestamp, nil
 }
 
 func main() {
@@ -754,17 +851,11 @@ func main() {
 						return
 					}
 
-					sampledSeconds := rand.NormFloat64() * float64(*ctconfig.PollingDelayStdDev)
-					sleepTime := time.Duration(sampledSeconds)*time.Second + pollingDelayMean
-					glog.Infof("[%s] Stopped. Polling again in %v. stddev=%v", urlString,
-						sleepTime, *ctconfig.PollingDelayStdDev)
-
 					select {
 					case <-sigChan:
 						glog.Infof("[%s] Signal caught. Exiting.", urlString)
 						return
-					case <-time.After(sleepTime):
-						continue
+					default:
 					}
 				}
 			}()
