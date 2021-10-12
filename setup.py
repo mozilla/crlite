@@ -6,7 +6,7 @@ setup(
     packages=["create_filter_cascade", "moz_kinto_publisher", "workflow"],
     install_requires=[
         "bsdiff4>=1.1",
-        "cryptography>=2.2",
+        "cryptography==3.4.8",
         "Deprecated>=1.2",
         "filtercascade>=0.3.1",
         "glog>=0.3",
