@@ -496,9 +496,12 @@ class Intermediate:
 
     def set_pem(self, pem_data):
         self.pemData = pem_data
-        self.cert = x509.load_pem_x509_certificate(
-            pem_data.encode("utf-8"), default_backend()
-        )
+        try:
+            self.cert = x509.load_pem_x509_certificate(
+                pem_data.encode("utf-8"), default_backend()
+            )
+        except Exception as e:
+            raise IntermediateRecordError("Cannot parse PEM data: {}".format(e))
 
     def download_pem(self):
         if not self.pemAttachment:
