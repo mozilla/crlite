@@ -90,7 +90,7 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 }
 
 func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path string, timeout time.Duration) error {
-	client := &http.Client{ Timeout: timeout }
+	client := &http.Client{Timeout: timeout}
 
 	action, offset, size := determineAction(client, crlUrl, path)
 
