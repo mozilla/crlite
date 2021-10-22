@@ -147,7 +147,8 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		expectedIssuerCert: cert,
 	}
 
-	fileOnDiskIsAcceptable, dlErr := downloader.DownloadAndVerifyFileSync(ctx, verifyFunc, ae.auditor, &issuer, ae.display, crlUrl, finalPath, 3)
+	fileOnDiskIsAcceptable, dlErr := downloader.DownloadAndVerifyFileSync(ctx, verifyFunc, ae.auditor,
+		&issuer, ae.display, crlUrl, finalPath, 3, 300*time.Second)
 	if !fileOnDiskIsAcceptable {
 		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
 			"revocations: %s", crlUrl.String(), dlErr)

@@ -62,7 +62,7 @@ func Test_NotFoundNotLocal(t *testing.T) {
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
 		&testIdentifier{}, display, *testUrl,
-		tmpfile.Name(), 1)
+		tmpfile.Name(), 1, 0)
 
 	if err == nil {
 		t.Error("Expected error")
@@ -101,7 +101,7 @@ func Test_NotFoundButIsLocal(t *testing.T) {
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
 		&testIdentifier{}, display, *testUrl,
-		tmpfile.Name(), 1)
+		tmpfile.Name(), 1, 0)
 
 	if err == nil {
 		t.Error("Expected error")
@@ -141,7 +141,7 @@ func Test_FoundRemoteButNotLocal(t *testing.T) {
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
 		&testIdentifier{}, display, *testUrl,
-		tmpfile.Name(), 1)
+		tmpfile.Name(), 1, 0)
 
 	if err != nil {
 		t.Errorf("Expected no error but got %s", err)
@@ -178,7 +178,7 @@ func Test_FoundRemoteAndAlsoLocal(t *testing.T) {
 
 	dataAtPathIsValid, err := DownloadAndVerifyFileSync(ctx, &testVerifier{}, &testAuditor{},
 		&testIdentifier{}, display, *testUrl,
-		tmpfile.Name(), 1)
+		tmpfile.Name(), 1, 0)
 
 	if err != nil {
 		t.Errorf("Expected no error but got %s", err)

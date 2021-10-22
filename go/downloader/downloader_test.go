@@ -33,7 +33,7 @@ func Test_DownloadNotFound(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 3)
+	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 3, 0)
 	if err.Error() != "Non-OK status: 404 Not Found" {
 		t.Error(err)
 	}
@@ -57,7 +57,7 @@ func Test_DownloadOK(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 1)
+	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 1, 0)
 	if err != nil {
 		t.Error(err)
 	}
@@ -111,7 +111,7 @@ func Test_DownloadFailureWithoutRetry(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 0)
+	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 0, 0)
 	if err == nil {
 		t.Error("Should have failed")
 	}
@@ -133,7 +133,7 @@ func Test_DownloadFailureWithRetry(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 1)
+	err = DownloadFileSync(context.TODO(), display, *url, tmpfile.Name(), 1, 0)
 	if err != nil {
 		t.Error(err)
 	}
@@ -179,7 +179,7 @@ func Test_DownloadResumeNotSupported(t *testing.T) {
 
 	url, _ := url.Parse(ts.URL)
 
-	err = DownloadFileSync(context.TODO(), display, *url, downloadedfile.Name(), 1)
+	err = DownloadFileSync(context.TODO(), display, *url, downloadedfile.Name(), 1, 0)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,7 +238,7 @@ func Test_DownloadResume(t *testing.T) {
 		mpb.WithOutput(ioutil.Discard),
 	)
 
-	err = DownloadFileSync(context.TODO(), display, *url, downloadedfile.Name(), 1)
+	err = DownloadFileSync(context.TODO(), display, *url, downloadedfile.Name(), 1, 0)
 	if err != nil {
 		t.Error(err)
 	}
