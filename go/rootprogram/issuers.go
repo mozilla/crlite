@@ -107,7 +107,7 @@ func (mi *MozIssuers) Load() error {
 	}
 
 	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},
-		display, *dataUrl, mi.DiskPath, 3)
+		display, *dataUrl, mi.DiskPath, 3, 300*time.Second)
 
 	if !isAcceptable {
 		return err

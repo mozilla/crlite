@@ -89,8 +89,8 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 	return Create, szOnDisk, szOnServer
 }
 
-func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path string) error {
-	client := &http.Client{}
+func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path string, timeout time.Duration) error {
+	client := &http.Client{ Timeout: timeout }
 
 	action, offset, size := determineAction(client, crlUrl, path)
 
@@ -195,7 +195,7 @@ func download(ctx context.Context, display *mpb.Progress, crlUrl url.URL, path s
 }
 
 func DownloadFileSync(ctx context.Context, display *mpb.Progress, crlUrl url.URL,
-	path string, maxRetries uint) error {
+	path string, maxRetries uint, timeout time.Duration) error {
 	glog.V(1).Infof("Downloading %s from %s", path, crlUrl.String())
 
 	var err error
@@ -207,7 +207,7 @@ func DownloadFileSync(ctx context.Context, display *mpb.Progress, crlUrl url.URL
 			glog.Infof("Signal caught, stopping threads at next opportunity.")
 			return nil
 		default:
-			err = download(ctx, display, crlUrl, path)
+			err = download(ctx, display, crlUrl, path, timeout)
 			if err == nil {
 				return nil
 			}
