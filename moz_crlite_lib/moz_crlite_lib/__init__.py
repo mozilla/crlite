@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import base64
+import io
 import logging
 import os
 import struct
@@ -220,14 +221,10 @@ def save_additions(*, out_path, revoked_by_issuer):
 
 
 def expectRead(file, expectedBytes):
-    data = []
-    remaining = expectedBytes
-    while remaining > 0:
-        result = file.read(remaining)
-        if len(result) == 0:
-            raise EOFException()
-        remaining -= len(result)
-        data.extend(result)
+    assert isinstance(file, io.BufferedIOBase), "expectRead requires a buffered reader"
+    result = file.read(expectedBytes)
+    if len(result) < expectedBytes:
+        raise EOFException()
     return result
 
 

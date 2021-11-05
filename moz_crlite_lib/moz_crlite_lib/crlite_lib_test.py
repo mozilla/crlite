@@ -1,4 +1,5 @@
 import base64
+import io
 import tempfile
 import unittest
 import moz_crlite_lib as crlite
@@ -6,7 +7,7 @@ import moz_crlite_lib as crlite
 from pathlib import Path
 
 
-class MockFile(object):
+class MockFile(io.BufferedIOBase):
     def __init__(self):
         self.data = b""
         self.idx = 0
