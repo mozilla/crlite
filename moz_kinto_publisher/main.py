@@ -656,7 +656,7 @@ def publish_intermediates(*, args, ro_client, rw_client):
 
                 local_intermediates[intObj.unique_id()] = intObj
             except Exception as e:
-                log.error("Error importing file from {}: {}".format(args.inpath, e))
+                log.error("Error importing file from {}: {}".format(f.name, e))
                 log.error("Record: {}".format(entry))
                 raise e
 
