@@ -1130,49 +1130,67 @@ def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
 
 
 def crlite_verify_record_sanity(*, existing_records):
-    current_filters = list(
-        filter(lambda x: x["incremental"] is False, existing_records)
-    )
-    if len(current_filters) == 0 and len(existing_records) > 0:
-        raise SanityException(f"Only diff records")
+    # This function assumes that existing_records is sorted according to
+    # record["details"]["name"], which is a "YYYY-MM-DDTHH:MM:SS+00:00Z"
+    # timestamp.
 
-    if len(current_filters) > 1:
-        raise SanityException(f"More than one current filter: {current_filters}")
-
-    known_ids = list()
+    # It's OK if there are no records yet.
+    if len(existing_records) == 0:
+        return
 
     for r in existing_records:
-        if r["incremental"] and r["parent"] not in known_ids:
-            raise SanityException(f"Unknown parent in record, ID {r['parent']}")
-        known_ids.append(r["id"])
+        if not r.has_key("id") or not r.has_key("incremental"):
+            raise SanityException(f"Malformed record {r}.")
+        if r["incremental"] and not r.has_key("parent"):
+            raise SanityException(f"Malformed record {r}.")
 
+    # There must be exactly 1 full filter in the existing records.
+    full_filters = [r for r in existing_records if not r["incremental"]]
+    if len(full_filters) == 0:
+        raise SanityException(f"No full filters.")
+    elif len(full_filters) >= 2:
+        raise SanityException(f"Multiple full filters: {full_filters}")
+
+    # Each incremental filter should be a descendent of the full filter
+    ids = {r["id"]: r for r in existing_records}
+    for r in existing_records:
+        ptr = r["id"]
+        while ids[ptr]["incremental"]:
+            ptr = ids[ptr]["parent"]
+            if ptr not in ids:
+                raise SanityException(f"Record {r['id']} has unknown parent {ptr}")
+
+    # There should be no long gaps between record timestamps
     allowed_delta = timedelta(hours=8)
-
-    last_timestamp = None
-    for r in existing_records:
-        ts = timestamp_from_record(r)
-        if last_timestamp:
-            if ts < last_timestamp:
-                raise SanityException(f"Out-of-order timestamp: {ts}")
-            if ts - last_timestamp > allowed_delta:
-                raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
-        last_timestamp = ts
+    timestamps = [timestamp_from_record(r) for r in existing_records]
+    for x, y in zip(timestamps, timestamps[1:]):
+        if y - x > allowed_delta:
+            raise SanityException(f"Too-wide a delta: {y-x}")
 
 
 def crlite_verify_run_id_sanity(*, run_db, identifiers_to_check):
-    allowed_delta = timedelta(hours=8)
+    # The runs should be complete.
+    for r in identifiers_to_check:
+        if not run_db.is_run_ready(r):
+            raise SanityException(f"Run is not ready: {r}")
 
-    last_timestamp = None
+    # Each run should have a "filter" and a "filter.stash" file.
     for r in identifiers_to_check:
         if not run_db.is_run_valid(r):
             raise SanityException(f"Not a valid run: {r}")
-        ts = run_db.get_timestamp_for_run_id(r)
-        if last_timestamp:
-            if ts < last_timestamp:
-                raise SanityException(f"Out-of-order timestamp: {ts}")
-            if ts - last_timestamp > allowed_delta:
-                raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
-        last_timestamp = ts
+
+    # When sorted by run ID, the runs should have increasing timestamps.
+    identifiers_to_check.sort(key=lambda x: [int(y) for y in x.split("-")])
+    ts = [run_db.get_run_timestamp(r) for r in identifiers_to_check]
+    for x, y in zip(ts, ts[1:]):
+        if x > y:
+            raise SanityException(f"Out-of-order timestamp: {ts}")
+
+    # There should be no large gaps between run timestamps.
+    allowed_delta = timedelta(hours=8)
+    for x, y in zip(ts, ts[1:]):
+        if y - x > allowed_delta:
+            raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
 
 
 def crlite_determine_publish(*, existing_records, run_db):
