@@ -1178,34 +1178,52 @@ def crlite_verify_run_id_sanity(*, run_db, identifiers_to_check):
 def crlite_determine_publish(*, existing_records, run_db):
     assert len(run_db) > 0, "There must be run identifiers"
 
-    # First, if there are no existing records, then we upload the most recent
-    # run.
+    # The default behavior is to clear all records and upload a full
+    # filter based on the most recent run. We'll check if we can do
+    # an incremental update instead.
+    default = {"clear_all": True, "upload": [run_db.most_recent_id()]}
+
+    # If there are no existing records, publish a full filter.
     if not existing_records:
-        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
+        return default
 
-    # First, match the most recent filter-or-stash with its run identifier.
-    # If we don't find any published run identifiers, just upload the most
-    # recent run.
-    published_run_ids = []
-    unpublished_run_ids = []
-
-    published_run_ids, unpublished_run_ids = run_db.split_run_ids_by(
-        lambda run_id: run_id in existing_records[-1]["attachment"]["filename"]
-    )
-
-    if not published_run_ids:
-        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
-
-    # verify sanity of the run_identifiers
+    # If the existing records are bad, publish a full filter.
     try:
-        crlite_verify_run_id_sanity(
-            run_db=run_db, identifiers_to_check=unpublished_run_ids
-        )
+        crlite_verify_record_sanity(existing_records=existing_records)
+    except SanityException as se:
+        log.error(f"Failed to verify existing record sanity: {se}")
+        return default
+
+    # Get a list of run IDs that are newer than any existing record.
+    # These are candidates for inclusion in an incremental update.
+
+    # A run ID is a "YYYMMDD" date and an index, e.g. "20210101-3".
+    # The record["attachment"]["filename"] field of an existing record is
+    # in the format "<run id>-filter" or "<run id>-filter.stash".
+    old_run_ids = []
+    new_run_ids = []
+    cut = existing_records[-1]
+    cut_date, cut_idx = [int(x) for x in cut["attachment"]["filename"].split("-")[:2]]
+    for run_id in run_db.run_identifiers:
+        run_date, run_idx = [int(x) for x in run_id.split("-")]
+        if run_date < cut_date or (run_date == cut_date and run_idx <= cut_idx):
+            old_run_ids.append(run_id)
+        else:
+            new_run_ids.append(run_id)
+
+    # If we don't have data from old runs, publish a full filter.
+    if not old_run_ids:
+        log.error(f"We do not have data to support existing records.")
+        return default
+
+    # If the new runs fail a sanity check, publish a full filter.
+    try:
+        crlite_verify_run_id_sanity(run_db=run_db, identifiers_to_check=new_run_ids)
     except SanityException as se:
         log.error(f"Failed to verify run ID sanity: {se}")
-        return {"clear_all": True, "upload": [run_db.most_recent_id()]}
+        return default
 
-    return {"upload": unpublished_run_ids}
+    return {"upload": new_run_ids}
 
 
 def publish_crlite(*, args, ro_client, rw_client):
