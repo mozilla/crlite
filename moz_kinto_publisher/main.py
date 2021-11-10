@@ -22,6 +22,14 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 
 
+class IntermediateRecordError(KintoException):
+    pass
+
+
+class TimeoutException(Exception):
+    pass
+
+
 class SanityException(Exception):
     pass
 
@@ -51,18 +59,13 @@ class PublishedRunDB(object):
         log.debug(f"{run_id}/completed {'is ready' if is_ready else 'is not ready'}")
         return is_ready
 
-    def await_run_ready(self, run_id, *, timeout=timedelta(minutes=5)):
+    def await_most_recent_run(self, *, timeout=timedelta(minutes=5)):
+        run_id = self.most_recent_id()
         time_start = datetime.now()
-        while True:
-            if self.is_run_ready(run_id):
-                return
-
+        while not self.is_run_ready(run_id):
             time_waiting = datetime.now() - time_start
             if time_waiting >= timeout:
-                raise Exception(
-                    f"Timed out waiting for run completion ID {run_id}, "
-                    + f"waited={time_waiting}"
-                )
+                raise TimeoutException(f"{time_waiting}")
             log.warning(
                 f"{run_id}/completed not found, retrying (waiting={time_waiting}, "
                 + f"deadline={timeout-time_waiting})"
@@ -72,7 +75,7 @@ class PublishedRunDB(object):
     def most_recent_id(self):
         return self.run_identifiers[-1]
 
-    def get_timestamp_for_run_id(self, run_id):
+    def get_run_timestamp(self, run_id):
         if run_id not in self.cached_run_times:
             byte_str = workflow.download_from_google_cloud_to_string(
                 self.filter_bucket, f"{run_id}/timestamp"
@@ -82,14 +85,6 @@ class PublishedRunDB(object):
             ).replace(tzinfo=timezone.utc)
 
         return self.cached_run_times[run_id]
-
-    def split_run_ids_by(self, split_func):
-        for idx, run_id in enumerate(self.run_identifiers):
-            if split_func(run_id):
-                published_run_ids = self.run_identifiers[: idx + 1]
-                unpublished_run_ids = self.run_identifiers[idx + 1 :]
-                return (published_run_ids, unpublished_run_ids)
-        return (None, self.run_identifiers)
 
 
 class BearerTokenAuth(requests.auth.AuthBase):
@@ -339,14 +334,6 @@ def main():
     except Exception as e:
         log.error("A general exception occurred: {}".format(e))
         raise e
-
-
-class IntermediateRecordError(KintoException):
-    def __init__(self, message):
-        self.message = message
-
-    def __str__(self):
-        return self.message
 
 
 class AttachedPem:
@@ -1248,71 +1235,46 @@ def publish_crlite(*, args, ro_client, rw_client):
     existing_records = ro_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
+    # Sort existing_records for crlite_verify_record_sanity
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
-
-    try:
-        crlite_verify_record_sanity(existing_records=existing_records)
-    except SanityException as se:
-        log.error(f"Failed to verify existing record sanity: {se}")
-        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
-        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
-        existing_records = []
 
     published_run_db = PublishedRunDB(args.filter_bucket)
 
-    result = crlite_determine_publish(
+    # Wait for the most recent run to finish.
+    try:
+        published_run_db.await_most_recent_run(timeout=timedelta(minutes=5))
+    except TimeoutException as te:
+        log.warning(f"The most recent run is not ready to be published (waited {te}).")
+
+    tasks = crlite_determine_publish(
         existing_records=existing_records, run_db=published_run_db
     )
 
-    log.debug(f"crlite_determine_publish results={result}")
+    log.debug(f"crlite_determine_publish tasks={tasks}")
 
-    if not result["upload"]:
+    if not tasks["upload"]:
         log.info("Nothing to do.")
         return
 
     # Don't accidentally use the ro_client beyond this point
     ro_client = None
 
-    if "clear_all" in result:
-        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
-        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
-
     args.download_path.mkdir(parents=True, exist_ok=True)
 
-    existing_stash_records = filter(lambda x: x["incremental"], existing_records)
-    existing_stash_size = sum(
-        map(lambda x: x["attachment"]["size"], existing_stash_records)
-    )
-    log.info(f"Total size of existing published records: {existing_stash_size} bytes")
-
-    upload_size = 0
-
-    for run_id in result["upload"]:
+    new_stash_paths = []
+    for run_id in tasks["upload"]:
         run_id_path = args.download_path / Path(run_id)
         run_id_path.mkdir(parents=True, exist_ok=True)
         stash_path = run_id_path / Path("stash")
-
-        if not published_run_db.is_run_ready(run_id):
-            log.info("Run is not ready yet, waiting")
-            published_run_db.await_run_ready(run_id)
-
         workflow.download_and_retry_from_google_cloud(
             args.filter_bucket,
             f"{run_id}/mlbf/filter.stash",
             stash_path,
             timeout=timedelta(minutes=5),
         )
+        new_stash_paths.append(stash_path)
 
-        upload_size += stash_path.stat().st_size
-
-    total_size = existing_stash_size + upload_size
-
-    log.info(
-        f"Total size would be {total_size} bytes after uploading {upload_size} bytes of stashes: "
-        + f"{result['upload']}"
-    )
-
-    final_run_id = result["upload"][-1]
+    final_run_id = tasks["upload"][-1]
     filter_path = args.download_path / Path(final_run_id) / Path("filter")
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
@@ -1321,51 +1283,45 @@ def publish_crlite(*, args, ro_client, rw_client):
         timeout=timedelta(minutes=5),
     )
 
-    if (
-        "clear_all" in result
-        or total_size > filter_path.stat().st_size
-        or not existing_records
-    ):
-        if existing_records:
-            log.info(
-                f"Total size {total_size} > {filter_path} ({filter_path.stat().st_size}), "
-                + "uploading a full filter."
-            )
+    existing_stash_size = sum(
+        x["attachment"]["size"] for x in existing_stash_records if x["incremental"]
+    )
+    update_stash_size = sum(stash_path.stat().st_size for stash_path in new_stash_paths)
+
+    total_stash_size = existing_stash_size + update_stash_size
+    full_filter_size = filter_path.stat().st_size
+
+    log.info(f"New stash size: {total_stash_size} bytes")
+    log.info(f"New filter size: {full_filter_size} bytes")
+
+    if "clear_all" in tasks or total_stash_size > full_filter_size:
+        log.info("Uploading a full filter based on {final_run_id}.")
 
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
         clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
 
+        assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
             filename=f"{final_run_id}-filter",
             rw_client=rw_client,
-            timestamp=published_run_db.get_timestamp_for_run_id(final_run_id),
+            timestamp=published_run_db.get_run_timestamp(final_run_id),
             noop=args.noop,
         )
 
     else:
+        log.info("Uploading stashes.")
         previous_id = existing_records[-1]["id"]
-        rolling_stash_size = existing_stash_size
 
-        for run_id in result["upload"]:
-            run_id_path = args.download_path / Path(run_id)
-            stash_path = run_id_path / Path("stash")
-            assert stash_path.is_file(), "stash must have been downloaded"
-
-            stash_size = stash_path.stat().st_size
-
-            log.info(
-                f"Adding this stash will increase {rolling_stash_size} to "
-                + f"{rolling_stash_size + stash_size}, uploading {stash_path}"
-            )
-            rolling_stash_size += stash_size
+        for run_id, stash_path in zip(tasks["upload"], new_stash_paths):
+            assert stash_path.is_file(), "Missing local copy of stash"
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
                 filename=f"{run_id}-filter.stash",
                 rw_client=rw_client,
                 previous_id=previous_id,
-                timestamp=published_run_db.get_timestamp_for_run_id(run_id),
+                timestamp=published_run_db.get_run_timestamp(run_id),
                 noop=args.noop,
             )
 
