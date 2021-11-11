@@ -105,21 +105,15 @@ func Test_Accumulate(t *testing.T) {
 	issuerObj := NewIssuer(firstCert)
 	meta := NewIssuerMetadata(issuerObj, NewMockRemoteCache())
 
-	seenBefore, err := meta.Accumulate(firstCert)
+	err := meta.Accumulate(firstCert)
 	if err != nil {
 		t.Error(err)
-	}
-	if seenBefore != false {
-		t.Error("Should have been a new day")
 	}
 
 	nextCert := makeCert(t, issuerCN, "2001-01-01", NewSerialFromHex("01"))
-	seenBefore, err = meta.Accumulate(nextCert)
+	err = meta.Accumulate(nextCert)
 	if err != nil {
 		t.Error(err)
-	}
-	if seenBefore != true {
-		t.Error("Should have not have been a new day")
 	}
 
 	if len(meta.CRLs()) != 0 {
