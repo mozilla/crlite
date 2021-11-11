@@ -30,21 +30,15 @@ func NewCertDatabase(aExtCache RemoteCache) (CertDatabase, error) {
 }
 
 func (db *CertDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
-	db.metaMutex.RLock()
+	db.metaMutex.Lock()
+	defer db.metaMutex.Unlock()
 
-	im, ok := db.meta[aIssuer.ID()]
-	if ok {
-		db.metaMutex.RUnlock()
-		return im
+	im, found := db.meta[aIssuer.ID()]
+	if !found {
+		im = NewIssuerMetadata(aIssuer, db.extCache)
+		db.meta[aIssuer.ID()] = im
 	}
 
-	db.metaMutex.RUnlock()
-	db.metaMutex.Lock()
-
-	im = NewIssuerMetadata(aIssuer, db.extCache)
-	db.meta[aIssuer.ID()] = im
-
-	db.metaMutex.Unlock()
 	return im
 }
 
@@ -118,8 +112,21 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 	serialNum := NewSerial(aCert)
 
 	// WasUnknown stores the certificate if it was unknown.
-	_, err := knownCerts.WasUnknown(serialNum)
-	return err
+	certWasUnknown, err := knownCerts.WasUnknown(serialNum)
+	if err != nil {
+		return err
+	}
+
+	if certWasUnknown {
+		// Store issuer DN and any CRL distribution points.
+		issuerData := db.GetIssuerMetadata(issuer)
+		err := issuerData.Accumulate(aCert)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (db *CertDatabase) GetKnownCertificates(aExpDate ExpDate,

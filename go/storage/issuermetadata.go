@@ -19,7 +19,6 @@ type IssuerMetadata struct {
 	mutex          *sync.RWMutex
 	knownCrlDPs    map[string]struct{}
 	knownIssuerDNs map[string]struct{}
-	knownExpDates  map[string]struct{}
 }
 
 func NewIssuerMetadata(aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
@@ -29,7 +28,6 @@ func NewIssuerMetadata(aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
 		mutex:          &sync.RWMutex{},
 		knownCrlDPs:    make(map[string]struct{}),
 		knownIssuerDNs: make(map[string]struct{}),
-		knownExpDates:  make(map[string]struct{}),
 	}
 }
 
@@ -86,55 +84,60 @@ func (im *IssuerMetadata) addIssuerDN(aIssuerDN string) error {
 	return nil
 }
 
-// Must tolerate duplicate information
-// TODO: See which is faster, locking on these local caches, or just using extCache
-// solely
-func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) (bool, error) {
-	expDate := NewExpDateFromTime(aCert.NotAfter)
+// Check if the certificate contains any novel CRLs or issuer DNs
+func (im *IssuerMetadata) ShouldStoreMetadata(aCert *x509.Certificate) bool {
 	dn := aCert.Issuer.String()
+	dps := aCert.CRLDistributionPoints
+	foundNew := false
+
 	im.mutex.RLock()
-	_, seenExpDateBefore := im.knownExpDates[expDate.ID()]
+	defer im.mutex.RUnlock()
+
 	_, seenIssuerDn := im.knownIssuerDNs[dn]
-	im.mutex.RUnlock()
+	foundNew = foundNew || !seenIssuerDn
 
-	if !seenExpDateBefore {
-		im.mutex.Lock()
-		im.knownExpDates[expDate.ID()] = struct{}{}
-		im.mutex.Unlock()
-
-		// Don't bother checking the extCache. Even if it's there, the persistent
-		// DB might be missing data, so let's permit a gentle collision just in case
-		// the data was missing.
+	for _, dp := range dps {
+		_, seenCrlDp := im.knownCrlDPs[dp]
+		foundNew = foundNew || !seenCrlDp
 	}
 
-	im.mutex.RLock()
-	for _, dp := range aCert.CRLDistributionPoints {
-		_, ok := im.knownCrlDPs[dp]
+	return foundNew
+}
 
-		if !ok {
-			im.mutex.RUnlock()
-			im.mutex.Lock()
-			im.knownCrlDPs[dp] = struct{}{}
-			im.mutex.Unlock()
-			im.mutex.RLock()
+// Store CRL and Issuer records
+func (im *IssuerMetadata) Accumulate(aCert *x509.Certificate) error {
 
+	if !im.ShouldStoreMetadata(aCert) {
+		return nil
+	}
+
+	dn := aCert.Issuer.String()
+	dps := aCert.CRLDistributionPoints
+
+	im.mutex.Lock()
+	defer im.mutex.Unlock()
+
+	_, seenIssuerDn := im.knownIssuerDNs[dn]
+	if !seenIssuerDn {
+		err := im.addIssuerDN(dn)
+		if err != nil {
+			return fmt.Errorf("Could not add DN for issuer %s: %v", im.id(), err)
+		}
+		im.knownIssuerDNs[dn] = struct{}{}
+	}
+
+	for _, dp := range dps {
+		_, seenCrlDp := im.knownCrlDPs[dp]
+		if !seenCrlDp {
 			err := im.addCRL(dp)
 			if err != nil {
-				im.mutex.RUnlock()
-				return seenExpDateBefore, fmt.Errorf("Could not accumulate DP %s: %v", im.id(), err)
+				return fmt.Errorf("Could not add CRL for issuer %s: %v", im.id(), err)
 			}
+			im.knownCrlDPs[dp] = struct{}{}
 		}
 	}
-	im.mutex.RUnlock()
 
-	if !seenIssuerDn {
-		im.mutex.Lock()
-		im.knownIssuerDNs[dn] = struct{}{}
-		im.mutex.Unlock()
-		return seenExpDateBefore, im.addIssuerDN(dn)
-	}
-
-	return seenExpDateBefore, nil
+	return nil
 }
 
 func (im *IssuerMetadata) Issuers() []string {
