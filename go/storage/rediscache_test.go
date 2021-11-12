@@ -456,9 +456,9 @@ func TestRedisLogState(t *testing.T) {
 	defer rc.client.Del("log::short_url/location")
 
 	log := &CertificateLog{
-		ShortURL:      "short_url/location",
-		MaxEntry:      123456789,
-		MaxTimestamp:  time.Now().Unix(),
+		ShortURL:     "short_url/location",
+		MaxEntry:     123456789,
+		MaxTimestamp: time.Now().Unix(),
 	}
 
 	expectNilLogState(t, rc, log.ShortURL)

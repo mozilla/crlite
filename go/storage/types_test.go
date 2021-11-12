@@ -189,9 +189,9 @@ func TestLog(t *testing.T) {
 
 	// From previous version
 	log = CertificateLog{
-		ShortURL:      "yeti2021.ct.digicert.com/log/",
-		MaxEntry:      1517184,
-		MaxTimestamp:  time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC).Unix(),
+		ShortURL:     "yeti2021.ct.digicert.com/log/",
+		MaxEntry:     1517184,
+		MaxTimestamp: time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC).Unix(),
 	}
 
 	expectedID = "eWV0aTIwMjEuY3QuZGlnaWNlcnQuY29tL2xvZy8="
