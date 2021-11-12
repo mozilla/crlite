@@ -655,6 +655,13 @@ def publish_intermediates(*, args, ro_client, rw_client):
                     continue
 
                 local_intermediates[intObj.unique_id()] = intObj
+            except IntermediateRecordError as e:
+                log.warning(
+                    "IntermediateRecordError: {} while importing from ".format(
+                        entry, f.name
+                    )
+                )
+                continue
             except Exception as e:
                 log.error("Error importing file from {}: {}".format(f.name, e))
                 log.error("Record: {}".format(entry))
