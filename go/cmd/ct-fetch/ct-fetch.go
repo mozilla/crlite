@@ -708,8 +708,8 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 
 	b := &backoff.Backoff{
 		Jitter: true,
-		Min:    500 * time.Millisecond,
-		Max:    5 * time.Minute,
+		Min:    5 * time.Second,
+		Max:    10 * time.Minute,
 	}
 
 	index := verifier.Subtree.First
