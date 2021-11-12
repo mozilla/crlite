@@ -173,11 +173,11 @@ func TestLog(t *testing.T) {
 	log := CertificateLog{
 		ShortURL:       "log.example.com/2525",
 		MaxEntry:       math.MaxInt64,
-		MaxTimestamp:   time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC).Unix(),
+		MaxTimestamp:   uint64(time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC).Unix()),
 		LastUpdateTime: time.Date(3000, time.December, 31, 23, 55, 59, 0, time.UTC),
 	}
 
-	expectedString := "[log.example.com/2525] MaxEntry=9223372036854775807, MaxTimestamp=17526223314, LastUpdateTime=3000-12-31 23:55:59 +0000 UTC"
+	expectedString := "[log.example.com/2525] MinEntry=0, MaxEntry=9223372036854775807, MaxTimestamp=17526223314, LastUpdateTime=3000-12-31 23:55:59 +0000 UTC"
 	if log.String() != expectedString {
 		t.Errorf("Expecting %s but got %s", expectedString, log.String())
 	}
@@ -191,7 +191,7 @@ func TestLog(t *testing.T) {
 	log = CertificateLog{
 		ShortURL:     "yeti2021.ct.digicert.com/log/",
 		MaxEntry:     1517184,
-		MaxTimestamp: time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC).Unix(),
+		MaxTimestamp: uint64(time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC).Unix()),
 	}
 
 	expectedID = "eWV0aTIwMjEuY3QuZGlnaWNlcnQuY29tL2xvZy8="

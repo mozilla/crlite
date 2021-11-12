@@ -31,7 +31,7 @@ type CertificateLog struct {
 }
 
 func (o *CertificateLog) String() string {
-	return fmt.Sprintf("[%s] MinEntry=%d MaxEntry=%d, MaxTimestamp=%s LastUpdateTime=%s",
+	return fmt.Sprintf("[%s] MinEntry=%d, MaxEntry=%d, MaxTimestamp=%d, LastUpdateTime=%s",
 		o.ShortURL, o.MinEntry, o.MaxEntry, o.MaxTimestamp, o.LastUpdateTime)
 }
 
