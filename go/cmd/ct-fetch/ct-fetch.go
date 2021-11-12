@@ -399,6 +399,21 @@ func (ld *LogSyncEngine) insertCTWorker() {
 }
 
 func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
+	batchSize := *ctconfig.BatchSize
+
+	// Set pointer in DB, now that we've verified the log works
+	logUrlObj, err := url.Parse(ctLogUrl)
+	if err != nil {
+		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogUrl, err)
+		return nil, err
+	}
+
+	logObj, err := ld.database.GetLogState(logUrlObj)
+	if err != nil {
+		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogUrl, err)
+		return nil, err
+	}
+
 	ctLog, err := client.New(ctLogUrl,
 		&http.Client{
 			Timeout: 10 * time.Second,
@@ -420,28 +435,19 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	}
 
 	glog.Infof("[%s] Fetching signed tree head... ", ctLogUrl)
-	sth, err := ctLog.GetSTH(context.Background())
-	if err != nil {
-		glog.Errorf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, err)
-		return nil, err
+	sth, fetchErr := ctLog.GetSTH(context.Background())
+	if fetchErr == nil {
+		glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize,
+			uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 	}
 
-	// Set pointer in DB, now that we've verified the log works
-	logUrlObj, err := url.Parse(ctLogUrl)
-	if err != nil {
-		glog.Errorf("[%s] Unable to parse Certificate Log: %s", ctLogUrl, err)
-		return nil, err
-	}
-	logObj, err := ld.database.GetLogState(logUrlObj)
-	if err != nil {
-		glog.Errorf("[%s] Unable to set Certificate Log: %s", ctLogUrl, err)
-		return nil, err
-	}
-
-	batchSize := *ctconfig.BatchSize
-
+	// Determine what the worker should do.
 	var task LogWorkerTask
-	if sth.TreeSize <= 3 {
+	if fetchErr != nil {
+		// Temporary network failure?
+		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, fetchErr)
+		task = Sleep
+	} else if sth.TreeSize <= 3 {
 		// For technical reasons, we can't verify our download
 		// until there are at least 3 entries in the log. So
 		// we'll wait.
@@ -468,9 +474,6 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		// There are no new entries.
 		task = Sleep
 	}
-
-	glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize,
-		uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 
 	return &LogWorker{
 		Database:  ld.database,
@@ -840,6 +843,7 @@ func main() {
 					err := syncEngine.SyncLog(urlString)
 					if err != nil {
 						glog.Errorf("[%s] Could not sync log: %s", urlString, err)
+						return
 					}
 
 					if !*ctconfig.RunForever {
