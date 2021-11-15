@@ -35,11 +35,14 @@ class MockRunDB(main.PublishedRunDB):
     def __init__(self, runs):
         self.run_identifiers = runs
 
-    def get_timestamp_for_run_id(self, run_id):
+    def get_run_timestamp(self, run_id):
         return main.timestamp_from_run_id(run_id)
 
     def is_run_valid(self, run_id):
         return run_id in self.run_identifiers
+
+    def is_run_ready(self, run_id):
+        return True
 
 
 class TestTimestampMethods(unittest.TestCase):
