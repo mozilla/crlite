@@ -3,9 +3,13 @@ import unittest
 import hashlib
 from datetime import datetime, timezone
 
+def timestamp_from_run_id(run_id):
+    parts = run_id.split("-")
+    time_string = f"{parts[0]}-{int(parts[1])*6}"
+    return datetime.strptime(time_string, "%Y%m%d-%H").replace(tzinfo=timezone.utc)
 
 def make_record(run_id, *, parent):
-    timestamp = main.timestamp_from_run_id(run_id)
+    timestamp = timestamp_from_run_id(run_id)
     record_type = "diff" if parent else "full"
     record_time = timestamp.isoformat(timespec="seconds")
     identifier = f"{record_time}Z-{record_type}"
@@ -36,7 +40,7 @@ class MockRunDB(main.PublishedRunDB):
         self.run_identifiers = runs
 
     def get_run_timestamp(self, run_id):
-        return main.timestamp_from_run_id(run_id)
+        return timestamp_from_run_id(run_id)
 
     def is_run_valid(self, run_id):
         return run_id in self.run_identifiers
@@ -48,13 +52,13 @@ class MockRunDB(main.PublishedRunDB):
 class TestTimestampMethods(unittest.TestCase):
     def test_from_run_id(self):
         with self.assertRaises(ValueError):
-            main.timestamp_from_run_id("20501240-1")
+            timestamp_from_run_id("20501240-1")
 
         with self.assertRaises(ValueError):
-            main.timestamp_from_run_id("20500101-4")
+            timestamp_from_run_id("20500101-4")
 
         self.assertEqual(
-            main.timestamp_from_run_id("20500101-3"),
+            timestamp_from_run_id("20500101-3"),
             datetime(2050, 1, 1, 18, 0, 0, tzinfo=timezone.utc),
         )
 

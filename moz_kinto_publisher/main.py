@@ -87,20 +87,6 @@ class PublishedRunDB(object):
         return self.cached_run_times[run_id]
 
 
-class BearerTokenAuth(requests.auth.AuthBase):
-    def __init__(self, token):
-        self.token = token
-
-    def __call__(self, r):
-        r.headers["Authorization"] = "Bearer " + self.token
-        return r
-
-
-def ensureNonBlank(settingNames):
-    for setting in settingNames:
-        if getattr(settings, setting) == "":
-            raise Exception("{} must not be blank.".format(setting))
-
 
 def asciiPemToBinaryDer(pem: str) -> bytes:
     matches = re.search(
@@ -272,19 +258,18 @@ def main():
     if args.noop:
         log.info("The --noop flag is set, will not make changes.")
 
-    auth = {}
-    try:
-        ensureNonBlank(["KINTO_AUTH_TOKEN"])
-        auth = BearerTokenAuth(settings.KINTO_AUTH_TOKEN)
-        log.info("Using authentication bearer token")
-    except Exception:
-        ensureNonBlank(["KINTO_AUTH_USER", "KINTO_AUTH_PASSWORD"])
-        auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
-        log.info(
-            "Using username/password authentication. Username={}".format(
-                settings.KINTO_AUTH_USER
-            )
+    if "KINTO_AUTH_USER" not in dir(settings):
+        raise Exception("KINTO_AUTH_USER must be defined in settings.py")
+
+    if "KINTO_AUTH_PASSWORD" not in dir(settings):
+        raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
+
+    auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
+    log.info(
+        "Using username/password authentication. Username={}".format(
+            settings.KINTO_AUTH_USER
         )
+    )
 
     log.info(
         f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
@@ -590,22 +575,6 @@ class Intermediate:
         return self._get_attributes()
 
 
-def export_intermediates(writer, keys, intermediates, *, old=None):
-    for key in keys:
-        details = intermediates[key].details()
-        writer.write(
-            "\n\t".join([f"{key} = {value}" for key, value in details.items()])
-        )
-        writer.write("\n\n")
-        if old:
-            details = old[key].details()
-            writer.write("Previous state: \n")
-            writer.write(
-                "\n\t".join([f"{key} = {value}" for key, value in details.items()])
-            )
-            writer.write("\n---------------\n\n")
-
-
 def publish_intermediates(*, args, ro_client, rw_client):
     local_intermediates = {}
     remote_intermediates = {}
@@ -718,60 +687,6 @@ def publish_intermediates(*, args, ro_client, rw_client):
     log.info(f"- Unenrollments: {len(unenrollments)}")
     log.info(f"- Other: {len(update_other_than_enrollment)}")
     log.info(f"Total entries after update: {len(local_intermediates)}")
-
-    if args.export:
-        with open(Path(args.export) / Path("to_delete"), "w") as df:
-            export_intermediates(df, to_delete, remote_intermediates)
-        with open(Path(args.export) / Path("to_delete_not_expired"), "w") as df:
-            export_intermediates(df, to_delete_not_expired, remote_intermediates)
-        with open(Path(args.export) / Path("expired"), "w") as df:
-            export_intermediates(df, expired, remote_intermediates)
-        with open(Path(args.export) / Path("to_upload"), "w") as df:
-            export_intermediates(df, to_upload, local_intermediates)
-        with open(Path(args.export) / Path("to_update"), "w") as df:
-            export_intermediates(
-                df, to_update, local_intermediates, old=remote_intermediates
-            )
-        with open(Path(args.export) / Path("unenrollments"), "w") as df:
-            export_intermediates(
-                df, unenrollments, local_intermediates, old=remote_intermediates
-            )
-        with open(Path(args.export) / Path("new_enrollments"), "w") as df:
-            export_intermediates(
-                df, new_enrollments, local_intermediates, old=remote_intermediates
-            )
-        with open(Path(args.export) / Path("update_other_than_enrollment"), "w") as df:
-            export_intermediates(
-                df,
-                update_other_than_enrollment,
-                local_intermediates,
-                old=remote_intermediates,
-            )
-
-    if args.debug:
-        print("Variables available:")
-        print("  local_intermediates")
-        print("  remote_intermediates")
-        print("  remote_error_records")
-        print("")
-        print("  to_upload")
-        print("  to_delete")
-        print("  to_update")
-        print("")
-        print("  new_enrollments")
-        print("  unenrollments")
-        print("")
-        print("  delete_pubkeys")
-        print("  upload_pubkeys")
-        print(
-            "  delete_pubkeys & upload_pubkeys # certs updated without changing the key"
-        )
-        print("")
-        print("  local_intermediates[to_update.pop()].cert # get cert object")
-        print("")
-        print("Use 'continue' to proceed")
-        print("")
-        breakpoint()
 
     if args.noop:
         log.info(f"Noop flag set, exiting before any intermediate updates")
@@ -1055,66 +970,9 @@ def publish_crlite_stash(
         incremental=True,
     )
 
-
 def timestamp_from_record(record):
     iso_string = record["details"]["name"].split("Z-")[0]
     return datetime.fromisoformat(iso_string).replace(tzinfo=timezone.utc)
-
-
-def timestamp_from_run_id(run_id):
-    parts = run_id.split("-")
-    time_string = f"{parts[0]}-{int(parts[1])*6}"
-    log.info(f"timestamp_from_run_id: {run_id} [{time_string}]")
-    return datetime.strptime(time_string, "%Y%m%d-%H").replace(tzinfo=timezone.utc)
-
-
-def timestamp_from_path(path):
-    return timestamp_from_run_id(path.name)
-
-
-def verify_unbroken_stash_chain(*, current_filter, current_stashes, stash_path):
-    if current_filter is None:
-        return False
-
-    if current_filter["incremental"] is not False:
-        raise ValueError(f"current filter should be non-incremental: {current_filter}")
-
-    previous = current_filter
-    for stash in reversed(current_stashes):
-        if stash["parent"] != previous["id"]:
-            log.warning(
-                f"Stash {stash} does not reference the previous entry {previous}"
-            )
-            return False
-
-        delta = timestamp_from_record(stash) - timestamp_from_record(previous)
-        if delta < timedelta(0) or delta > timedelta(hours=24):
-            log.warning(
-                f"Stash chain has a time delta of {delta} between {previous} and {stash}"
-            )
-            return False
-
-        previous = stash
-
-    # Now confirm that the stash_path's filename is logically the next after previous
-    previous_timestamp = timestamp_from_record(previous)
-    stash_timestamp = timestamp_from_path(stash_path)
-
-    delta = stash_timestamp - previous_timestamp
-
-    log.debug(
-        f"previous timestamp={previous_timestamp}, stash={stash_timestamp}, "
-        + f"delta={delta}"
-    )
-
-    if delta < timedelta(0) or delta > timedelta(hours=24):
-        log.warning(
-            f"Stash is not recent enough compared to the previous (delta={delta})"
-        )
-        return False
-
-    return True
-
 
 def crlite_verify_record_sanity(*, existing_records):
     # This function assumes that existing_records is sorted according to
