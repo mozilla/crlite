@@ -1221,6 +1221,12 @@ def crlite_determine_publish(*, existing_records, run_db):
         log.error(f"We do not have data to support existing records.")
         return default
 
+    # If it's been 10 days since a full filter, publish a full filter.
+    min_run_id = min(run_id.split("-")[0] for run_id in old_run_ids)
+    min_date = datetime.strptime(min_run_id, "%Y%m%d")
+    if datetime.now() - min_date >= timedelta(days=10):
+        return default
+
     # If the new runs fail a sanity check, publish a full filter.
     try:
         crlite_verify_run_id_sanity(run_db=run_db, identifiers_to_check=new_run_ids)
