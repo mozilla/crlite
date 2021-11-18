@@ -193,7 +193,9 @@ def main():
     if "KINTO_AUTH_PASSWORD" not in dir(settings):
         raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
 
-    auth = requests.auth.HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
+    auth = requests.auth.HTTPBasicAuth(
+        settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD
+    )
     log.info(
         "Using username/password authentication. Username={}".format(
             settings.KINTO_AUTH_USER
@@ -338,7 +340,7 @@ class Intermediate:
         if len(self.pubKeyHash) != 32:
             raise IntermediateRecordError(f"Invalid pubkey hash: {kwargs}")
 
-        if len(self.derHash) != 32:
+        if self.derHash and len(self.derHash) != 32:
             raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
 
         self.subject = kwargs["subject"]
@@ -367,7 +369,7 @@ class Intermediate:
     def unique_id(self):
         return (
             f"{base64.b85encode(self.pubKeyHash).decode('utf-8')}"
-            + f"-{self.subject}-{self.certHash}"
+            + f"-{self.subject}-{self.pemHash}"
         )
 
     def _get_attributes(self, *, complete=False, new=False):
@@ -512,10 +514,56 @@ class Intermediate:
         return self._get_attributes()
 
 
-def publish_intermediates(*, args, ro_client, rw_client):
+def load_local_intermediates(*, intermediates_path):
     local_intermediates = {}
+    with intermediates_path.open("r") as f:
+        entries = json.load(f)
+    for entry in entries:
+        try:
+            intObj = Intermediate(**entry)
+
+            if intObj.unique_id() in local_intermediates:
+                log.warning(
+                    f"[{intObj.unique_id()}] Local collision: {intObj} with "
+                    + f"{local_intermediates[intObj.unique_id()]}"
+                )
+                continue
+
+            local_intermediates[intObj.unique_id()] = intObj
+        except IntermediateRecordError as e:
+            log.warning(
+                "IntermediateRecordError: {} while importing from ".format(
+                    entry, f.name
+                )
+            )
+            continue
+        except Exception as e:
+            log.error("Error importing file from {}: {}".format(f.name, e))
+            log.error("Record: {}".format(entry))
+            raise e
+    return local_intermediates
+
+
+def load_remote_intermediates(*, ro_client):
     remote_intermediates = {}
     remote_error_records = []
+    for record in ro_client.get_records(
+        collection=settings.KINTO_INTERMEDIATES_COLLECTION
+    ):
+        try:
+            intObj = Intermediate(**record)
+            remote_intermediates[intObj.unique_id()] = intObj
+        except IntermediateRecordError as ire:
+            log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
+            remote_error_records.append(record)
+        except KeyError as ke:
+            log.error("Critical error importing Kinto dataset: {}".format(ke))
+            log.error("Record: {}".format(record))
+            raise ke
+    return remote_intermediates, remote_error_records
+
+
+def publish_intermediates(*, args, ro_client, rw_client):
 
     run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
     if not run_identifiers:
@@ -535,44 +583,12 @@ def publish_intermediates(*, args, ro_client, rw_client):
         timeout=timedelta(minutes=5),
     )
 
-    with intermediates_path.open("r") as f:
-        for entry in json.load(f):
-            try:
-                intObj = Intermediate(**entry, debug=args.debug)
-
-                if intObj.unique_id() in local_intermediates:
-                    log.warning(
-                        f"[{intObj.unique_id()}] Local collision: {intObj} with "
-                        + f"{local_intermediates[intObj.unique_id()]}"
-                    )
-                    continue
-
-                local_intermediates[intObj.unique_id()] = intObj
-            except IntermediateRecordError as e:
-                log.warning(
-                    "IntermediateRecordError: {} while importing from ".format(
-                        entry, f.name
-                    )
-                )
-                continue
-            except Exception as e:
-                log.error("Error importing file from {}: {}".format(f.name, e))
-                log.error("Record: {}".format(entry))
-                raise e
-
-    for record in ro_client.get_records(
-        collection=settings.KINTO_INTERMEDIATES_COLLECTION
-    ):
-        try:
-            intObj = Intermediate(**record)
-            remote_intermediates[intObj.unique_id()] = intObj
-        except IntermediateRecordError as ire:
-            log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
-            remote_error_records.append(record)
-        except KeyError as ke:
-            log.error("Critical error importing Kinto dataset: {}".format(ke))
-            log.error("Record: {}".format(record))
-            raise ke
+    local_intermediates = load_local_intermediates(
+        intermediates_path=intermediates_path
+    )
+    remote_intermediates, remote_error_records = load_remote_intermediates(
+        ro_client=ro_client
+    )
 
     to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
     to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())

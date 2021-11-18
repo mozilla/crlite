@@ -1,7 +1,9 @@
 import main
+import settings
 import unittest
 import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
 
 def timestamp_from_run_id(run_id):
     parts = run_id.split("-")
@@ -62,6 +64,18 @@ class TestTimestampMethods(unittest.TestCase):
             datetime(2050, 1, 1, 18, 0, 0, tzinfo=timezone.utc),
         )
 
+class TestLoadIntermediates(unittest.TestCase):
+    def test_load_local(self):
+        intermediates_path = Path("./example_enrolled.json")
+        main.load_local_intermediates(intermediates_path=intermediates_path)
+
+    def test_load_remote(self):
+        ro_client = main.PublisherClient(
+            server_url=settings.KINTO_RO_SERVER_URL,
+            bucket=settings.KINTO_BUCKET,
+            retry=5,
+        )
+        main.load_remote_intermediates(ro_client=ro_client)
 
 class TestPublishDecisions(unittest.TestCase):
     def test_sanity_okay(self):
