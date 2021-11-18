@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 import argparse
 import base64
-import glog as log
 import hashlib
 import json
 import math
 import re
-import requests
-import settings
 import tempfile
 import time
-import workflow
 
 from datetime import datetime, timedelta, timezone
 from functools import cache
+from pathlib import Path
+
+import requests
+
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 from kinto_http.patch_type import BasicPatch
-from pathlib import Path
-from requests.auth import HTTPBasicAuth
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
+
+import glog as log
+
+import workflow
+import settings
 
 
 class IntermediateRecordError(KintoException):
@@ -86,7 +89,6 @@ class PublishedRunDB(object):
             ).replace(tzinfo=timezone.utc)
 
         return self.cached_run_times[run_id]
-
 
 
 def asciiPemToBinaryDer(pem: str) -> bytes:
@@ -191,7 +193,7 @@ def main():
     if "KINTO_AUTH_PASSWORD" not in dir(settings):
         raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
 
-    auth = HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
+    auth = requests.auth.HTTPBasicAuth(settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD)
     log.info(
         "Using username/password authentication. Username={}".format(
             settings.KINTO_AUTH_USER
@@ -884,9 +886,11 @@ def publish_crlite_stash(
         incremental=True,
     )
 
+
 def timestamp_from_record(record):
     iso_string = record["details"]["name"].split("Z-")[0]
     return datetime.fromisoformat(iso_string).replace(tzinfo=timezone.utc)
+
 
 def crlite_verify_record_sanity(*, existing_records):
     # This function assumes that existing_records is sorted according to
@@ -907,7 +911,7 @@ def crlite_verify_record_sanity(*, existing_records):
     full_filters = [r for r in existing_records if not r["incremental"]]
     if len(full_filters) == 0:
         raise SanityException(f"No full filters.")
-    elif len(full_filters) >= 2:
+    if len(full_filters) >= 2:
         raise SanityException(f"Multiple full filters: {full_filters}")
 
     # Each incremental filter should be a descendent of the full filter
@@ -915,7 +919,7 @@ def crlite_verify_record_sanity(*, existing_records):
     maxHeight = 0
     for r in existing_records:
         ptr = r["id"]
-        height=0
+        height = 0
         while ids[ptr]["incremental"]:
             ptr = ids[ptr]["parent"]
             if ptr not in ids:
@@ -926,7 +930,7 @@ def crlite_verify_record_sanity(*, existing_records):
     # The incremental filters should form a chain (no branching), hence there's
     # an incremental filter len(existing_records)-1 steps away from the full
     # filter.
-    if maxHeight != len(existing_records)-1:
+    if maxHeight != len(existing_records) - 1:
         raise SanityException(f"Multiple filter descendents: {full_filters}")
 
     # There should be no long gaps between record timestamps
@@ -1072,7 +1076,7 @@ def publish_crlite(*, args, ro_client, rw_client):
     )
 
     existing_stash_size = sum(
-        x["attachment"]["size"] for x in existing_stash_records if x["incremental"]
+        x["attachment"]["size"] for x in existing_records if x["incremental"]
     )
     update_stash_size = sum(stash_path.stat().st_size for stash_path in new_stash_paths)
 
