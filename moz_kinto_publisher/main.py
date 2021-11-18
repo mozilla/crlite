@@ -167,9 +167,6 @@ def main():
         "intermediates", "intermediates upload arguments"
     )
     int_group.add_argument(
-        "--debug", action="store_true", help="Enter a debugger during processing"
-    )
-    int_group.add_argument(
         "--delete", action="store_true", help="Delete entries that are now missing"
     )
     int_group.add_argument(
@@ -279,7 +276,7 @@ class Intermediate:
     subjectDN: bytes
     whitelist: bool
 
-    def __init__(self, debug=False, **kwargs):
+    def __init__(self, **kwargs):
         self.derHash = None
         self.kinto_id = None
         self.pemAttachment = None
