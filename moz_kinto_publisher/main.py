@@ -13,6 +13,7 @@ import time
 import workflow
 
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 from kinto_http.patch_type import BasicPatch
@@ -97,6 +98,7 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
     return base64.b64decode(matches.group(0))
 
 
+@cache
 def get_attachments_base_url():
     return requests.get(settings.KINTO_RO_SERVER_URL).json()["capabilities"][
         "attachments"
