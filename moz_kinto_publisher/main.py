@@ -541,10 +541,10 @@ def load_local_intermediates(*, intermediates_path):
     return local_intermediates
 
 
-def load_remote_intermediates(*, ro_client):
+def load_remote_intermediates(*, kinto_client):
     remote_intermediates = {}
     remote_error_records = []
-    for record in ro_client.get_records(
+    for record in kinto_client.get_records(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
     ):
         try:
@@ -584,7 +584,7 @@ def publish_intermediates(*, args, ro_client, rw_client):
         intermediates_path=intermediates_path
     )
     remote_intermediates, remote_error_records = load_remote_intermediates(
-        ro_client=ro_client
+        kinto_client=ro_client
     )
 
     to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
@@ -701,25 +701,9 @@ def publish_intermediates(*, args, ro_client, rw_client):
         )
 
     log.info("Verifying correctness...")
-    verified_intermediates = {}
-    verification_error_records = []
-
-    for record in rw_client.get_records(
-        collection=settings.KINTO_INTERMEDIATES_COLLECTION
-    ):
-        try:
-            intObj = Intermediate(**record)
-            verified_intermediates[intObj.unique_id()] = intObj
-        except IntermediateRecordError as ire:
-            log.warning(
-                "Verification found broken intermediate record at Kinto: {}".format(ire)
-            )
-            verification_error_records.append(record)
-        except KeyError as ke:
-            log.error("Critical error importing Kinto dataset: {}".format(ke))
-            log.error("Record: {}".format(record))
-            raise ke
-
+    verified_intermediates, verified_error_records = load_remote_intermediates(
+        kinto_client=rw_client
+    )
     if len(verification_error_records) > 0:
         raise KintoException(
             "There were {} broken intermediates. Re-run to fix.".format(
@@ -727,62 +711,30 @@ def publish_intermediates(*, args, ro_client, rw_client):
             )
         )
 
+    num_verified_enrolled = sum(1 for v in verified_intermediates if v.crlite_enrolled)
     log.info(
-        "{} intermediates locally, {} at Kinto.".format(
-            len(local_intermediates), len(verified_intermediates)
+        "{} intermediates locally, {} enrolled at Kinto of {} total.".format(
+            len(local_intermediates), num_verified_enrolled, len(verified_intermediates)
         )
     )
 
-    if args.delete and set(local_intermediates.keys()) != set(
-        verified_intermediates.keys()
-    ):
-        log.error("The verified intermediates do not match the local set. Differences:")
-        missing_remote = set(local_intermediates.keys()) - set(
-            verified_intermediates.keys()
-        )
-        missing_local = set(verified_intermediates.keys()) - set(
-            local_intermediates.keys()
-        )
-
-        for d in missing_remote:
-            log.error("{} does not exist at Kinto".format(d))
-        for d in missing_local:
-            log.error(
-                "{} exists at Kinto but should have been deleted (not in local set)".format(
-                    d
-                )
-            )
-        raise KintoException("Local/Remote Verification Failed")
-
-    elif not args.delete and set(local_intermediates.keys()) > set(
-        verified_intermediates.keys()
-    ):
-        log.error("The verified intermediates do not match the local set. Differences:")
-        missing_remote = set(local_intermediates.keys()) - set(
-            verified_intermediates.keys()
-        )
-        for d in missing_remote:
-            log.error("{} does not exist at Kinto".format(d))
-        raise KintoException("Local/Remote Verification Failed")
-
-    for unique_id in verified_intermediates.keys():
-        remote_int = verified_intermediates[unique_id]
-
-        if unique_id not in local_intermediates and not args.delete:
-            log.info(
-                "Remote {} has been deleted locally, but ignoring.".format(remote_int)
-            )
-            continue
-
-        local_int = local_intermediates[unique_id]
-        if not local_int.equals(remote_record=remote_int):
-            log.warning(
-                f"Local/Remote metadata mismatch, uniqueID={unique_id}, "
-                + f"local={local_int.details()}, remote={remote_int.details()}"
-            )
+    # Every local intermediate should be on remote
+    for unique_id, local_int in local_intermediates.items():
+        if unique_id not in verified_intermediates:
+            raise KintoException(f"Failed to upload {unique_id}")
+        if not local_int.equals(remote_record=verified_intermediates[unique_id]):
             raise KintoException(
                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
             )
+
+    # Every remote intermediate should be present (modulo unenrolled
+    # intermediates when deletion is disabled).
+    for unique_id, ver_int in verified_intermediates.items():
+        if unique_id not in local_intermediates.keys():
+            if args.delete:
+                raise KintoException(f"Failed to delete {unique_id}")
+            if ver_int.crlite_enrolled:
+                raise KintoException(f"Failed to unenroll {unique_id}")
 
 
 def clear_crlite_filters(*, rw_client, noop):
