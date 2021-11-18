@@ -254,85 +254,106 @@ class AttachedPem:
     def __str__(self):
         return "{{PEM: {} [h={} s={}]}}".format(self.filename, self.hash, self.size)
 
-    def verify(self, *, pemData=None):
-        # TODO: move to Intermediate which has self.certHash handy
-        localHash = hashlib.sha256(pemData.encode("utf-8")).hexdigest()
-        if localHash != self.hash:
-            return False
-        return True
+
+def allIn(keys, record):
+    return all(k in record for k in keys)
+
+
+def exactlyOneIn(keys, record):
+    return 1 == sum(k in record for k in keys)
 
 
 class Intermediate:
-    subject: str
-    kinto_id: str
-    whitelist: bool
-    crlite_enrolled: bool
-    pemAttachment: AttachedPem
     cert: x509.Certificate
-    certHash: str
-    subjectDN: bytes
+    crlite_enrolled: bool
     derHash: bytes
+    kinto_id: str
+    pemAttachment: AttachedPem
+    pemHash: str
     pubKeyHash: bytes
+    subject: str
+    subjectDN: bytes
+    whitelist: bool
 
     def __init__(self, debug=False, **kwargs):
-        self.pubKeyHash = base64.b64decode(
-            kwargs["pubKeyHash"], altchars="-_", validate=True
-        )  # sha256 of the SPKI
-        self.subject = kwargs["subject"]
-        self.whitelist = kwargs["whitelist"]
-
-        self.pemData = None
-        if "pem" in kwargs:
-            self.pemData = kwargs["pem"]
-
-        self.pemAttachment = None
-        if "attachment" in kwargs:
-            self.pemAttachment = AttachedPem(**kwargs["attachment"])
-
-        if "enrolled" in kwargs:
-            self.crlite_enrolled = kwargs["enrolled"]
-        elif "crlite_enrolled" in kwargs:
-            self.crlite_enrolled = kwargs["crlite_enrolled"]
-        else:
-            self.crlite_enrolled = False
-
+        self.derHash = None
         self.kinto_id = None
-        if "id" in kwargs:
-            self.kinto_id = kwargs["id"]
-
-        if len(self.pubKeyHash) < 26:
-            raise IntermediateRecordError(f"Invalid intermediate hash: {kwargs}")
-
-        if self.pemAttachment:
-            self.certHash = self.pemAttachment.hash
-            if len(self.certHash) < 26:
-                raise IntermediateRecordError(f"Invalid Cert hash. {kwargs}")
-        elif self.pemData:
-            self.certHash = hashlib.sha256(self.pemData.encode("utf-8")).hexdigest()
-        else:
-            raise IntermediateRecordError(f"No PEM data for this record: {kwargs}")
-
-        # Added 2019-05 (Bug 1552304)
+        self.pemAttachment = None
+        self.pemData = None
+        self.pemHash = None
         self.subjectDN = None
-        if "subjectDN" in kwargs:
+
+        parseError = IntermediateRecordError(f"Malformed record: {kwargs}")
+
+        # Local records have a "pem" field.
+        # RemoteSettings records have "attachment".
+        # TODO(jms): These should be versioned.
+        if not exactlyOneIn(["pem", "attachment"], kwargs):
+            raise parseError
+
+        if "pem" in kwargs and not allIn(
+            [
+                "enrolled",
+                "pubKeyHash",
+                "subject",
+                "subjectDN",
+                "whitelist",
+            ],
+            kwargs,
+        ):
+            raise parseError
+
+        if "attachment" in kwargs and not allIn(
+            [
+                "crlite_enrolled",
+                "derHash",
+                "id",
+                "pubKeyHash",
+                "subject",
+                "subjectDN",
+                "whitelist",
+            ],
+            kwargs,
+        ):
+            raise parseError
+
+        try:
+            self.pubKeyHash = base64.b64decode(
+                kwargs["pubKeyHash"], altchars="-_", validate=True
+            )  # sha256 of the SPKI
+
             self.subjectDN = base64.b64decode(
                 kwargs["subjectDN"], altchars="-_", validate=True
             )
 
-        self.cert = None
-        if self.pemData:
-            self.set_pem(self.pemData)
-            self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
+            if "derHash" in kwargs:
+                self.derHash = base64.b64decode(
+                    kwargs["derHash"], altchars="-_", validate=True
+                )
+        except base64.binascii.Error:
+            raise parseError
 
-        self.derHash = None  # Base64 of `openssl x509 -fingerprint -sha256`
-        if "derHash" in kwargs:
-            self.derHash = base64.b64decode(
-                kwargs["derHash"], altchars="-_", validate=True
-            )
-            if len(self.derHash) < 26:
-                raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
-        elif self.pemData:
-            self.derHash = hashlib.sha256(self._get_binary_der()).digest()
+        if len(self.pubKeyHash) != 32:
+            raise IntermediateRecordError(f"Invalid pubkey hash: {kwargs}")
+
+        if len(self.derHash) != 32:
+            raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
+
+        self.subject = kwargs["subject"]
+        self.whitelist = kwargs["whitelist"]
+
+        if "pem" in kwargs:
+            self.crlite_enrolled = kwargs["enrolled"]
+            self.set_pem(kwargs["pem"])
+
+        if "attachment" in kwargs:
+            self.kinto_id = kwargs["id"]
+            self.crlite_enrolled = kwargs["crlite_enrolled"]
+            self.cert = None
+            self.pemAttachment = AttachedPem(**kwargs["attachment"])
+            self.pemHash = self.pemAttachment.hash
+            if len(self.pemHash) != 64:  # sha256 hexdigest
+                raise IntermediateRecordError(f"Invalid hash. {kwargs}")
 
     def __str__(self):
         return (
@@ -371,22 +392,23 @@ class Intermediate:
             recordId=kinto_id or self.kinto_id,
         )
 
-    def _get_binary_der(self) -> bytes:
-        return asciiPemToBinaryDer(self.pemData)
-
     def equals(self, *, remote_record=None):
         sameAttributes = self._get_attributes() == remote_record._get_attributes()
-        sameAttachment = remote_record.pemAttachment.verify(pemData=self.pemData)
+        sameAttachment = remote_record.pemHash == self.pemHash
         return sameAttributes and sameAttachment
 
     def set_pem(self, pem_data):
         self.pemData = pem_data
+        self.pemHash = hashlib.sha256(pem_data.encode("utf-8")).hexdigest()
+        derCert = asciiPemToBinaryDer(pem_data)
+        self.derHash = hashlib.sha256(derCert).digest()
         try:
             self.cert = x509.load_pem_x509_certificate(
                 pem_data.encode("utf-8"), default_backend()
             )
         except Exception as e:
             raise IntermediateRecordError("Cannot parse PEM data: {}".format(e))
+        self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
 
     def download_pem(self):
         if not self.pemAttachment:
@@ -434,7 +456,7 @@ class Intermediate:
                 "No kinto ID available {}".format(remote_record)
             )
 
-        if not remote_record.pemAttachment.verify(pemData=self.pemData):
+        if not remote_record.pemHash == self.pemHash:
             log.warning("Attachment update needed for {}".format(self))
             log.warning("New: {}".format(self.pemData))
 
@@ -739,23 +761,13 @@ def publish_intermediates(*, args, ro_client, rw_client):
 
         local_int = local_intermediates[unique_id]
         if not local_int.equals(remote_record=remote_int):
-            if not remote_int.pemAttachment.verify(pemData=local_int.pemData):
-                log.warning(
-                    "PEM hash mismatch for {}; remote={} != local={}".format(
-                        unique_id, remote_int, local_int
-                    )
-                )
-                raise KintoException(
-                    "Local/Remote PEM mismatch for uniqueId={}".format(unique_id)
-                )
-            else:
-                log.warning(
-                    f"Local/Remote metadata mismatch, uniqueID={unique_id}, "
-                    + f"local={local_int.details()}, remote={remote_int.details()}"
-                )
-                raise KintoException(
-                    "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
-                )
+            log.warning(
+                f"Local/Remote metadata mismatch, uniqueID={unique_id}, "
+                + f"local={local_int.details()}, remote={remote_int.details()}"
+            )
+            raise KintoException(
+                "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
+            )
 
 
 def clear_crlite_filters(*, rw_client, noop):
