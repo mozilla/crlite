@@ -138,69 +138,6 @@ class PublisherClient(Client):
                 + f"{response.content.decode('utf-8')}"
             )
 
-    def collection_check_state(self, *, collection=None, state):
-        collectionEnd = "buckets/{}/collections/{}".format(
-            self._bucket_name, collection or self._collection_name
-        )
-
-        response = requests.get(
-            self.session.server_url + collectionEnd,
-            auth=self.session.auth,
-        )
-        if response.status_code > 200:
-            raise KintoException(
-                f"Couldn't determine review status: {response.content.decode('utf-8')}"
-            )
-
-        status = response.json()["data"]["status"]
-        log.debug(
-            f"Collection review status: {status}, expecting {state} ({status==state})"
-        )
-        return status == state
-
-    def collection_needs_review(self, *, collection=None):
-        return self.collection_check_state(
-            collection=collection, state="work-in-progress"
-        )
-
-    def collection_needs_sign(self, *, collection=None):
-        return self.collection_check_state(collection=collection, state="to-review")
-
-    def request_review_of_collection(self, *, collection=None):
-        if not self.collection_needs_review(collection=collection):
-            log.info("Collection does not require review. Skipping.")
-            return
-
-        collectionEnd = "buckets/{}/collections/{}".format(
-            self._bucket_name, collection or self._collection_name
-        )
-
-        response = requests.patch(
-            self.session.server_url + collectionEnd,
-            json={"data": {"status": "to-review"}},
-            auth=self.session.auth,
-        )
-        if response.status_code > 200:
-            raise KintoException(
-                f"Couldn't request review: {response.content.decode('utf-8')}"
-            )
-
-    def sign_collection(self, *, collection=None):
-        if not self.collection_needs_sign(collection=collection):
-            log.info("Collection does not require sign. Skipping.")
-            return
-
-        collectionEnd = "buckets/{}/collections/{}".format(
-            self._bucket_name, collection or self._collection_name
-        )
-        response = requests.patch(
-            self.session.server_url + collectionEnd,
-            json={"data": {"status": "to-sign"}},
-            auth=self.session.auth,
-        )
-        if response.status_code > 200:
-            raise KintoException(f"Couldn't sign: {response.content.decode('utf-8')}")
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -237,18 +174,6 @@ def main():
 
     parser.add_argument("--filter-bucket", default="crlite_filters")
     parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
-
-    signer_group = parser.add_mutually_exclusive_group()
-    signer_group.add_argument(
-        "--request-review",
-        action="store_true",
-        help="Mark the Kinto collection for signature when done",
-    )
-    signer_group.add_argument(
-        "--approve-sign",
-        action="store_true",
-        help="Approve the Kinto collection for signing",
-    )
 
     args = parser.parse_args()
 
@@ -289,22 +214,8 @@ def main():
     )
 
     try:
-        if args.approve_sign:
-            if args.crlite:
-                crlite_sign(args=args, rw_client=rw_client)
-            elif args.intermediates:
-                intermediates_sign(args=args, rw_client=rw_client)
-            else:
-                parser.print_help()
-            return
-
         if args.crlite:
             publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
-            if not args.noop and args.request_review:
-                log.info("Set for review")
-                rw_client.request_review_of_collection(
-                    collection=settings.KINTO_CRLITE_COLLECTION,
-                )
             return
 
         if args.intermediates:
@@ -844,17 +755,6 @@ def publish_intermediates(*, args, ro_client, rw_client):
                     "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
                 )
 
-    if to_update or to_upload or to_delete and not args.noop and args.request_review:
-        log.info(
-            f"Set for review, {len(to_update)} updates, {len(to_upload)} uploads, "
-            + f"{len(to_delete)} deletions."
-        )
-        rw_client.request_review_of_collection(
-            collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-        )
-    else:
-        log.info(f"No updates to do")
-
 
 def clear_crlite_filters(*, rw_client, noop):
     if noop:
@@ -1188,22 +1088,6 @@ def publish_crlite(*, args, ro_client, rw_client):
                 timestamp=published_run_db.get_run_timestamp(run_id),
                 noop=args.noop,
             )
-
-
-def crlite_sign(*, args, rw_client):
-    log.info(f"Signing collection {settings.KINTO_CRLITE_COLLECTION}, noop={args.noop}")
-    if args.noop:
-        return
-    rw_client.sign_collection(collection=settings.KINTO_CRLITE_COLLECTION)
-
-
-def intermediates_sign(*, args, rw_client):
-    log.info(
-        f"Signing collection {settings.KINTO_INTERMEDIATES_COLLECTION}, noop={args.noop}"
-    )
-    if args.noop:
-        return
-    rw_client.sign_collection(collection=settings.KINTO_INTERMEDIATES_COLLECTION)
 
 
 if __name__ == "__main__":
