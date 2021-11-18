@@ -900,12 +900,22 @@ def crlite_verify_record_sanity(*, existing_records):
 
     # Each incremental filter should be a descendent of the full filter
     ids = {r["id"]: r for r in existing_records}
+    maxHeight = 0
     for r in existing_records:
         ptr = r["id"]
+        height=0
         while ids[ptr]["incremental"]:
             ptr = ids[ptr]["parent"]
             if ptr not in ids:
                 raise SanityException(f"Record {r['id']} has unknown parent {ptr}")
+            height += 1
+        maxHeight = max(height, maxHeight)
+
+    # The incremental filters should form a chain (no branching), hence there's
+    # an incremental filter len(existing_records)-1 steps away from the full
+    # filter.
+    if maxHeight != len(existing_records)-1:
+        raise SanityException(f"Multiple filter descendents: {full_filters}")
 
     # There should be no long gaps between record timestamps
     allowed_delta = timedelta(hours=8)

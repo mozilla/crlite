@@ -116,6 +116,15 @@ class TestPublishDecisions(unittest.TestCase):
         with self.assertRaises(main.SanityException):
             main.crlite_verify_record_sanity(existing_records=existing_records)
 
+    def test_sanity_nonlinear(self):
+        existing_records = [
+            make_record("20491230-3", parent=None),
+            make_record("20491231-0", parent="20491230-3"),
+            make_record("20491231-1", parent="20491230-3"),
+        ]
+        with self.assertRaises(main.SanityException):
+            main.crlite_verify_record_sanity(existing_records=existing_records)
+
     def test_run_id_sanity_not_sequential(self):
         with self.assertRaises(main.SanityException):
             db = MockRunDB([])
