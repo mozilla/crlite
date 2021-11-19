@@ -9,7 +9,7 @@ import tempfile
 import time
 
 from datetime import datetime, timedelta, timezone
-from functools import cache
+from functools import lru_cache
 from pathlib import Path
 
 import requests
@@ -100,7 +100,7 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
     return base64.b64decode(matches.group(0))
 
 
-@cache
+@lru_cache
 def get_attachments_base_url():
     return requests.get(settings.KINTO_RO_SERVER_URL).json()["capabilities"][
         "attachments"
