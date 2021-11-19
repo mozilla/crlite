@@ -8,7 +8,7 @@ from datetime import datetime
 import argparse
 import os
 import sys
-import logging
+import glog as log
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--noop", help="Don't upload", action="store_true")
@@ -24,9 +24,6 @@ parser.add_argument(
 parser.add_argument(
     "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
 )
-
-log = logging.getLogger("upload_artifacts_to_storage")
-
 
 @Retry(deadline=60)
 def uploadBlob(bucket, remoteFilePath, localFilePath):
@@ -103,5 +100,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     main()
