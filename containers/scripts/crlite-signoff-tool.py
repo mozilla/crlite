@@ -6,11 +6,11 @@ from pathlib import Path
 
 import argparse
 import hashlib
-import logging
 import requests
 import subprocess
 import sys
 import tempfile
+import glog as log
 
 KINTO_RO_SERVER_URL = config(
     "KINTO_RO_SERVER_URL", default="https://settings-cdn.stage.mozaws.net/v1/"
@@ -33,7 +33,6 @@ parser.add_argument(
 
 
 def main():
-    log = logging.getLogger("signoff-tool")
     args = parser.parse_args()
 
     headers = {"X-Automated-Tool": "https://github.com/mozilla/crlite"}
@@ -91,5 +90,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     main()
