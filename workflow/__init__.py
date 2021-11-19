@@ -1,4 +1,4 @@
-import logging
+import glog as log
 import re
 import time
 from datetime import datetime, timedelta
@@ -6,8 +6,6 @@ from google.api_core import exceptions, page_iterator
 from google.cloud import storage
 
 kIdentifierFormat = re.compile(r"(\d{8}-\d+)/?")
-
-log = logging.getLogger("workflow")
 
 
 class FileNotFoundException(exceptions.NotFound):
@@ -86,7 +84,7 @@ def download_from_google_cloud(bucket_name, remote, local):
         raise FileNotFoundException(f"{remote} does not exist")
     with open(local, "wb") as file_obj:
         blob.download_to_file(file_obj)
-        logging.info(f"Downloaded {blob.public_url} to {local}")
+        log.info(f"Downloaded {blob.public_url} to {local}")
 
 
 def download_and_retry_from_google_cloud(

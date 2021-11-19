@@ -7,12 +7,13 @@
 import argparse
 import itertools
 import json
-import logging
 import moz_crlite_lib as crlite
 import os
 import psutil
 import statsd
 import sys
+
+import glog as log
 
 from filtercascade import FilterCascade, fileformats
 from pathlib import Path
@@ -47,7 +48,6 @@ from pathlib import Path
 #   }
 # }
 
-log = logging.getLogger("cert_to_crlite")
 metrics = statsd.StatsClient(
     os.getenv("statsdHost", "localhost"),
     os.getenv("statsdPort", 8125),
@@ -429,5 +429,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
     main()

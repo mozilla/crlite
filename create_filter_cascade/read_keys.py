@@ -6,9 +6,9 @@
 
 import argparse
 import binascii
-import logging
 import moz_crlite_lib as crlite
 import sys
+import glog as log
 
 from collections import Counter
 from pathlib import Path
@@ -35,10 +35,10 @@ def read_keys(path, *, verbosity=0, serial=None):
             if serial and certId.serial == serial:
                 return certId
 
-    print(
+    log.info(
         f"Issuers: {len(issuers)} Most Common: {issuers.most_common(5)} Serials: {cnt}"
     )
-    print(
+    log.info(
         f"Issuer Lengths: {issuerLen.most_common(5)} Serial Lengths: {serialLen.most_common(5)}"
     )
 
@@ -71,15 +71,15 @@ def read_stash(path, *, verbosity=0, serial=None):
                 if serial and certId.serial == serial:
                     return certId
 
-    print(f"Issuers Affected: {cnt['issuers']}")
-    print(f"Number of New Revocations: {cnt['revocations']}")
+    log.info(f"Issuers Affected: {cnt['issuers']}")
+    log.info(f"Number of New Revocations: {cnt['revocations']}")
 
     totalBytes = 0
     for l, qty in serialLen.items():
         totalBytes += l * qty
-    print(f"Distribution of Serial Lengths: {serialLen.most_common(32)}")
-    print(f"Aggregated Serials in Bytes: {totalBytes} bytes")
-    print(f"Stash File Size in Bytes: {path.stat().st_size} bytes")
+    log.info(f"Distribution of Serial Lengths: {serialLen.most_common(32)}")
+    log.info(f"Aggregated Serials in Bytes: {totalBytes} bytes")
+    log.info(f"Stash File Size in Bytes: {path.stat().st_size} bytes")
 
     return False
 
@@ -115,5 +115,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
     main()

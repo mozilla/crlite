@@ -6,13 +6,11 @@
 
 import base64
 import io
-import logging
 import os
 import struct
 
+import glog as log
 from pathlib import Path
-
-log = logging.getLogger("create_filter_cascade")
 
 # bytes 0-3: N, number of serials as an unsigned long
 # byte 4: L, length of issuer field as a unsigned char
