@@ -5,10 +5,12 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
+
 def timestamp_from_run_id(run_id):
     parts = run_id.split("-")
     time_string = f"{parts[0]}-{int(parts[1])*6}"
     return datetime.strptime(time_string, "%Y%m%d-%H").replace(tzinfo=timezone.utc)
+
 
 def make_record(run_id, *, parent):
     timestamp = timestamp_from_run_id(run_id)
@@ -64,6 +66,7 @@ class TestTimestampMethods(unittest.TestCase):
             datetime(2050, 1, 1, 18, 0, 0, tzinfo=timezone.utc),
         )
 
+
 class TestLoadIntermediates(unittest.TestCase):
     def test_load_local(self):
         intermediates_path = Path(__file__).parent / Path("example_enrolled.json")
@@ -76,6 +79,7 @@ class TestLoadIntermediates(unittest.TestCase):
             retry=5,
         )
         main.load_remote_intermediates(kinto_client=ro_client)
+
 
 class TestPublishDecisions(unittest.TestCase):
     def test_sanity_okay(self):
