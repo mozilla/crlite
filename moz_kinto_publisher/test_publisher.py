@@ -66,7 +66,7 @@ class TestTimestampMethods(unittest.TestCase):
 
 class TestLoadIntermediates(unittest.TestCase):
     def test_load_local(self):
-        intermediates_path = Path("./example_enrolled.json")
+        intermediates_path = Path(__file__).parent / Path("example_enrolled.json")
         main.load_local_intermediates(intermediates_path=intermediates_path)
 
     def test_load_remote(self):
@@ -75,7 +75,7 @@ class TestLoadIntermediates(unittest.TestCase):
             bucket=settings.KINTO_BUCKET,
             retry=5,
         )
-        main.load_remote_intermediates(ro_client=ro_client)
+        main.load_remote_intermediates(kinto_client=ro_client)
 
 class TestPublishDecisions(unittest.TestCase):
     def test_sanity_okay(self):
