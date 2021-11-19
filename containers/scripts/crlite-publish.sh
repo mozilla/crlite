@@ -13,10 +13,10 @@ mkdir /tmp/crlite /tmp/intermediates
 
 moz_kinto_publisher/main.py --crlite \
   --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-  --download-path /tmp/crlite --request-review ${ARGS}
+  --download-path /tmp/crlite ${ARGS}
 
 moz_kinto_publisher/main.py --intermediates \
   --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-  --download-path /tmp/intermediates --request-review ${ARGS}
+  --download-path /tmp/intermediates ${ARGS}
 
 exit 0
