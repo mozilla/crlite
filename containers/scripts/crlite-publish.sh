@@ -9,14 +9,10 @@ if [ "x${DoNotUpload}x" != "xx" ] || [ "x${KINTO_NOOP}x" != "xx" ] ; then
   echo "Setting argument ${ARGS}"
 fi
 
-mkdir /tmp/crlite /tmp/intermediates
+mkdir /tmp/crlite
 
-moz_kinto_publisher/main.py --crlite \
+moz_kinto_publisher/main.py \
   --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
   --download-path /tmp/crlite ${ARGS}
-
-moz_kinto_publisher/main.py --intermediates \
-  --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-  --download-path /tmp/intermediates ${ARGS}
 
 exit 0

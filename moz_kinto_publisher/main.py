@@ -148,29 +148,17 @@ def main():
         description="Upload MLBF files to Kinto as records"
     )
 
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--crlite", action="store_true", help="Perform a CRLite update")
-    group.add_argument(
-        "--intermediates", action="store_true", help="Perform an Intermediate CA update"
-    )
+    parser.add_argument("--noop", action="store_true", help="Don't update Kinto")
 
-    crlite_group = parser.add_argument_group("crlite", "crlite upload arguments")
-    crlite_group.add_argument("--noop", action="store_true", help="Don't update Kinto")
-    crlite_group.add_argument(
+    parser.add_argument(
         "--download-path",
         type=Path,
         default=Path(tempfile.TemporaryDirectory().name),
         help="Path to temporarily store CRLite downloaded artifacts",
     )
 
-    int_group = parser.add_argument_group(
-        "intermediates", "intermediates upload arguments"
-    )
-    int_group.add_argument(
-        "--delete", action="store_true", help="Delete entries that are now missing"
-    )
-    int_group.add_argument(
-        "--export", help="Export intermediate set inspection files to this folder"
+    parser.add_argument(
+        "--delete", action="store_true", help="Delete intermediates that are now missing"
     )
 
     parser.add_argument("--filter-bucket", default="crlite_filters")
@@ -217,16 +205,8 @@ def main():
     )
 
     try:
-        if args.crlite:
-            publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
-            return
-
-        if args.intermediates:
-            publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
-            return
-
-        parser.print_help()
-
+        publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
+        publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
     except KintoException as ke:
         log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
