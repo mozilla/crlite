@@ -140,74 +140,6 @@ class PublisherClient(Client):
             )
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Upload MLBF files to Kinto as records"
-    )
-
-    parser.add_argument("--noop", action="store_true", help="Don't update Kinto")
-
-    parser.add_argument(
-        "--download-path",
-        type=Path,
-        default=Path(tempfile.TemporaryDirectory().name),
-        help="Path to temporarily store CRLite downloaded artifacts",
-    )
-
-    parser.add_argument("--filter-bucket", default="crlite_filters")
-    parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
-
-    args = parser.parse_args()
-
-    if args.verbose:
-        log.setLevel("DEBUG")
-
-    if args.noop:
-        log.info("The --noop flag is set, will not make changes.")
-
-    if "KINTO_AUTH_USER" not in dir(settings):
-        raise Exception("KINTO_AUTH_USER must be defined in settings.py")
-
-    if "KINTO_AUTH_PASSWORD" not in dir(settings):
-        raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
-
-    auth = requests.auth.HTTPBasicAuth(
-        settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD
-    )
-    log.info(
-        "Using username/password authentication. Username={}".format(
-            settings.KINTO_AUTH_USER
-        )
-    )
-
-    log.info(
-        f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
-    )
-
-    rw_client = PublisherClient(
-        server_url=settings.KINTO_RW_SERVER_URL,
-        auth=auth,
-        bucket=settings.KINTO_BUCKET,
-        retry=5,
-    )
-
-    ro_client = PublisherClient(
-        server_url=settings.KINTO_RO_SERVER_URL,
-        bucket=settings.KINTO_BUCKET,
-        retry=5,
-    )
-
-    try:
-        publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
-        publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
-    except KintoException as ke:
-        log.error("An exception at Kinto occurred: {}".format(ke))
-        raise ke
-    except Exception as e:
-        log.error("A general exception occurred: {}".format(e))
-        raise e
-
-
 class AttachedPem:
     def __init__(self, **kwargs):
         self.filename = kwargs["filename"]
@@ -1027,6 +959,74 @@ def publish_crlite(*, args, ro_client, rw_client):
                 timestamp=published_run_db.get_run_timestamp(run_id),
                 noop=args.noop,
             )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Upload MLBF files to Kinto as records"
+    )
+
+    parser.add_argument("--noop", action="store_true", help="Don't update Kinto")
+
+    parser.add_argument(
+        "--download-path",
+        type=Path,
+        default=Path(tempfile.TemporaryDirectory().name),
+        help="Path to temporarily store CRLite downloaded artifacts",
+    )
+
+    parser.add_argument("--filter-bucket", default="crlite_filters")
+    parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        log.setLevel("DEBUG")
+
+    if args.noop:
+        log.info("The --noop flag is set, will not make changes.")
+
+    if "KINTO_AUTH_USER" not in dir(settings):
+        raise Exception("KINTO_AUTH_USER must be defined in settings.py")
+
+    if "KINTO_AUTH_PASSWORD" not in dir(settings):
+        raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
+
+    auth = requests.auth.HTTPBasicAuth(
+        settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD
+    )
+    log.info(
+        "Using username/password authentication. Username={}".format(
+            settings.KINTO_AUTH_USER
+        )
+    )
+
+    log.info(
+        f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
+    )
+
+    rw_client = PublisherClient(
+        server_url=settings.KINTO_RW_SERVER_URL,
+        auth=auth,
+        bucket=settings.KINTO_BUCKET,
+        retry=5,
+    )
+
+    ro_client = PublisherClient(
+        server_url=settings.KINTO_RO_SERVER_URL,
+        bucket=settings.KINTO_BUCKET,
+        retry=5,
+    )
+
+    try:
+        publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
+        publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
+    except KintoException as ke:
+        log.error("An exception at Kinto occurred: {}".format(ke))
+        raise ke
+    except Exception as e:
+        log.error("A general exception occurred: {}".format(e))
+        raise e
 
 
 if __name__ == "__main__":
