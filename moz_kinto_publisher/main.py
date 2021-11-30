@@ -38,7 +38,7 @@ class SanityException(Exception):
     pass
 
 
-class PublishedRunDB(object):
+class PublishedRunDB:
     def __init__(self, filter_bucket):
         self.filter_bucket = filter_bucket
         self.run_identifiers = workflow.get_run_identifiers(self.filter_bucket)
@@ -118,22 +118,19 @@ class PublisherClient(Client):
         mimeType="application/octet-stream",
         recordId=None,
     ):
-        if not filePath and not fileContents:
+        if not (filePath ^ fileContents):
             raise Exception("Must specify either filePath or fileContents")
 
         if filePath:
-            files = [("attachment", (fileName, open(filePath, "rb"), mimeType))]
-        elif fileContents:
-            files = [("attachment", (fileName, fileContents, mimeType))]
-        else:
-            raise Exception("Unexpected state")
+            with open(filePath, "rb") as f:
+                fileContents = f.read()
 
         attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(
             self._bucket_name, collection or self._collection_name, recordId
         )
         response = requests.post(
             self.session.server_url + attachmentEndpoint,
-            files=files,
+            files=[("attachment", (fileName, fileContents, mimeType))],
             auth=self.session.auth,
         )
         if response.status_code > 200:
@@ -155,10 +152,6 @@ def main():
         type=Path,
         default=Path(tempfile.TemporaryDirectory().name),
         help="Path to temporarily store CRLite downloaded artifacts",
-    )
-
-    parser.add_argument(
-        "--delete", action="store_true", help="Delete intermediates that are now missing"
     )
 
     parser.add_argument("--filter-bucket", default="crlite_filters")
@@ -241,7 +234,7 @@ def allIn(keys, record):
 
 
 def exactlyOneIn(keys, record):
-    return 1 == sum(k in record for k in keys)
+    return sum(k in record for k in keys) == 1
 
 
 class Intermediate:
@@ -507,7 +500,7 @@ def load_local_intermediates(*, intermediates_path):
                 continue
 
             local_intermediates[intObj.unique_id()] = intObj
-        except IntermediateRecordError as e:
+        except IntermediateRecordError:
             log.warning(
                 "IntermediateRecordError: {} while importing from ".format(
                     entry, f.name
@@ -567,128 +560,105 @@ def publish_intermediates(*, args, ro_client, rw_client):
         kinto_client=ro_client
     )
 
-    to_delete = set(remote_intermediates.keys()) - set(local_intermediates.keys())
+    remote_only = set(remote_intermediates.keys()) - set(local_intermediates.keys())
+
+    remote_enrolled = set()
+    for unique_id, record in remote_intermediates.items():
+        if record.crlite_enrolled:
+            remote_enrolled.add(unique_id)
+
     to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
+
     to_update = set()
     for i in set(local_intermediates.keys()) & set(remote_intermediates.keys()):
         if not local_intermediates[i].equals(remote_record=remote_intermediates[i]):
             to_update.add(i)
 
-    expired = set()
-    for i in to_delete:
+    remote_expired = set()
+    for i in remote_only:
         try:
             if remote_intermediates[i].is_expired():
-                expired.add(i)
+                remote_expired.add(i)
         except Exception as e:
             log.warning(f"Failed to track expiration for {i}: {e}")
 
-    to_delete_not_expired = to_delete - expired
-
-    delete_pubkeys = {remote_intermediates[i].pubKeyHash for i in to_delete}
-    upload_pubkeys = {local_intermediates[i].pubKeyHash for i in to_upload}
-
-    unenrollments = set()
-    new_enrollments = set()
-    update_other_than_enrollment = set()
-    for i in to_update:
-        if (
-            local_intermediates[i].crlite_enrolled
-            and not remote_intermediates[i].crlite_enrolled
-        ):
-            new_enrollments.add(i)
-        elif (
-            remote_intermediates[i].crlite_enrolled
-            and not local_intermediates[i].crlite_enrolled
-        ):
-            unenrollments.add(i)
-        else:
-            update_other_than_enrollment.add(i)
-
-    log.info(f"Total entries before update: {len(remote_intermediates)}")
-    log.info(f"To delete: {len(to_delete)} (Deletion enabled: {args.delete})")
-    log.info(f"- Expired: {len(expired)}")
+    log.info(f"Remote intermediates: {len(remote_intermediates)}")
+    log.info(f"- Enrolled: {len(remote_enrolled)}")
+    log.info(f"- Expired: {len(remote_expired)}")
+    log.info(f"- In error: {len(remote_error_records)}")
     log.info(f"To add: {len(to_upload)}")
-    log.info(
-        f"Certificates updated (without a key change): {len(delete_pubkeys & upload_pubkeys)}"
-    )
-    log.info(f"Remote records in an error state: {len(remote_error_records)}")
-    log.info(f"Total entries updated: {len(to_update)}")
-    log.info(f"- New enrollments: {len(new_enrollments)}")
-    log.info(f"- Unenrollments: {len(unenrollments)}")
-    log.info(f"- Other: {len(update_other_than_enrollment)}")
-    log.info(f"Total entries after update: {len(local_intermediates)}")
+    log.info(f"To update: {len(to_update)}")
 
     if args.noop:
-        log.info(f"Noop flag set, exiting before any intermediate updates")
+        log.info("Noop flag set, exiting before any intermediate updates")
         return
 
     # Don't accidentally use the ro_client beyond this point
     ro_client = None
 
-    if len(remote_error_records) > 0:
-        log.info(f"Cleaning {len(remote_error_records)} broken records")
-        for record in remote_error_records:
-            try:
-                rw_client.delete_record(
-                    collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-                    id=record["id"],
-                )
-            except KintoException as ke:
-                log.warning(f"Couldn't delete record id {record['id']}: {ke}")
+    # Enrolled intermediates must be in the local list
+    for unique_id in remote_only & remote_enrolled:
+        record = remote_intermediates[unique_id]
+        log.info(f"Unenrolling deleted {record} from CRLite")
+        try:
+            record.unenroll_from_crlite_in_kinto(rw_client=rw_client)
+        except KintoException as ke:
+            log.error(f"Couldn't unenroll record id {record}: {ke}")
 
-    if args.delete:
-        for unique_id in to_delete:
-            intermediate = remote_intermediates[unique_id]
-            log.info(f"Deleting {intermediate} from Kinto")
-            try:
-                intermediate.delete_from_kinto(rw_client=rw_client)
-            except KintoException as ke:
-                log.warning(f"Couldn't delete record id {intermediate}: {ke}")
-    else:
-        # Locally deleted intermediates should be unenrolled from CRLite even
-        # if we aren't performing deletions.
-        for unique_id in to_delete:
-            intermediate = remote_intermediates[unique_id]
-            if not intermediate.crlite_enrolled:
-                continue
-            log.info(f"Unenrolling deleted {intermediate} from CRLite")
-            try:
-                intermediate.unenroll_from_crlite_in_kinto(rw_client=rw_client)
-            except KintoException as ke:
-                log.warning(f"Couldn't unenroll record id {intermediate}: {ke}")
+    # Delete any remote records that had parsing errors
+    for record in remote_error_records:
+        log.info(f"Deleting remote record with parsing error: {record}")
+        try:
+            rw_client.delete_record(
+                collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+                id=record["id"],
+            )
+        except KintoException as ke:
+            log.error(f"Couldn't delete record id {record['id']}: {ke}")
 
+    # Delete any expired remote records
+    for unique_id in remote_expired:
+        record = remote_intermediates[unique_id]
+        log.info(f"Deleting expired remote record: {record}")
+        try:
+            rw_client.delete_record(
+                collection=settings.KINTO_INTERMEDIATES_COLLECTION,
+                id=record["id"],
+            )
+        except KintoException as ke:
+            log.error(f"Couldn't delete record id {record['id']}: {ke}")
+
+    # New records
     for unique_id in to_upload:
-        intermediate = local_intermediates[unique_id]
-        log.debug(f"Uploading {intermediate} to Kinto")
-        intermediate.add_to_kinto(rw_client=rw_client)
+        record = local_intermediates[unique_id]
+        log.info(f"Adding new record: {record}")
+        try:
+            record.add_to_kinto(rw_client=rw_client)
+        except KintoException as ke:
+            log.error(f"Couldn't add record {record}: {ke}")
 
-    update_error_records = []
+    # Updates
     for unique_id in to_update:
         local_int = local_intermediates[unique_id]
         remote_int = remote_intermediates[unique_id]
-        if not local_int.equals(remote_record=remote_int):
-            try:
-                local_int.update_kinto(
-                    rw_client=rw_client,
-                    remote_record=remote_int,
-                )
-            except KintoException as ke:
-                update_error_records.append((local_int, remote_int, ke))
-
-    for (local_int, remote_int, ex) in update_error_records:
-        log.warning(
-            f"Failed to update local={local_int} remote={remote_int} exception={ex}"
-        )
+        log.info(f"Updating record: {local_int} to {remote_int}")
+        try:
+            local_int.update_kinto(
+                rw_client=rw_client,
+                remote_record=remote_int,
+            )
+        except KintoException as ke:
+            log.error(
+                f"Failed to update local={local_int} remote={remote_int} exception={ke}"
+            )
 
     log.info("Verifying correctness...")
     verified_intermediates, verified_error_records = load_remote_intermediates(
         kinto_client=rw_client
     )
-    if len(verification_error_records) > 0:
+    if len(verified_error_records) > 0:
         raise KintoException(
-            "There were {} broken intermediates. Re-run to fix.".format(
-                len(verification_error_records)
-            )
+            f"There are {len(verified_error_records)} broken intermediates. Re-run to fix."
         )
 
     num_verified_enrolled = sum(1 for v in verified_intermediates if v.crlite_enrolled)
@@ -707,14 +677,10 @@ def publish_intermediates(*, args, ro_client, rw_client):
                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
             )
 
-    # Every remote intermediate should be present (modulo unenrolled
-    # intermediates when deletion is disabled).
+    # Every enrolled remote intermediate should be in the local list
     for unique_id, ver_int in verified_intermediates.items():
-        if unique_id not in local_intermediates.keys():
-            if args.delete:
-                raise KintoException(f"Failed to delete {unique_id}")
-            if ver_int.crlite_enrolled:
-                raise KintoException(f"Failed to unenroll {unique_id}")
+        if ver_int.crlite_enrolled and unique_id not in local_intermediates:
+            raise KintoException(f"Failed to unenroll {unique_id}")
 
 
 def clear_crlite_filters(*, rw_client, noop):
@@ -855,7 +821,7 @@ def crlite_verify_record_sanity(*, existing_records):
     # There must be exactly 1 full filter in the existing records.
     full_filters = [r for r in existing_records if not r["incremental"]]
     if len(full_filters) == 0:
-        raise SanityException(f"No full filters.")
+        raise SanityException("No full filters.")
     if len(full_filters) >= 2:
         raise SanityException(f"Multiple full filters: {full_filters}")
 
@@ -908,7 +874,7 @@ def crlite_verify_run_id_sanity(*, run_db, identifiers_to_check):
     allowed_delta = timedelta(hours=8)
     for x, y in zip(ts, ts[1:]):
         if y - x > allowed_delta:
-            raise SanityException(f"Too-wide a delta: {ts - last_timestamp}")
+            raise SanityException(f"Too-wide a delta: {y-x}")
 
 
 def crlite_determine_publish(*, existing_records, run_db):
@@ -949,7 +915,7 @@ def crlite_determine_publish(*, existing_records, run_db):
 
     # If we don't have data from old runs, publish a full filter.
     if not old_run_ids:
-        log.error(f"We do not have data to support existing records.")
+        log.error("We do not have data to support existing records.")
         return default
 
     # If it's been 10 days since a full filter, publish a full filter.
