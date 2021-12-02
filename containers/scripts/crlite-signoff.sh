@@ -13,8 +13,4 @@ python3 /app/scripts/crlite-signoff-tool.py \
   --moz-crlite-query /usr/local/bin/moz_crlite_query \
   --host-file-urls ${crlite_verify_host_file_urls}
 
-moz_kinto_publisher/main.py --crlite --approve-sign ${ARGS}
-
-moz_kinto_publisher/main.py --intermediates --approve-sign ${ARGS}
-
 exit 0
