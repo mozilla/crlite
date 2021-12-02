@@ -974,7 +974,7 @@ def publish_ctlogs(*, args, ro_client, rw_client):
     #       "crlite_enrolled": boolean,
     #       "description": string,
     #       "key": string,
-    #       "log_id": string,
+    #       "logID": string,
     #       "mmd": integer,
     #       "url": string
     #   }
@@ -1004,7 +1004,7 @@ def publish_ctlogs(*, args, ro_client, rw_client):
     upstream_lut = {ctlog["logID"]: ctlog for ctlog in upstream_logs}
 
     if len(upstream_logs) != len(upstream_lut):
-        raise SanityException(
+        raise ConsistencyException(
             "We expect the 'log_id' field to be unique in log_list.json"
         )
 
@@ -1014,13 +1014,18 @@ def publish_ctlogs(*, args, ro_client, rw_client):
             hashlib.sha256(base64.b64decode(upstream_log["key"])).digest()
         )
         if rfc6962_log_id != upstream_log["logID"].encode("utf8"):
-            raise SanityException(
+            raise ConsistencyException(
                 f"Google log list contains incorrectly computed logID {upstream_log}"
             )
 
     # Fetch our existing Kinto records
     known_logs = ro_client.get_records(collection=settings.KINTO_CTLOGS_COLLECTION)
     known_lut = {ctlog["logID"]: ctlog for ctlog in known_logs}
+
+    if len(known_logs) != len(known_lut):
+        raise ConsistencyException(
+            "We expect the 'logID' field to be unique the ct-logs collection"
+        )
 
     # Add new logs
     for upstream_id, upstream_log in upstream_lut.items():
