@@ -202,3 +202,28 @@ func (ec *RedisCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
 	}
 	return &log, nil
 }
+
+func (ec *RedisCache) LoadAllLogStates() ([]CertificateLog, error) {
+	ctLogList := make([]CertificateLog, 0)
+	keyChan := make(chan string)
+	go func() {
+		err := ec.KeysToChan("log::*", keyChan)
+		if err != nil {
+			glog.Fatalf("Couldn't list CT logs from cache: %s", err)
+		}
+	}()
+
+	for entry := range keyChan {
+		data, err := ec.client.Get(entry).Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
+		}
+
+		ctLogList = append(ctLogList, CertificateLog{})
+		if err := json.Unmarshal(data, &ctLogList[len(ctLogList)-1]); err != nil {
+			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
+		}
+	}
+
+	return ctLogList, nil
+}

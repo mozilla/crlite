@@ -59,6 +59,7 @@ type StorageBackend interface {
 	LoadCertificatePEM(ctx context.Context, serial Serial, expDate ExpDate,
 		issuer Issuer) ([]byte, error)
 	LoadLogState(ctx context.Context, logURL string) (*CertificateLog, error)
+	LoadAllLogStates(ctx context.Context) ([]CertificateLog, error)
 
 	AllocateExpDateAndIssuer(ctx context.Context, expDate ExpDate, issuer Issuer) error
 
@@ -90,6 +91,7 @@ type RemoteCache interface {
 	KeysToChan(pattern string, c chan<- string) error
 	StoreLogState(aLogObj *CertificateLog) error
 	LoadLogState(aLogUrl string) (*CertificateLog, error)
+	LoadAllLogStates() ([]CertificateLog, error)
 }
 
 type Issuer struct {

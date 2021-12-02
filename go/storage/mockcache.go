@@ -218,3 +218,7 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error
 	}
 	return &log, nil
 }
+
+func (ec *MockRemoteCache) LoadAllLogStates() ([]CertificateLog, error) {
+	return nil, fmt.Errorf("Unimplemented")
+}

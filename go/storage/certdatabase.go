@@ -42,6 +42,10 @@ func (db *CertDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
 	return im
 }
 
+func (db *CertDatabase) GetCTLogsFromCache() ([]CertificateLog, error) {
+	return db.extCache.LoadAllLogStates()
+}
+
 func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
 	issuerMap := make(map[string]IssuerDate)
 	allChan := make(chan string)

@@ -26,6 +26,7 @@ ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
 
 ${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${ID}/known \
               -enrolledpath ${ID}/enrolled.json \
+              -ctlogspath ${ID}/ct-logs.json \
               -stderrthreshold=INFO -alsologtostderr \
               -log_dir ${WORKDIR}/log
 
