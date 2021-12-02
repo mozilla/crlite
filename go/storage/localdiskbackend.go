@@ -258,3 +258,7 @@ func (db *LocalDiskBackend) LoadLogState(_ context.Context, logURL string) (*Cer
 
 	return &log, nil
 }
+
+func (db *LocalDiskBackend) LoadAllLogStates(_ context.Context) ([]CertificateLog, error) {
+	return nil, fmt.Errorf("Unimplemented")
+}

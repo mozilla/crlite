@@ -146,3 +146,7 @@ func (db *MockBackend) StreamSerialsForExpirationDateAndIssuer(ctx context.Conte
 	}
 	return nil
 }
+
+func (ec *MockBackend) LoadAllLogStates(_ context.Context) ([]CertificateLog, error) {
+	return nil, fmt.Errorf("Unimplemented")
+}

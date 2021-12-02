@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"os"
 	"os/signal"
@@ -24,6 +25,7 @@ const (
 var (
 	enrolledpath = flag.String("enrolledpath", "<path>", "input enrolled issuers JSON")
 	knownpath    = flag.String("knownpath", "<dir>", "output directory for <issuer> files")
+	ctlogspath   = flag.String("ctlogspath", "<path>", "output file for ct-log JSON")
 	ctconfig     = config.NewCTConfig()
 )
 
@@ -110,6 +112,7 @@ func main() {
 
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
 	checkPathArg(*knownpath, "knownpath", ctconfig)
+	checkPathArg(*ctlogspath, "ctlogspath", ctconfig)
 
 	if err := os.MkdirAll(*knownpath, permModeDir); err != nil {
 		glog.Fatalf("Unable to make the output directory: %s", err)
@@ -125,6 +128,26 @@ func main() {
 	}
 
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
+
+	// Save the CT log metadata before pulling known certs. It's OK
+	// if the known certs are a superset of the certs described
+	// by the metadata, but the other way around is dangerous.
+	glog.Infof("Saving CT Log metadata")
+	logList, err := storageDB.GetCTLogsFromCache()
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	ctLogFD, err := os.OpenFile(*ctlogspath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		glog.Fatalf("Error opening %s: %s", *ctlogspath, err)
+	}
+
+	enc := json.NewEncoder(ctLogFD)
+	if err := enc.Encode(logList); err != nil {
+		glog.Fatalf("Error marshaling ct-logs list %s: %s", *ctlogspath, err)
+	}
+	ctLogFD.Close()
 
 	glog.Infof("Listing issuers and their expiration dates...")
 	issuerList, err := storageDB.GetIssuerAndDatesFromCache()
