@@ -175,6 +175,7 @@ class Intermediate:
     derHash: bytes
     kinto_id: str
     pemAttachment: AttachedPem
+    pemData: str
     pemHash: str
     pubKeyHash: bytes
     subject: str
@@ -193,7 +194,7 @@ class Intermediate:
 
         # Local records have a "pem" field.
         # RemoteSettings records have "attachment".
-        # TODO(jms): These should be versioned.
+        # TODO(jms): These should be versioned (See Issue 180).
         if not exactlyOneIn(["pem", "attachment"], kwargs):
             raise parseError
 
@@ -831,7 +832,7 @@ def crlite_determine_publish(*, existing_records, run_db):
     # Get a list of run IDs that are newer than any existing record.
     # These are candidates for inclusion in an incremental update.
 
-    # A run ID is a "YYYMMDD" date and an index, e.g. "20210101-3".
+    # A run ID is a "YYYYMMDD" date and an index, e.g. "20210101-3".
     # The record["attachment"]["filename"] field of an existing record is
     # in the format "<run id>-filter" or "<run id>-filter.stash".
     old_run_ids = []
@@ -872,7 +873,8 @@ def publish_crlite(*, args, ro_client, rw_client):
     existing_records = ro_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
-    # Sort existing_records for crlite_verify_record_consistency
+    # Sort existing_records for crlite_verify_record_consistency,
+    # which gets called in crlite_determine_publish.
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
 
     published_run_db = PublishedRunDB(args.filter_bucket)
