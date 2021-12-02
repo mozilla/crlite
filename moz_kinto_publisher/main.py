@@ -34,7 +34,7 @@ class TimeoutException(Exception):
     pass
 
 
-class SanityException(Exception):
+class ConsistencyException(Exception):
     pass
 
 
@@ -735,7 +735,7 @@ def timestamp_from_record(record):
     return datetime.fromisoformat(iso_string).replace(tzinfo=timezone.utc)
 
 
-def crlite_verify_record_sanity(*, existing_records):
+def crlite_verify_record_consistency(*, existing_records):
     # This function assumes that existing_records is sorted according to
     # record["details"]["name"], which is a "YYYY-MM-DDTHH:MM:SS+00:00Z"
     # timestamp.
@@ -746,16 +746,16 @@ def crlite_verify_record_sanity(*, existing_records):
 
     for r in existing_records:
         if not ("id" in r and "incremental" in r):
-            raise SanityException(f"Malformed record {r}.")
+            raise ConsistencyException(f"Malformed record {r}.")
         if r["incremental"] and not "parent" in r:
-            raise SanityException(f"Malformed record {r}.")
+            raise ConsistencyException(f"Malformed record {r}.")
 
     # There must be exactly 1 full filter in the existing records.
     full_filters = [r for r in existing_records if not r["incremental"]]
     if len(full_filters) == 0:
-        raise SanityException("No full filters.")
+        raise ConsistencyException("No full filters.")
     if len(full_filters) >= 2:
-        raise SanityException(f"Multiple full filters: {full_filters}")
+        raise ConsistencyException(f"Multiple full filters: {full_filters}")
 
     # Each incremental filter should be a descendent of the full filter
     ids = {r["id"]: r for r in existing_records}
@@ -766,7 +766,7 @@ def crlite_verify_record_sanity(*, existing_records):
         while ids[ptr]["incremental"]:
             ptr = ids[ptr]["parent"]
             if ptr not in ids:
-                raise SanityException(f"Record {r['id']} has unknown parent {ptr}")
+                raise ConsistencyException(f"Record {r['id']} has unknown parent {ptr}")
             height += 1
         maxHeight = max(height, maxHeight)
 
@@ -774,39 +774,39 @@ def crlite_verify_record_sanity(*, existing_records):
     # an incremental filter len(existing_records)-1 steps away from the full
     # filter.
     if maxHeight != len(existing_records) - 1:
-        raise SanityException(f"Multiple filter descendents: {full_filters}")
+        raise ConsistencyException(f"Multiple filter descendents: {full_filters}")
 
     # There should be no long gaps between record timestamps
     allowed_delta = timedelta(hours=8)
     timestamps = [timestamp_from_record(r) for r in existing_records]
     for x, y in zip(timestamps, timestamps[1:]):
         if y - x > allowed_delta:
-            raise SanityException(f"Too-wide a delta: {y-x}")
+            raise ConsistencyException(f"Too-wide a delta: {y-x}")
 
 
-def crlite_verify_run_id_sanity(*, run_db, identifiers_to_check):
+def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check):
     # The runs should be complete.
     for r in identifiers_to_check:
         if not run_db.is_run_ready(r):
-            raise SanityException(f"Run is not ready: {r}")
+            raise ConsistencyException(f"Run is not ready: {r}")
 
     # Each run should have a "filter" and a "filter.stash" file.
     for r in identifiers_to_check:
         if not run_db.is_run_valid(r):
-            raise SanityException(f"Not a valid run: {r}")
+            raise ConsistencyException(f"Not a valid run: {r}")
 
     # When sorted by run ID, the runs should have increasing timestamps.
     identifiers_to_check.sort(key=lambda x: [int(y) for y in x.split("-")])
     ts = [run_db.get_run_timestamp(r) for r in identifiers_to_check]
     for x, y in zip(ts, ts[1:]):
         if x > y:
-            raise SanityException(f"Out-of-order timestamp: {ts}")
+            raise ConsistencyException(f"Out-of-order timestamp: {ts}")
 
     # There should be no large gaps between run timestamps.
     allowed_delta = timedelta(hours=8)
     for x, y in zip(ts, ts[1:]):
         if y - x > allowed_delta:
-            raise SanityException(f"Too-wide a delta: {y-x}")
+            raise ConsistencyException(f"Too-wide a delta: {y-x}")
 
 
 def crlite_determine_publish(*, existing_records, run_db):
@@ -823,9 +823,9 @@ def crlite_determine_publish(*, existing_records, run_db):
 
     # If the existing records are bad, publish a full filter.
     try:
-        crlite_verify_record_sanity(existing_records=existing_records)
-    except SanityException as se:
-        log.error(f"Failed to verify existing record sanity: {se}")
+        crlite_verify_record_consistency(existing_records=existing_records)
+    except ConsistencyException as se:
+        log.error(f"Failed to verify existing record consistency: {se}")
         return default
 
     # Get a list of run IDs that are newer than any existing record.
@@ -856,11 +856,13 @@ def crlite_determine_publish(*, existing_records, run_db):
     if datetime.now() - min_date >= timedelta(days=10):
         return default
 
-    # If the new runs fail a sanity check, publish a full filter.
+    # If the new runs fail a consistency check, publish a full filter.
     try:
-        crlite_verify_run_id_sanity(run_db=run_db, identifiers_to_check=new_run_ids)
-    except SanityException as se:
-        log.error(f"Failed to verify run ID sanity: {se}")
+        crlite_verify_run_id_consistency(
+            run_db=run_db, identifiers_to_check=new_run_ids
+        )
+    except ConsistencyException as se:
+        log.error(f"Failed to verify run ID consistency: {se}")
         return default
 
     return {"upload": new_run_ids}
@@ -870,7 +872,7 @@ def publish_crlite(*, args, ro_client, rw_client):
     existing_records = ro_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
-    # Sort existing_records for crlite_verify_record_sanity
+    # Sort existing_records for crlite_verify_record_consistency
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
 
     published_run_db = PublishedRunDB(args.filter_bucket)

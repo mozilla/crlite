@@ -82,7 +82,7 @@ class TestLoadIntermediates(unittest.TestCase):
 
 
 class TestPublishDecisions(unittest.TestCase):
-    def test_sanity_okay(self):
+    def test_consistency_okay(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-0", parent="20491230-3"),
@@ -91,9 +91,9 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-3", parent="20491231-2"),
             make_record("20500101-0", parent="20491231-3"),
         ]
-        main.crlite_verify_record_sanity(existing_records=existing_records)
+        main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_sanity_multiple_filters(self):
+    def test_consistency_multiple_filters(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-0", parent="20491230-3"),
@@ -102,10 +102,10 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-3", parent="20491231-2"),
             make_record("20500101-0", parent="20491231-3"),
         ]
-        with self.assertRaises(main.SanityException):
-            main.crlite_verify_record_sanity(existing_records=existing_records)
+        with self.assertRaises(main.ConsistencyException):
+            main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_sanity_not_sequential(self):
+    def test_consistency_not_sequential(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-0", parent="20491230-3"),
@@ -113,40 +113,40 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-3", parent="20491231-1"),
             make_record("20500101-0", parent="20491231-3"),
         ]
-        with self.assertRaises(main.SanityException):
-            main.crlite_verify_record_sanity(existing_records=existing_records)
+        with self.assertRaises(main.ConsistencyException):
+            main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_sanity_out_of_order(self):
+    def test_consistency_out_of_order(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-1", parent="20491231-0"),
             make_record("20491231-0", parent="20491230-3"),
         ]
-        with self.assertRaises(main.SanityException):
-            main.crlite_verify_record_sanity(existing_records=existing_records)
+        with self.assertRaises(main.ConsistencyException):
+            main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_sanity_unknown_parent(self):
+    def test_consistency_unknown_parent(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-0", parent="20491230-2"),
             make_record("20491231-1", parent="20491231-0"),
         ]
-        with self.assertRaises(main.SanityException):
-            main.crlite_verify_record_sanity(existing_records=existing_records)
+        with self.assertRaises(main.ConsistencyException):
+            main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_sanity_nonlinear(self):
+    def test_consistency_nonlinear(self):
         existing_records = [
             make_record("20491230-3", parent=None),
             make_record("20491231-0", parent="20491230-3"),
             make_record("20491231-1", parent="20491230-3"),
         ]
-        with self.assertRaises(main.SanityException):
-            main.crlite_verify_record_sanity(existing_records=existing_records)
+        with self.assertRaises(main.ConsistencyException):
+            main.crlite_verify_record_consistency(existing_records=existing_records)
 
-    def test_run_id_sanity_not_sequential(self):
-        with self.assertRaises(main.SanityException):
+    def test_run_id_consistency_not_sequential(self):
+        with self.assertRaises(main.ConsistencyException):
             db = MockRunDB([])
-            main.crlite_verify_run_id_sanity(
+            main.crlite_verify_run_id_consistency(
                 run_db=db,
                 identifiers_to_check=[
                     "20491230-3",
@@ -157,15 +157,15 @@ class TestPublishDecisions(unittest.TestCase):
                 ],
             )
 
-    def test_run_id_sanity_out_of_order(self):
-        with self.assertRaises(main.SanityException):
+    def test_run_id_consistency_out_of_order(self):
+        with self.assertRaises(main.ConsistencyException):
             db = MockRunDB([])
-            main.crlite_verify_run_id_sanity(
+            main.crlite_verify_run_id_consistency(
                 run_db=db,
                 identifiers_to_check=["20491230-3", "20491231-1", "20491231-0"],
             )
 
-    def test_run_id_sanity_okay(self):
+    def test_run_id_consistency_okay(self):
         identifiers = [
             "20491230-3",
             "20491231-0",
@@ -175,14 +175,14 @@ class TestPublishDecisions(unittest.TestCase):
             "20500101-0",
         ]
         db = MockRunDB(identifiers)
-        main.crlite_verify_run_id_sanity(
+        main.crlite_verify_run_id_consistency(
             run_db=db,
             identifiers_to_check=identifiers,
         )
 
-    def test_run_id_sanity_empty(self):
+    def test_run_id_consistency_empty(self):
         db = MockRunDB([])
-        main.crlite_verify_run_id_sanity(run_db=db, identifiers_to_check=[])
+        main.crlite_verify_run_id_consistency(run_db=db, identifiers_to_check=[])
 
     def test_initial_conditions(self):
         existing_records = []
