@@ -102,7 +102,7 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
 
 @lru_cache
 def get_attachments_base_url():
-    return requests.get(settings.KINTO_RO_SERVER_URL).json()["capabilities"][
+    return requests.get(settings.KINTO_RW_SERVER_URL).json()["capabilities"][
         "attachments"
     ]["base_url"]
 
@@ -466,7 +466,7 @@ def load_remote_intermediates(*, kinto_client):
     return remote_intermediates, remote_error_records
 
 
-def publish_intermediates(*, args, ro_client, rw_client):
+def publish_intermediates(*, args, rw_client):
 
     run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
     if not run_identifiers:
@@ -490,7 +490,7 @@ def publish_intermediates(*, args, ro_client, rw_client):
         intermediates_path=intermediates_path
     )
     remote_intermediates, remote_error_records = load_remote_intermediates(
-        kinto_client=ro_client
+        kinto_client=rw_client
     )
 
     remote_only = set(remote_intermediates.keys()) - set(local_intermediates.keys())
@@ -525,9 +525,6 @@ def publish_intermediates(*, args, ro_client, rw_client):
     if args.noop:
         log.info("Noop flag set, exiting before any intermediate updates")
         return
-
-    # Don't accidentally use the ro_client beyond this point
-    ro_client = None
 
     # Enrolled intermediates must be in the local list
     for unique_id in remote_only & remote_enrolled:
@@ -869,8 +866,8 @@ def crlite_determine_publish(*, existing_records, run_db):
     return {"upload": new_run_ids}
 
 
-def publish_crlite(*, args, ro_client, rw_client):
-    existing_records = ro_client.get_records(
+def publish_crlite(*, args, rw_client):
+    existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     # Sort existing_records for crlite_verify_record_consistency,
@@ -894,9 +891,6 @@ def publish_crlite(*, args, ro_client, rw_client):
     if not tasks["upload"]:
         log.info("Nothing to do.")
         return
-
-    # Don't accidentally use the ro_client beyond this point
-    ro_client = None
 
     args.download_path.mkdir(parents=True, exist_ok=True)
 
@@ -965,7 +959,7 @@ def publish_crlite(*, args, ro_client, rw_client):
             )
 
 
-def publish_ctlogs(*, args, ro_client, rw_client):
+def publish_ctlogs(*, args, rw_client):
     # Copy CT log metadata from google's v3 log_list to our kinto collection.
     # This will notify reviewers who can then manually enroll the log in CRLite.
     #
@@ -1019,7 +1013,7 @@ def publish_ctlogs(*, args, ro_client, rw_client):
             )
 
     # Fetch our existing Kinto records
-    known_logs = ro_client.get_records(collection=settings.KINTO_CTLOGS_COLLECTION)
+    known_logs = rw_client.get_records(collection=settings.KINTO_CTLOGS_COLLECTION)
     known_lut = {ctlog["logID"]: ctlog for ctlog in known_logs}
 
     if len(known_logs) != len(known_lut):
@@ -1140,9 +1134,7 @@ def main():
         )
     )
 
-    log.info(
-        f"Connecting... RO={settings.KINTO_RO_SERVER_URL}, RW={settings.KINTO_RW_SERVER_URL}"
-    )
+    log.info(f"Connecting... {settings.KINTO_RW_SERVER_URL}")
 
     rw_client = PublisherClient(
         server_url=settings.KINTO_RW_SERVER_URL,
@@ -1151,21 +1143,15 @@ def main():
         retry=5,
     )
 
-    ro_client = PublisherClient(
-        server_url=settings.KINTO_RO_SERVER_URL,
-        bucket=settings.KINTO_BUCKET,
-        retry=5,
-    )
-
     try:
         log.info("Updating ct-logs collection")
-        publish_ctlogs(args=args, rw_client=rw_client, ro_client=ro_client)
+        publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        publish_crlite(args=args, rw_client=rw_client, ro_client=ro_client)
+        publish_crlite(args=args, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
-        publish_intermediates(args=args, rw_client=rw_client, ro_client=ro_client)
+        publish_intermediates(args=args, rw_client=rw_client)
     except KintoException as ke:
         log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
