@@ -646,85 +646,91 @@ def clear_crlite_stashes(*, rw_client, noop):
 
 
 def publish_crlite_record(
-    *, path, filename, timestamp, rw_client, incremental, noop, previous_id=None
+    *,
+    attributes,
+    attachment_path,
+    attachment_name,
+    rw_client,
+    noop,
 ):
-    record_type = "diff" if incremental else "full"
+    if noop:
+        log.info("NoOp mode enabled")
+        return attributes["details"]["name"]
+
+    record = rw_client.create_record(
+        collection=settings.KINTO_CRLITE_COLLECTION,
+        data=attributes,
+        permissions={"read": ["system.Everyone"]},
+    )
+    recordid = record["data"]["id"]
+
+    try:
+        rw_client.attach_file(
+            collection=settings.KINTO_CRLITE_COLLECTION,
+            fileName=attachment_name,
+            filePath=attachment_path,
+            recordId=recordid,
+        )
+    except KintoException as ke:
+        log.error(
+            f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}"
+        )
+        rw_client.delete_record(
+            collection=settings.KINTO_CRLITE_COLLECTION,
+            id=recordid,
+        )
+        log.error("Stale record deleted.")
+        raise ke
+    return recordid
+
+
+def publish_crlite_main_filter(
+    *, rw_client, filter_path, filename, timestamp, noop
+):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
-    identifier = f"{record_time}Z-{record_type}"
+    identifier = f"{record_time}Z-full"
+
 
     attributes = {
         "details": {"name": identifier},
         "incremental": incremental,
         "effectiveTimestamp": record_epoch_time_ms,
     }
-    perms = {"read": ["system.Everyone"]}
-    if incremental:
-        assert previous_id, "Incremental records must have a previous record ID"
-        attributes["parent"] = previous_id
 
-    log.info(
-        f"Publishing {path} {timestamp} incremental={incremental} (previous={previous_id})"
-    )
-    if noop:
-        log.info("NoOp mode enabled")
-
-    if not noop:
-        record = rw_client.create_record(
-            collection=settings.KINTO_CRLITE_COLLECTION,
-            data=attributes,
-            permissions=perms,
-        )
-        recordid = record["data"]["id"]
-
-        try:
-            rw_client.attach_file(
-                collection=settings.KINTO_CRLITE_COLLECTION,
-                fileName=filename,
-                filePath=path,
-                recordId=recordid,
-            )
-        except KintoException as ke:
-            log.error(
-                f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}"
-            )
-            rw_client.delete_record(
-                collection=settings.KINTO_CRLITE_COLLECTION,
-                id=recordid,
-            )
-            log.error("Stale record deleted.")
-            raise ke
-    else:
-        recordid = "fake-noop-id"
-        record = {"fake": True}
-
-    log.info("Successfully uploaded MLBF record.")
-    log.debug(json.dumps(record, indent=" "))
-    return recordid
-
-
-def publish_crlite_main_filter(*, filter_path, filename, rw_client, timestamp, noop):
+    log.info(f"Publishing full filter {attachment_path} {timestamp}")
     return publish_crlite_record(
-        path=filter_path,
-        filename=filename,
-        timestamp=timestamp,
         rw_client=rw_client,
+        attributes=attributes,
+        attachment_path=filter_path,
+        attachment_name=filename,
         noop=noop,
-        incremental=False,
     )
 
 
 def publish_crlite_stash(
-    *, stash_path, filename, rw_client, previous_id, timestamp, noop
+    *, rw_client, stash_path, filename, timestamp, previous_id, noop
 ):
+    record_time = timestamp.isoformat(timespec="seconds")
+    record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
+    identifier = f"{record_time}Z-diff"
+
+    attributes = {
+        "details": {"name": identifier},
+        "incremental": incremental,
+        "effectiveTimestamp": record_epoch_time_ms,
+        "parent": previous_id,
+    }
+
+    log.info(
+        f"Publishing incremental filter {attachment_path} {timestamp} previous={previous_id}"
+    )
     return publish_crlite_record(
-        path=stash_path,
-        filename=filename,
-        timestamp=timestamp,
         rw_client=rw_client,
-        previous_id=previous_id,
+        attributes=attributes,
+        attachment_path=stash_path,
+        attachment_name=filename,
         noop=noop,
-        incremental=True,
     )
 
 
