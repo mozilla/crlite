@@ -48,10 +48,16 @@ class PublishedRunDB:
         return len(self.run_identifiers)
 
     def is_run_valid(self, run_id):
-        is_valid = workflow.google_cloud_file_exists(
-            self.filter_bucket, f"{run_id}/mlbf/filter"
-        ) and workflow.google_cloud_file_exists(
-            self.filter_bucket, f"{run_id}/mlbf/filter.stash"
+        is_valid = (
+            workflow.google_cloud_file_exists(
+                self.filter_bucket, f"{run_id}/mlbf/filter"
+            )
+            and workflow.google_cloud_file_exists(
+                self.filter_bucket, f"{run_id}/mlbf/filter.stash"
+            )
+            and workflow.google_cloud_file_exists(
+                self.filter_bucket, f"{run_id}/ct-logs.json"
+            )
         )
         log.debug(f"{run_id} {'Is Valid' if is_valid else 'Is Not Valid'}")
         return is_valid
@@ -435,7 +441,7 @@ def load_local_intermediates(*, intermediates_path):
             local_intermediates[intObj.unique_id()] = intObj
         except IntermediateRecordError:
             log.warning(
-                "IntermediateRecordError: {} while importing from ".format(
+                "IntermediateRecordError: {} while importing from {}".format(
                     entry, f.name
                 )
             )
@@ -685,20 +691,30 @@ def publish_crlite_record(
 
 
 def publish_crlite_main_filter(
-    *, rw_client, filter_path, filename, timestamp, noop
+    *, rw_client, filter_path, filename, timestamp, ctlogs, noop
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
     identifier = f"{record_time}Z-full"
 
+    coverage = []
+    for ctlog in ctlogs:
+        coverage += [
+            {
+                "logID": ctlog["LogID"],
+                "minTimestamp": ctlog["MinTimestamp"],
+                "maxTimestamp": ctlog["MaxTimestamp"],
+            }
+        ]
 
     attributes = {
         "details": {"name": identifier},
-        "incremental": incremental,
+        "incremental": False,
         "effectiveTimestamp": record_epoch_time_ms,
+        "coverage": coverage,
     }
 
-    log.info(f"Publishing full filter {attachment_path} {timestamp}")
+    log.info(f"Publishing full filter {filter_path} {timestamp}")
     return publish_crlite_record(
         rw_client=rw_client,
         attributes=attributes,
@@ -717,13 +733,13 @@ def publish_crlite_stash(
 
     attributes = {
         "details": {"name": identifier},
-        "incremental": incremental,
+        "incremental": True,
         "effectiveTimestamp": record_epoch_time_ms,
         "parent": previous_id,
     }
 
     log.info(
-        f"Publishing incremental filter {attachment_path} {timestamp} previous={previous_id}"
+        f"Publishing incremental filter {stash_path} {timestamp} previous={previous_id}"
     )
     return publish_crlite_record(
         rw_client=rw_client,
@@ -752,6 +768,8 @@ def crlite_verify_record_consistency(*, existing_records):
         if not ("id" in r and "incremental" in r and "attachment" in r):
             raise ConsistencyException(f"Malformed record {r}.")
         if r["incremental"] and not "parent" in r:
+            raise ConsistencyException(f"Malformed record {r}.")
+        if not r["incremental"] and not "coverage" in r:
             raise ConsistencyException(f"Malformed record {r}.")
 
     # There must be exactly 1 full filter in the existing records.
@@ -794,7 +812,7 @@ def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check):
         if not run_db.is_run_ready(r):
             raise ConsistencyException(f"Run is not ready: {r}")
 
-    # Each run should have a "filter" and a "filter.stash" file.
+    # Each run should have "filter", "filter.stash", and "ct-logs.json" files.
     for r in identifiers_to_check:
         if not run_db.is_run_valid(r):
             raise ConsistencyException(f"Not a valid run: {r}")
@@ -939,12 +957,23 @@ def publish_crlite(*, args, rw_client):
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
         clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
 
+        ctlogs_path = args.download_path / Path(final_run_id) / Path("ct-logs.json")
+        workflow.download_and_retry_from_google_cloud(
+            args.filter_bucket,
+            f"{final_run_id}/ct-logs.json",
+            ctlogs_path,
+            timeout=timedelta(minutes=5),
+        )
+        with open(ctlogs_path, "r") as f:
+            ctlogs = json.load(f)
+
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
             filename=f"{final_run_id}-filter",
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
+            ctlogs=ctlogs,
             noop=args.noop,
         )
 
