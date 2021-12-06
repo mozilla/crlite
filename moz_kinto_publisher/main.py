@@ -118,7 +118,7 @@ class PublisherClient(Client):
         mimeType="application/octet-stream",
         recordId=None,
     ):
-        if not (filePath ^ fileContents):
+        if not ((filePath is None) ^ (fileContents is None)):
             raise Exception("Must specify either filePath or fileContents")
 
         if filePath:
