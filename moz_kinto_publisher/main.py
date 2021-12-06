@@ -743,7 +743,7 @@ def crlite_verify_record_consistency(*, existing_records):
         return
 
     for r in existing_records:
-        if not ("id" in r and "incremental" in r):
+        if not ("id" in r and "incremental" in r and "attachment" in r):
             raise ConsistencyException(f"Malformed record {r}.")
         if r["incremental"] and not "parent" in r:
             raise ConsistencyException(f"Malformed record {r}.")
