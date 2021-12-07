@@ -16,7 +16,7 @@ import (
 )
 
 type CTConfig struct {
-	LogUrlList         *string
+	CTLogMetadata      *string
 	CertPath           *string
 	GoogleProjectId    *string
 	RedisHost          *string
@@ -122,7 +122,7 @@ func confString(p *string, section *ini.Section, key string, def string) {
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
 		BatchSize:          new(uint64),
-		LogUrlList:         new(string),
+		CTLogMetadata:      new(string),
 		NumThreads:         new(int),
 		LogExpiredEntries:  new(bool),
 		RunForever:         new(bool),
@@ -172,7 +172,7 @@ func (c *CTConfig) Init() {
 
 	// Fill in values, where conf file < env vars
 	confUint64(c.BatchSize, section, "batchSize", 4096)
-	confString(c.LogUrlList, section, "logList", "")
+	confString(c.CTLogMetadata, section, "ctLogMetadata", "")
 	confInt(c.NumThreads, section, "numThreads", 1)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
@@ -207,6 +207,7 @@ func (c *CTConfig) Usage() {
 	fmt.Println("redisHost = address:port of the Redis instance")
 	fmt.Println("")
 	fmt.Println("Options:")
+	fmt.Println("ctLogMetadata = A string containing a JSON array of CTLogMetadata objects, for debugging")
 	fmt.Println("googleProjectId = Google Cloud Platform Project ID, used for stackdriver logging")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` seconds between runs")
@@ -214,7 +215,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
 	fmt.Println("numThreads = Use this many threads for normal operations")
 	fmt.Println("savePeriod = Duration between state saves, e.g. 15m")
-	fmt.Println("logList = URLs of the CT Logs, comma delimited")
 	fmt.Println("statsRefreshPeriod = Period between stats being dumped to stderr, only if statsdDhost and statsdPort are not set")
 	fmt.Println("statsdHost = host for StatsD information")
 	fmt.Println("statsdPort = port for StatsD information")
