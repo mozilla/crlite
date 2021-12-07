@@ -90,7 +90,7 @@ func (db *CertDatabase) SaveLogState(aLogObj *CertificateLog) error {
 }
 
 func (db *CertDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
-	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, aUrl.Path)
+	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, strings.TrimRight(aUrl.Path, "/"))
 
 	log, cacheErr := db.extCache.LoadLogState(shortUrl)
 	if log != nil {
