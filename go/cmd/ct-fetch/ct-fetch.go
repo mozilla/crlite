@@ -407,7 +407,6 @@ func (ld *LogSyncEngine) insertCTWorker() {
 func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
-	// Set pointer in DB, now that we've verified the log works
 	logUrlObj, err := url.Parse(ctLogData.URL)
 	if err != nil {
 		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogData.URL, err)
@@ -418,6 +417,18 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorke
 	if err != nil {
 		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogData.URL, err)
 		return nil, err
+	}
+
+	if logObj.LogID != ctLogData.LogID {
+		// The LogID shouldn't change, but we'll treat the input as
+		// authoritative. Old versions of ct-fetch didn't store the
+		// LogID in redis, so we will hit this on upgrade.
+		logObj.LogID = ctLogData.LogID
+	}
+
+	if logObj.MMD != uint64(ctLogData.MMD) {
+		// Likewise storing MMD is new.
+		logObj.MMD = uint64(ctLogData.MMD)
 	}
 
 	ctLog, err := client.New(ctLogData.URL,
