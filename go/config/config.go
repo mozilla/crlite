@@ -16,6 +16,7 @@ import (
 )
 
 type CTConfig struct {
+	RemoteSettingsURL  *string
 	CTLogMetadata      *string
 	CertPath           *string
 	GoogleProjectId    *string
@@ -122,6 +123,7 @@ func confString(p *string, section *ini.Section, key string, def string) {
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
 		BatchSize:          new(uint64),
+		RemoteSettingsURL:  new(string),
 		CTLogMetadata:      new(string),
 		NumThreads:         new(int),
 		LogExpiredEntries:  new(bool),
@@ -172,6 +174,7 @@ func (c *CTConfig) Init() {
 
 	// Fill in values, where conf file < env vars
 	confUint64(c.BatchSize, section, "batchSize", 4096)
+	confString(c.RemoteSettingsURL, section, "remoteSettingsURL", "")
 	confString(c.CTLogMetadata, section, "ctLogMetadata", "")
 	confInt(c.NumThreads, section, "numThreads", 1)
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
@@ -207,6 +210,7 @@ func (c *CTConfig) Usage() {
 	fmt.Println("redisHost = address:port of the Redis instance")
 	fmt.Println("")
 	fmt.Println("Options:")
+	fmt.Println("remoteSettingsURL = The base url for remote settings requests")
 	fmt.Println("ctLogMetadata = A string containing a JSON array of CTLogMetadata objects, for debugging")
 	fmt.Println("googleProjectId = Google Cloud Platform Project ID, used for stackdriver logging")
 	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
