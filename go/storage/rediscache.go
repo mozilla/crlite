@@ -178,7 +178,7 @@ func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, er
 }
 
 func shortUrlToLogKey(shortUrl string) string {
-	return fmt.Sprintf("log::%s", shortUrl)
+	return fmt.Sprintf("log::%s", strings.TrimRight(shortUrl, "/"))
 }
 
 func (ec *RedisCache) StoreLogState(log *CertificateLog) error {
