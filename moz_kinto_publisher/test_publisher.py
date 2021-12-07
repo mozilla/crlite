@@ -36,6 +36,8 @@ def make_record(run_id, *, parent):
     }
     if parent:
         record["parent"] = hashlib.sha256(parent.encode("utf-8")).hexdigest()
+    else:
+        record["coverage"] = []
     return record
 
 
