@@ -22,6 +22,8 @@ const (
 )
 
 type CertificateLog struct {
+	LogID          string    `db:"logID"`          // The log's RFC 6962 LogID
+	MMD            uint64    `db:"mmd"`            // The log's maximum merge delay in seconds
 	ShortURL       string    `db:"url"`            // URL to the log
 	MinEntry       uint64    `db:"minEntry"`       // The smallest index we've downloaded
 	MaxEntry       uint64    `db:"maxEntry"`       // The largest index we've downloaded
