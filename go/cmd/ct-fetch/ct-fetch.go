@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"encoding/json"
 	"fmt"
 	"math/bits"
 	"math/rand"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jpillora/backoff"
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/storage"
@@ -88,7 +90,7 @@ func uint64ToTimestamp(timestamp uint64) *time.Time {
 
 type CtLogEntry struct {
 	LogEntry *ct.LogEntry
-	LogURL   string
+	LogData  *types.CTLogMetadata
 }
 
 type CtLogSubtree struct {
@@ -267,11 +269,15 @@ type LogSyncEngine struct {
 type LogWorker struct {
 	Database  storage.CertDatabase
 	Client    *client.LogClient
-	LogURL    string
+	LogData   *types.CTLogMetadata
 	STH       *ct.SignedTreeHead
 	LogState  *storage.CertificateLog
 	WorkOrder LogWorkerTask
 	JobSize   uint64
+}
+
+func (lw LogWorker) Name() string {
+	return lw.LogData.URL
 }
 
 type LogWorkerTask int
@@ -306,8 +312,8 @@ func (ld *LogSyncEngine) StartDatabaseThreads() {
 }
 
 // Blocking function, run from a thread
-func (ld *LogSyncEngine) SyncLog(logURL string) error {
-	worker, err := ld.NewLogWorker(logURL)
+func (ld *LogSyncEngine) SyncLog(logData *types.CTLogMetadata) error {
+	worker, err := ld.NewLogWorker(logData)
 	if err != nil {
 		return err
 	}
@@ -357,7 +363,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if err != nil {
-			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
 			continue
 		}
 
@@ -367,21 +373,21 @@ func (ld *LogSyncEngine) insertCTWorker() {
 
 		if len(ep.LogEntry.Chain) < 1 {
 			glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-				ep.LogURL, precert, ep.LogEntry.Index, storage.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+				ep.LogData.URL, precert, ep.LogEntry.Index, storage.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 			continue
 		}
 
 		issuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
 		if err != nil {
-			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
 			continue
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "ParseCertificates"}, parseTime)
 
 		storeTime := time.Now()
-		err = ld.database.Store(cert, issuingCert, ep.LogURL, ep.LogEntry.Index)
+		err = ld.database.Store(cert, issuingCert, ep.LogData.URL, ep.LogEntry.Index)
 		if err != nil {
-			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogURL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
 
@@ -398,23 +404,23 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	}
 }
 
-func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
+func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
 	// Set pointer in DB, now that we've verified the log works
-	logUrlObj, err := url.Parse(ctLogUrl)
+	logUrlObj, err := url.Parse(ctLogData.URL)
 	if err != nil {
-		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogData.URL, err)
 		return nil, err
 	}
 
 	logObj, err := ld.database.GetLogState(logUrlObj)
 	if err != nil {
-		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogData.URL, err)
 		return nil, err
 	}
 
-	ctLog, err := client.New(ctLogUrl,
+	ctLog, err := client.New(ctLogData.URL,
 		&http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -430,14 +436,14 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 			UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
 		})
 	if err != nil {
-		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogUrl, err)
+		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogData.URL, err)
 		return nil, err
 	}
 
-	glog.Infof("[%s] Fetching signed tree head... ", ctLogUrl)
+	glog.Infof("[%s] Fetching signed tree head... ", ctLogData.URL)
 	sth, fetchErr := ctLog.GetSTH(context.Background())
 	if fetchErr == nil {
-		glog.Infof("[%s] %d total entries as of %s", ctLogUrl, sth.TreeSize,
+		glog.Infof("[%s] %d total entries as of %s", ctLogData.URL, sth.TreeSize,
 			uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 	}
 
@@ -445,7 +451,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 	var task LogWorkerTask
 	if fetchErr != nil {
 		// Temporary network failure?
-		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogUrl, fetchErr)
+		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogData.URL, fetchErr)
 		task = Sleep
 	} else if sth.TreeSize <= 3 {
 		// For technical reasons, we can't verify our download
@@ -479,7 +485,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogUrl string) (*LogWorker, error) {
 		Database:  ld.database,
 		Client:    ctLog,
 		LogState:  logObj,
-		LogURL:    ctLogUrl,
+		LogData:   ctLogData,
 		STH:       sth,
 		WorkOrder: task,
 		JobSize:   batchSize,
@@ -491,10 +497,10 @@ func (lw *LogWorker) sleep() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	// Sleep for ctconfig.PollingDelay seconds (+/- 10%).
 	duration := time.Duration((1 + 0.1*rand.NormFloat64()) * float64(*ctconfig.PollingDelay))
-	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.LogURL, duration)
+	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.Name(), duration)
 	select {
 	case <-sigChan:
-		glog.Infof("[%s] Signal caught. Exiting.", lw.LogURL)
+		glog.Infof("[%s] Signal caught. Exiting.", lw.Name())
 	case <-time.After(duration * time.Second):
 	}
 	signal.Stop(sigChan)
@@ -508,11 +514,11 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	case Init:
 		firstIndex = lw.STH.TreeSize - lw.JobSize
 		lastIndex = lw.STH.TreeSize - 1
-		glog.Infof("[%s] Running Init job %d %d", lw.LogURL, firstIndex, lastIndex)
+		glog.Infof("[%s] Running Init job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Update:
 		firstIndex = lw.LogState.MaxEntry + 1
 		lastIndex = lw.LogState.MaxEntry + lw.JobSize
-		glog.Infof("[%s] Running Update job %d %d", lw.LogURL, firstIndex, lastIndex)
+		glog.Infof("[%s] Running Update job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Backfill:
 		// We will make fewer get-entries requests to the CT Log if we align firstIndex
 		// to a power of two while backfilling.
@@ -523,7 +529,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 			firstIndex = lw.LogState.MinEntry - lw.JobSize
 		}
 		lastIndex = lw.LogState.MinEntry - 1
-		glog.Infof("[%s] Running Backfill job %d %d", lw.LogURL, firstIndex, lastIndex)
+		glog.Infof("[%s] Running Backfill job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Sleep:
 		lw.sleep()
 		return nil
@@ -538,7 +544,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	}
 
 	glog.Infof("[%s] Downloading entries %d through %d",
-		lw.LogURL, firstIndex, lastIndex)
+		lw.Name(), firstIndex, lastIndex)
 
 	// We're going to tell users that we downloaded entries
 	// |firstIndex| through |lastIndex|, and we want some assurance
@@ -568,14 +574,14 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	}
 	proof, err := lw.Client.GetSTHConsistency(context.Background(), oldSize, newSize)
 	if err != nil {
-		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.LogURL, err)
+		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.Name(), err)
 		return err
 	}
 
 	// Annotate the proof with the leaves that influence each term.
 	subtrees, err := consistencyProofToSubtrees(proof, oldSize, newSize)
 	if err != nil {
-		glog.Errorf("[%s] Could not annotate proof: %s", lw.LogURL, err)
+		glog.Errorf("[%s] Could not annotate proof: %s", lw.Name(), err)
 		return err
 	}
 
@@ -624,23 +630,23 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	for _, verifier := range verifiers {
 		minTimestamp, maxTimestamp, err := lw.downloadCTRangeToChannel(verifier, entryChan)
 		if err != nil {
-			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %s.", lw.LogURL, err)
+			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %s.", lw.Name(), err)
 			return err
 		}
 		err = verifier.CheckClaim()
 		if err != nil {
 			glog.Errorf("[%s] downloadCTRangeToChannel could not verify entries %d-%d: %s",
-				lw.LogURL, verifier.Subtree.First, verifier.Subtree.Last, err)
+				lw.Name(), verifier.Subtree.First, verifier.Subtree.Last, err)
 			return err
 		}
 		err = lw.saveState(&verifier.Subtree, minTimestamp, maxTimestamp)
 		if err != nil {
-			glog.Errorf("[%s] Failed to update log state: %s", lw.LogURL, err)
+			glog.Errorf("[%s] Failed to update log state: %s", lw.Name(), err)
 			return err
 		}
 	}
 
-	glog.Infof("[%s] Verified entries %d-%d", lw.LogURL, verifiers[0].Subtree.First, verifiers[len(verifiers)-1].Subtree.Last)
+	glog.Infof("[%s] Verified entries %d-%d", lw.Name(), verifiers[0].Subtree.First, verifiers[len(verifiers)-1].Subtree.Last)
 
 	return err
 }
@@ -693,7 +699,7 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 		return fmt.Errorf("Database error: %s", saveErr)
 	}
 
-	glog.Infof("[%s] Saved log state: %s", lw.LogURL, lw.LogState)
+	glog.Infof("[%s] Saved log state: %s", lw.Name(), lw.LogState)
 	return nil
 }
 
@@ -720,14 +726,14 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 	for index <= last {
 		cycleTime = time.Now()
 
-		glog.Infof("[%s] Asking for %d entries", lw.LogURL, last-index+1)
+		glog.Infof("[%s] Asking for %d entries", lw.Name(), last-index+1)
 		// TODO(jms) Add an option to get entries from disk.
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
 				d := b.Duration()
-				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.LogURL, index, d, err)
+				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, d, err)
 
 				metrics.IncrCounter([]string{"LogWorker", "429 Too Many Requests"}, 1)
 				metrics.AddSample([]string{"LogWorker", "429 Too Many Requests", "Backoff"},
@@ -744,14 +750,14 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries"}, cycleTime)
 		b.Reset()
 
-		glog.Infof("[%s] Got %d entries", lw.LogURL, len(resp.Entries))
+		glog.Infof("[%s] Got %d entries", lw.Name(), len(resp.Entries))
 		for _, entry := range resp.Entries {
 			cycleTime = time.Now()
 
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				glog.Warningf("Erroneous certificate: log=%s index=%d err=%v",
-					lw.LogURL, index, err)
+					lw.Name(), index, err)
 
 				metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "error"}, 1)
 				index++
@@ -767,9 +773,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 			for {
 				select {
 				case sig := <-sigChan:
-					glog.Infof("[%s] Signal caught: %s", lw.LogURL, sig)
+					glog.Infof("[%s] Signal caught: %s", lw.Name(), sig)
 					return minTimestamp, maxTimestamp, nil
-				case entryChan <- CtLogEntry{logEntry, lw.LogURL}:
+				case entryChan <- CtLogEntry{logEntry, lw.LogData}:
 					metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
 					break entrySavedLoop // proceed
 				}
@@ -807,28 +813,32 @@ func main() {
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
-	logUrls := []url.URL{}
+	var fullCTLogList *[]types.CTLogMetadata
+	var ctLogList []types.CTLogMetadata
 
-	if ctconfig.LogUrlList != nil && len(*ctconfig.LogUrlList) > 5 {
-		for _, part := range strings.Split(*ctconfig.LogUrlList, ",") {
-			ctLogUrl, err := url.Parse(strings.TrimSpace(part))
-			if err != nil {
-				glog.Fatalf("unable to set Certificate Log: %s", err)
-			}
-			logUrls = append(logUrls, *ctLogUrl)
+	if *ctconfig.CTLogMetadata != "" {
+		fullCTLogList = new([]types.CTLogMetadata)
+		if err:=json.Unmarshal([]byte(*ctconfig.CTLogMetadata), fullCTLogList); err != nil {
+			glog.Fatalf("Unable to parse CTLogMetadata argument: %s", err)
 		}
 	}
 
-	if len(logUrls) > 0 {
+	// Filter |fullCTLogList| by enrollment
+	for i := range *fullCTLogList {
+		if (*fullCTLogList)[i].CRLiteEnrolled {
+			ctLogList = append(ctLogList, (*fullCTLogList)[i])
+		}
+	}
+
+	if len(ctLogList) > 0 {
 		syncEngine := NewLogSyncEngine(storageDB)
 
 		// Start a pool of threads to parse log entries and hand them to the database
 		syncEngine.StartDatabaseThreads()
 
 		// Start one thread per CT log to process the log entries
-		for _, ctLogUrl := range logUrls {
-			urlString := ctLogUrl.String()
-			glog.Infof("[%s] Starting download.", urlString)
+		for _, ctLog := range ctLogList {
+			glog.Infof("[%s] Starting download.", ctLog.URL)
 
 			syncEngine.DownloaderWaitGroup.Add(1)
 			go func() {
@@ -840,9 +850,9 @@ func main() {
 				defer close(sigChan)
 
 				for {
-					err := syncEngine.SyncLog(urlString)
+					err := syncEngine.SyncLog(&ctLog)
 					if err != nil {
-						glog.Errorf("[%s] Could not sync log: %s", urlString, err)
+						glog.Errorf("[%s] Could not sync log: %s", ctLog.URL, err)
 						return
 					}
 
@@ -852,7 +862,7 @@ func main() {
 
 					select {
 					case <-sigChan:
-						glog.Infof("[%s] Signal caught. Exiting.", urlString)
+						glog.Infof("[%s] Signal caught. Exiting.", ctLog.URL)
 						return
 					default:
 					}
@@ -923,8 +933,8 @@ func main() {
 	}
 
 	// Didn't include a mandatory action, so print usage and exit.
-	if ctconfig.LogUrlList != nil {
-		glog.Warningf("No log URLs found in %s.", *ctconfig.LogUrlList)
+	if *ctconfig.CTLogMetadata != "" {
+		glog.Warningf("No enrolled logs found in %s.", *ctconfig.CTLogMetadata)
 	} else {
 		glog.Warning("No log URLs provided.")
 	}
