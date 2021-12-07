@@ -12,6 +12,7 @@ import (
 	"crypto"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math/bits"
 	"math/rand"
 	"net/http"
@@ -38,7 +39,19 @@ import (
 )
 
 var (
-	ctconfig = config.NewCTConfig()
+	ctconfig   = config.NewCTConfig()
+	httpClient = http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   30 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConnsPerHost:   10,
+			DisableKeepAlives:     false,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 )
 
 func uint64Min(x, y uint64) uint64 {
@@ -431,21 +444,9 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorke
 		logObj.MMD = uint64(ctLogData.MMD)
 	}
 
-	ctLog, err := client.New(ctLogData.URL,
-		&http.Client{
-			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
-				TLSHandshakeTimeout:   30 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				MaxIdleConnsPerHost:   10,
-				DisableKeepAlives:     false,
-				MaxIdleConns:          100,
-				IdleConnTimeout:       90 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-			},
-		}, jsonclient.Options{
-			UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
-		})
+	ctLog, err := client.New(ctLogData.URL, &httpClient, jsonclient.Options{
+		UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
+	})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogData.URL, err)
 		return nil, err
@@ -810,6 +811,60 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 	return minTimestamp, maxTimestamp, nil
 }
 
+func updateCTLogsFromRemoteSettings(enrolledCTLogs *map[string]types.CTLogMetadata) error {
+	remoteSettingsURL, err := url.Parse(*ctconfig.RemoteSettingsURL)
+	if err != nil {
+		return err
+	}
+
+	if remoteSettingsURL.Scheme != "https" {
+		glog.Warning("Changing RemoteSettingsURL scheme to https")
+		remoteSettingsURL.Scheme = "https"
+	}
+
+	ctLogConfURL, _ := remoteSettingsURL.Parse(
+		"buckets/security-state/collections/ct-logs/records")
+
+	httpRsp, err := httpClient.Get(ctLogConfURL.String())
+	if err != nil {
+		return err
+	}
+
+	body, err := ioutil.ReadAll(httpRsp.Body)
+	httpRsp.Body.Close()
+	if err != nil {
+		return err
+	}
+
+	if httpRsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP Status %q", httpRsp.Status)
+	}
+
+	// The response from the remote settings server is
+	// { "data" : []CTLogMetadata }
+	var ctLogJSON map[string][]types.CTLogMetadata
+
+	if err := json.Unmarshal([]byte(body), &ctLogJSON); err != nil {
+		return err
+	}
+
+	_, exists := ctLogJSON["data"]
+	if !exists {
+		return fmt.Errorf("Malformed response from Remote Settings %s", *ctconfig.RemoteSettingsURL)
+	}
+
+	for _, ctLog := range ctLogJSON["data"] {
+		_, exists := (*enrolledCTLogs)[ctLog.LogID]
+		if exists && !ctLog.CRLiteEnrolled {
+			delete(*enrolledCTLogs, ctLog.LogID)
+		} else {
+			(*enrolledCTLogs)[ctLog.LogID] = ctLog
+		}
+	}
+
+	return nil
+}
+
 func main() {
 	ctconfig.Init()
 	ctx := context.Background()
@@ -824,31 +879,36 @@ func main() {
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
-	var fullCTLogList *[]types.CTLogMetadata
-	var ctLogList []types.CTLogMetadata
+	var enrolledLogs map[string]types.CTLogMetadata
 
 	if *ctconfig.CTLogMetadata != "" {
-		fullCTLogList = new([]types.CTLogMetadata)
-		if err:=json.Unmarshal([]byte(*ctconfig.CTLogMetadata), fullCTLogList); err != nil {
+		fullCTLogList := new([]types.CTLogMetadata)
+		if err := json.Unmarshal([]byte(*ctconfig.CTLogMetadata), fullCTLogList); err != nil {
 			glog.Fatalf("Unable to parse CTLogMetadata argument: %s", err)
 		}
-	}
 
-	// Filter |fullCTLogList| by enrollment
-	for i := range *fullCTLogList {
-		if (*fullCTLogList)[i].CRLiteEnrolled {
-			ctLogList = append(ctLogList, (*fullCTLogList)[i])
+		for _, ctLog := range *fullCTLogList {
+			if ctLog.CRLiteEnrolled {
+				enrolledLogs[ctLog.LogID] = ctLog
+			}
 		}
 	}
 
-	if len(ctLogList) > 0 {
+	if *ctconfig.RemoteSettingsURL != "" {
+		err := updateCTLogsFromRemoteSettings(&enrolledLogs)
+		if err != nil {
+			glog.Fatalf("Unable to get enrolled logs from Remote Settings: %s", err)
+		}
+	}
+
+	if len(enrolledLogs) > 0 {
 		syncEngine := NewLogSyncEngine(storageDB)
 
 		// Start a pool of threads to parse log entries and hand them to the database
 		syncEngine.StartDatabaseThreads()
 
 		// Start one thread per CT log to process the log entries
-		for _, ctLog := range ctLogList {
+		for _, ctLog := range enrolledLogs {
 			glog.Infof("[%s] Starting download.", ctLog.URL)
 
 			syncEngine.DownloaderWaitGroup.Add(1)
@@ -946,6 +1006,8 @@ func main() {
 	// Didn't include a mandatory action, so print usage and exit.
 	if *ctconfig.CTLogMetadata != "" {
 		glog.Warningf("No enrolled logs found in %s.", *ctconfig.CTLogMetadata)
+	} else if *ctconfig.RemoteSettingsURL != "" {
+		glog.Warningf("No enrolled logs found in Remote Settings (%s).", *ctconfig.RemoteSettingsURL)
 	} else {
 		glog.Warning("No log URLs provided.")
 	}
