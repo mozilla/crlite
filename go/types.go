@@ -8,6 +8,15 @@ import (
 	"github.com/mozilla/crlite/go/storage"
 )
 
+type CTLogMetadata struct {
+	CRLiteEnrolled bool    `json:"crlite_enrolled"`
+	Description    string  `json:"description"`
+	Key            string  `json:"key"`
+	LogID          string  `json:"logID"`
+	MMD            int     `json:"mmd"`
+	URL            string  `json:"url"`
+}
+
 type IssuerCrlMap map[string]map[string]bool
 
 func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
