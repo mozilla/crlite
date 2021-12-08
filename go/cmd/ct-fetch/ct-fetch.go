@@ -261,7 +261,6 @@ type LogSyncEngine struct {
 	DownloaderWaitGroup *sync.WaitGroup
 	database            storage.CertDatabase
 	entryChan           chan CtLogEntry
-	cancelTrigger       context.CancelFunc
 	lastUpdateTime      time.Time
 	lastUpdateMutex     *sync.RWMutex
 }
@@ -291,15 +290,11 @@ const (
 )
 
 func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
-	_, cancel := context.WithCancel(context.Background())
-	twg := new(sync.WaitGroup)
-
 	return &LogSyncEngine{
-		ThreadWaitGroup:     twg,
+		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
 		entryChan:           make(chan CtLogEntry, 1024*16),
-		cancelTrigger:       cancel,
 		lastUpdateTime:      time.Time{},
 		lastUpdateMutex:     &sync.RWMutex{},
 	}
@@ -435,7 +430,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	}
 }
 
-func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorker, error) {
+func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogData *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
 	logUrlObj, err := url.Parse(ctLogData.URL)
@@ -471,7 +466,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorke
 	}
 
 	glog.Infof("[%s] Fetching signed tree head... ", ctLogData.URL)
-	sth, fetchErr := ctLog.GetSTH(context.Background())
+	sth, fetchErr := ctLog.GetSTH(ctx)
 	if fetchErr == nil {
 		glog.Infof("[%s] %d total entries as of %s", ctLogData.URL, sth.TreeSize,
 			uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
@@ -522,22 +517,18 @@ func (ld *LogSyncEngine) NewLogWorker(ctLogData *types.CTLogMetadata) (*LogWorke
 	}, nil
 }
 
-func (lw *LogWorker) sleep() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+func (lw *LogWorker) sleep(ctx context.Context) {
 	// Sleep for ctconfig.PollingDelay seconds (+/- 10%).
 	duration := time.Duration((1 + 0.1*rand.NormFloat64()) * float64(*ctconfig.PollingDelay))
 	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.Name(), duration)
 	select {
-	case <-sigChan:
+	case <-ctx.Done():
 		glog.Infof("[%s] Signal caught. Exiting.", lw.Name())
 	case <-time.After(duration * time.Second):
 	}
-	signal.Stop(sigChan)
-	close(sigChan)
 }
 
-func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
+func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error {
 	var firstIndex, lastIndex uint64
 
 	switch lw.WorkOrder {
@@ -561,7 +552,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		lastIndex = lw.LogState.MinEntry - 1
 		glog.Infof("[%s] Running Backfill job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Sleep:
-		lw.sleep()
+		lw.sleep(ctx)
 		return nil
 	}
 
@@ -602,7 +593,7 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		// worker its job, so we can use oldSize = 3.
 		oldSize = 3
 	}
-	proof, err := lw.Client.GetSTHConsistency(context.Background(), oldSize, newSize)
+	proof, err := lw.Client.GetSTHConsistency(ctx, oldSize, newSize)
 	if err != nil {
 		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.Name(), err)
 		return err
@@ -657,8 +648,9 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 	}
 
 	// Download entries and verify checksums
+Loop:
 	for _, verifier := range verifiers {
-		minTimestamp, maxTimestamp, err := lw.downloadCTRangeToChannel(verifier, entryChan)
+		minTimestamp, maxTimestamp, err := lw.downloadCTRangeToChannel(ctx, verifier, entryChan)
 		if err != nil {
 			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %s.", lw.Name(), err)
 			return err
@@ -673,6 +665,11 @@ func (lw *LogWorker) Run(entryChan chan<- CtLogEntry) error {
 		if err != nil {
 			glog.Errorf("[%s] Failed to update log state: %s", lw.Name(), err)
 			return err
+		}
+		select {
+		case <-ctx.Done():
+			break Loop
+		default:
 		}
 	}
 
@@ -733,14 +730,7 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 	return nil
 }
 
-func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
-	ctx := context.Background()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-	defer close(sigChan)
-
+func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
 	var minTimestamp uint64
 	var maxTimestamp uint64
 	var cycleTime time.Time
@@ -799,16 +789,12 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 			// We might block while waiting for space in entryChan.
 			// If we catch a signal here the verification will fail and the subtree
 			// will not get merged.
-		entrySavedLoop:
-			for {
-				select {
-				case sig := <-sigChan:
-					glog.Infof("[%s] Signal caught: %s", lw.Name(), sig)
-					return minTimestamp, maxTimestamp, nil
-				case entryChan <- CtLogEntry{logEntry, lw.LogData}:
-					metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
-					break entrySavedLoop // proceed
-				}
+			select {
+			case <-ctx.Done():
+				glog.Infof("[%s] Cancelled", lw.Name())
+				return minTimestamp, maxTimestamp, nil
+			case entryChan <- CtLogEntry{logEntry, lw.LogData}:
+				metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
 			}
 
 			// Update the metadata that we will pass to mergeSubtree.
