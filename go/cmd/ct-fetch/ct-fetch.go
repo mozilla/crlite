@@ -81,19 +81,7 @@ func certIsFilteredOut(aCert *x509.Certificate) bool {
 		return true
 	}
 
-	skip := (len(*ctconfig.IssuerCNFilter) != 0)
-	for _, filter := range strings.Split(*ctconfig.IssuerCNFilter, ",") {
-		if strings.HasPrefix(aCert.Issuer.CommonName, filter) {
-			skip = false
-			break
-		}
-	}
-
-	if skip {
-		metrics.IncrCounter([]string{"certIsFilteredOut", "cn-filtered"}, 1)
-		glog.V(4).Infof("Skipping inserting cert issued by %s", aCert.Issuer.CommonName)
-	}
-	return skip
+	return false
 }
 
 func uint64ToTimestamp(timestamp uint64) *time.Time {
@@ -987,6 +975,8 @@ func (el *EnrolledLogs) UpdateFromRemoteSettings(ctx context.Context) {
 }
 
 func main() {
+	defer glog.Flush()
+
 	ctconfig.Init()
 
 	ctx := context.Background()
@@ -1007,11 +997,6 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig)
-	defer glog.Flush()
-
-	if ctconfig.IssuerCNFilter != nil && len(*ctconfig.IssuerCNFilter) > 0 {
-		glog.Infof("IssuerCNFilter is set, but unsupported")
-	}
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
