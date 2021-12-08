@@ -325,17 +325,37 @@ func (ld *LogSyncEngine) StartDatabaseThreads() {
 }
 
 // Blocking function, run from a thread
-func (ld *LogSyncEngine) SyncLog(logData *types.CTLogMetadata) error {
-	worker, err := ld.NewLogWorker(logData)
-	if err != nil {
-		return err
+func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs, logData types.CTLogMetadata) error {
+	ld.DownloaderWaitGroup.Add(1)
+	defer ld.DownloaderWaitGroup.Done()
+
+	for {
+		if !enrolledLogs.IsEnrolled(logData.LogID) {
+			return nil
+		}
+
+		worker, err := ld.NewLogWorker(ctx, &logData)
+		if err != nil {
+			return err
+		}
+
+		err = worker.Run(ctx, ld.entryChan)
+		if err != nil {
+			glog.Errorf("[%s] Could not sync log: %s", logData.URL, err)
+			return err
+		}
+
+		if !*ctconfig.RunForever {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			glog.Infof("[%s] Downloader exiting.", logData.URL)
+			return nil
+		default:
+		}
 	}
-
-	return worker.Run(ld.entryChan)
-}
-
-func (ld *LogSyncEngine) ApproximateRemainingEntries() int {
-	return len(ld.entryChan)
 }
 
 func (ld *LogSyncEngine) ApproximateMostRecentUpdateTimestamp() time.Time {
@@ -344,9 +364,19 @@ func (ld *LogSyncEngine) ApproximateMostRecentUpdateTimestamp() time.Time {
 	return ld.lastUpdateTime
 }
 
-func (ld *LogSyncEngine) Stop() {
+func (ld *LogSyncEngine) Wait() {
+	// Wait for the CT Log downloaders to finish. If we're configured
+	// to run forever, then this only happens if there are no enrolled logs,
+	// or if all downloaders have encountered an error, or if the main thread's
+	// cancel function has been called.
+	ld.DownloaderWaitGroup.Wait()
+
+	// No more log entries will be downloaded.
 	close(ld.entryChan)
-	ld.cancelTrigger()
+
+	// Finish handling |ld.entryChan|
+	glog.Infof("Waiting on database writes to complete: %d remaining", len(ld.entryChan))
+	ld.ThreadWaitGroup.Wait()
 }
 
 func (ld *LogSyncEngine) insertCTWorker() {
@@ -811,7 +841,67 @@ func (lw *LogWorker) downloadCTRangeToChannel(verifier *CtLogSubtreeVerifier, en
 	return minTimestamp, maxTimestamp, nil
 }
 
-func updateCTLogsFromRemoteSettings(enrolledCTLogs *map[string]types.CTLogMetadata) error {
+type EnrolledLogs struct {
+	wg       *sync.WaitGroup
+	mutex    *sync.RWMutex
+	metadata map[string]types.CTLogMetadata
+	NewChan  chan types.CTLogMetadata
+}
+
+func NewEnrolledLogs() *EnrolledLogs {
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+
+	return &EnrolledLogs{
+		wg:       wg,
+		mutex:    new(sync.RWMutex),
+		metadata: make(map[string]types.CTLogMetadata),
+		NewChan:  make(chan types.CTLogMetadata),
+	}
+}
+
+func (el *EnrolledLogs) Finalize() {
+	el.wg.Done()
+	close(el.NewChan)
+}
+
+func (el *EnrolledLogs) Wait() {
+	el.wg.Wait()
+}
+
+func (el *EnrolledLogs) Count() int {
+	el.mutex.RLock()
+	defer el.mutex.RUnlock()
+
+	return len(el.metadata)
+}
+func (el *EnrolledLogs) Enroll(ctLog types.CTLogMetadata) {
+	el.mutex.Lock()
+	defer el.mutex.Unlock()
+
+	_, prs := el.metadata[ctLog.LogID]
+	if !prs {
+		el.metadata[ctLog.LogID] = ctLog
+		el.NewChan <- ctLog
+	}
+}
+
+func (el *EnrolledLogs) Unenroll(ctLog types.CTLogMetadata) {
+	el.mutex.Lock()
+	defer el.mutex.Unlock()
+
+	delete(el.metadata, ctLog.LogID)
+}
+
+func (el *EnrolledLogs) IsEnrolled(logID string) bool {
+	el.mutex.RLock()
+	defer el.mutex.RUnlock()
+
+	_, prs := el.metadata[logID]
+	return prs
+}
+
+func (el *EnrolledLogs) updateFromRemoteSettingsOnce() error {
 	remoteSettingsURL, err := url.Parse(*ctconfig.RemoteSettingsURL)
 	if err != nil {
 		return err
@@ -853,21 +943,67 @@ func updateCTLogsFromRemoteSettings(enrolledCTLogs *map[string]types.CTLogMetada
 		return fmt.Errorf("Malformed response from Remote Settings %s", *ctconfig.RemoteSettingsURL)
 	}
 
+	el.mutex.Lock()
+	defer el.mutex.Unlock()
 	for _, ctLog := range ctLogJSON["data"] {
-		_, exists := (*enrolledCTLogs)[ctLog.LogID]
-		if exists && !ctLog.CRLiteEnrolled {
-			delete(*enrolledCTLogs, ctLog.LogID)
+		_, prs := el.metadata[ctLog.LogID]
+		if prs {
+			if !ctLog.CRLiteEnrolled {
+				delete(el.metadata, ctLog.LogID)
+				glog.Infof("[%s] Unenrolled", ctLog.URL)
+			} else {
+				glog.Infof("[%s] Remains enrolled", ctLog.URL)
+			}
 		} else {
-			(*enrolledCTLogs)[ctLog.LogID] = ctLog
+			if ctLog.CRLiteEnrolled {
+				el.metadata[ctLog.LogID] = ctLog
+				el.NewChan <- ctLog
+				glog.Infof("[%s] Enrolled with LogID %s", ctLog.URL, ctLog.LogID)
+			}
 		}
 	}
 
 	return nil
 }
 
+func (el *EnrolledLogs) UpdateFromRemoteSettings(ctx context.Context) {
+	defer el.Finalize()
+	for {
+		glog.Infof("Updating Enrolled CT log list from remote settings.")
+		err := el.updateFromRemoteSettingsOnce()
+		if err != nil {
+			glog.Errorf("Unable to get enrolled logs from Remote Settings: %s", err)
+		}
+		if !*ctconfig.RunForever {
+			return
+		}
+		glog.Infof("There are %d logs enrolled. Polling again in %d seconds.", el.Count(), *ctconfig.RemoteSettingsUpdateInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(*ctconfig.RemoteSettingsUpdateInterval) * time.Second):
+		}
+	}
+}
+
 func main() {
 	ctconfig.Init()
+
 	ctx := context.Background()
+	ctx, cancelMain := context.WithCancel(ctx)
+
+	// Try to handle SIGINT and SIGTERM gracefully
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer close(sigChan)
+	go func() {
+		sig := <-sigChan
+		glog.Infof("Signal caught: %s..", sig)
+		cancelMain()
+		signal.Stop(sigChan) // Restore default behavior
+	}()
+
+	// Seed random for clock jitter
 	rand.Seed(time.Now().UnixNano())
 
 	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig)
@@ -879,138 +1015,100 @@ func main() {
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
-	var enrolledLogs map[string]types.CTLogMetadata
+	enrolledLogs := NewEnrolledLogs()
 
+	syncEngine := NewLogSyncEngine(storageDB)
+
+	// Start a pool of threads to parse and store log entries
+	syncEngine.StartDatabaseThreads()
+
+	// Sync with logs as they are enrolled
+	go func() {
+		for ctLog := range enrolledLogs.NewChan {
+			glog.Infof("[%s] Starting download.", ctLog.URL)
+			go syncEngine.SyncLog(ctx, enrolledLogs, ctLog)
+		}
+	}()
+
+	// Enroll logs from local settings
 	if *ctconfig.CTLogMetadata != "" {
-		fullCTLogList := new([]types.CTLogMetadata)
-		if err := json.Unmarshal([]byte(*ctconfig.CTLogMetadata), fullCTLogList); err != nil {
+		localCTLogList := new([]types.CTLogMetadata)
+		if err := json.Unmarshal([]byte(*ctconfig.CTLogMetadata), localCTLogList); err != nil {
 			glog.Fatalf("Unable to parse CTLogMetadata argument: %s", err)
 		}
 
-		for _, ctLog := range *fullCTLogList {
+		for _, ctLog := range *localCTLogList {
 			if ctLog.CRLiteEnrolled {
-				enrolledLogs[ctLog.LogID] = ctLog
+				enrolledLogs.Enroll(ctLog)
 			}
 		}
 	}
 
+	if enrolledLogs.Count() == 0 && *ctconfig.RemoteSettingsURL == "" {
+		// Didn't include a mandatory action, so print usage and exit.
+		if *ctconfig.CTLogMetadata != "" {
+			glog.Warningf("No enrolled logs found in %s.", *ctconfig.CTLogMetadata)
+		}
+		ctconfig.Usage()
+		os.Exit(2)
+	}
+
+	// If we're configured with a Remote Settings URL, we'll periodically look for
+	// newly enrolled logs in Remote Settings. Otherwise we have all of the logs already.
 	if *ctconfig.RemoteSettingsURL != "" {
-		err := updateCTLogsFromRemoteSettings(&enrolledLogs)
-		if err != nil {
-			glog.Fatalf("Unable to get enrolled logs from Remote Settings: %s", err)
-		}
-	}
-
-	if len(enrolledLogs) > 0 {
-		syncEngine := NewLogSyncEngine(storageDB)
-
-		// Start a pool of threads to parse log entries and hand them to the database
-		syncEngine.StartDatabaseThreads()
-
-		// Start one thread per CT log to process the log entries
-		for _, ctLog := range enrolledLogs {
-			glog.Infof("[%s] Starting download.", ctLog.URL)
-
-			syncEngine.DownloaderWaitGroup.Add(1)
-			go func() {
-				defer syncEngine.DownloaderWaitGroup.Done()
-
-				sigChan := make(chan os.Signal, 1)
-				signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-				defer signal.Stop(sigChan)
-				defer close(sigChan)
-
-				for {
-					err := syncEngine.SyncLog(&ctLog)
-					if err != nil {
-						glog.Errorf("[%s] Could not sync log: %s", ctLog.URL, err)
-						return
-					}
-
-					if !*ctconfig.RunForever {
-						return
-					}
-
-					select {
-					case <-sigChan:
-						glog.Infof("[%s] Signal caught. Exiting.", ctLog.URL)
-						return
-					default:
-					}
-				}
-			}()
-		}
-
-		healthHandler := http.NewServeMux()
-		healthHandler.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-			approxUpdateTimestamp := syncEngine.ApproximateMostRecentUpdateTimestamp()
-
-			if approxUpdateTimestamp.IsZero() {
-				w.Header().Add("Retry-After", "30")
-				w.WriteHeader(503)
-				_, err := w.Write([]byte("error: no health updates yet, Retry-After 30 seconds"))
-				if err != nil {
-					glog.Warningf("Couldn't return too early health status: %+v", err)
-				}
-				return
-			}
-
-			duration := time.Since(approxUpdateTimestamp)
-			evaluationTime := 2 * time.Duration(*ctconfig.PollingDelay)
-			if duration > evaluationTime {
-				w.WriteHeader(500)
-				_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelay (%v)", duration, evaluationTime)))
-				if err != nil {
-					glog.Warningf("Couldn't return poor health status: %+v", err)
-				}
-				return
-			}
-
-			w.WriteHeader(200)
-			_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelay (%v)", duration, evaluationTime)))
-			if err != nil {
-				glog.Warningf("Couldn't return ok health status: %+v", err)
-			}
-		})
-
-		healthServer := &http.Server{
-			Handler: healthHandler,
-			Addr:    *ctconfig.HealthAddr,
-		}
-		go func() {
-			err := healthServer.ListenAndServe()
-			if err != nil {
-				glog.Infof("HTTP server result: %v", err)
-			}
-		}()
-
-		syncEngine.DownloaderWaitGroup.Wait() // Wait for downloaders to stop
-		go func() {
-			for {
-				glog.Infof("Waiting on database writes to complete: %d remaining",
-					syncEngine.ApproximateRemainingEntries())
-				time.Sleep(time.Second)
-			}
-		}()
-		syncEngine.Stop()                 // Stop workers
-		syncEngine.ThreadWaitGroup.Wait() // Wait for workers to stop
-
-		if err := healthServer.Shutdown(ctx); err != nil {
-			glog.Infof("HTTP server shutdown error: %v", err)
-		}
-		glog.Flush()
-
-		os.Exit(0)
-	}
-
-	// Didn't include a mandatory action, so print usage and exit.
-	if *ctconfig.CTLogMetadata != "" {
-		glog.Warningf("No enrolled logs found in %s.", *ctconfig.CTLogMetadata)
-	} else if *ctconfig.RemoteSettingsURL != "" {
-		glog.Warningf("No enrolled logs found in Remote Settings (%s).", *ctconfig.RemoteSettingsURL)
+		go enrolledLogs.UpdateFromRemoteSettings(ctx)
 	} else {
-		glog.Warning("No log URLs provided.")
+		enrolledLogs.Finalize()
 	}
-	ctconfig.Usage()
-	os.Exit(2)
+
+	healthHandler := http.NewServeMux()
+	healthHandler.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		approxUpdateTimestamp := syncEngine.ApproximateMostRecentUpdateTimestamp()
+
+		if approxUpdateTimestamp.IsZero() {
+			w.Header().Add("Retry-After", "30")
+			w.WriteHeader(503)
+			_, err := w.Write([]byte("error: no health updates yet, Retry-After 30 seconds"))
+			if err != nil {
+				glog.Warningf("Couldn't return too early health status: %+v", err)
+			}
+			return
+		}
+
+		duration := time.Since(approxUpdateTimestamp)
+		evaluationTime := 2 * time.Duration(*ctconfig.PollingDelay)
+		if duration > evaluationTime {
+			w.WriteHeader(500)
+			_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelay (%v)", duration, evaluationTime)))
+			if err != nil {
+				glog.Warningf("Couldn't return poor health status: %+v", err)
+			}
+			return
+		}
+
+		w.WriteHeader(200)
+		_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelay (%v)", duration, evaluationTime)))
+		if err != nil {
+			glog.Warningf("Couldn't return ok health status: %+v", err)
+		}
+	})
+
+	healthServer := &http.Server{
+		Handler: healthHandler,
+		Addr:    *ctconfig.HealthAddr,
+	}
+	go healthServer.ListenAndServe()
+
+	// Wait until we've finalized enrollment.
+	enrolledLogs.Wait()
+
+	// Wait until all jobs are finished.
+	syncEngine.Wait()
+
+	if err := healthServer.Shutdown(ctx); err != nil {
+		glog.Infof("HTTP server shutdown error: %v", err)
+	}
+	glog.Flush()
+
+	os.Exit(0)
 }

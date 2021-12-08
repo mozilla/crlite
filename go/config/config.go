@@ -34,6 +34,7 @@ type CTConfig struct {
 	StatsDHost         *string
 	StatsDPort         *int
 	HealthAddr         *string
+	RemoteSettingsUpdateInterval *uint64
 }
 
 func confInt(p *int, section *ini.Section, key string, def int) {
@@ -139,6 +140,7 @@ func NewCTConfig() *CTConfig {
 		SavePeriod:         new(string),
 		StatsRefreshPeriod: new(string),
 		PollingDelay:       new(uint64),
+		RemoteSettingsUpdateInterval:       new(uint64),
 	}
 }
 
@@ -180,6 +182,7 @@ func (c *CTConfig) Init() {
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
 	confUint64(c.PollingDelay, section, "pollingDelay", 600)
+	confUint64(c.RemoteSettingsUpdateInterval, section, "remoteSettingsUpdateInterval", 60)
 	confString(c.SavePeriod, section, "savePeriod", "15m")
 	confString(c.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(c.CertPath, section, "certPath", "")
