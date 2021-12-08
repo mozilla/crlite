@@ -25,7 +25,6 @@ type CTConfig struct {
 	BatchSize          *uint64
 	NumThreads         *int
 	RunForever         *bool
-	IssuerCNFilter     *string
 	LogExpiredEntries  *bool
 	SavePeriod         *string
 	PollingDelay       *uint64
@@ -129,7 +128,6 @@ func NewCTConfig() *CTConfig {
 		NumThreads:         new(int),
 		LogExpiredEntries:  new(bool),
 		RunForever:         new(bool),
-		IssuerCNFilter:     new(string),
 		CertPath:           new(string),
 		GoogleProjectId:    new(string),
 		StatsDHost:         new(string),
@@ -184,7 +182,6 @@ func (c *CTConfig) Init() {
 	confUint64(c.PollingDelay, section, "pollingDelay", 600)
 	confUint64(c.RemoteSettingsUpdateInterval, section, "remoteSettingsUpdateInterval", 60)
 	confString(c.SavePeriod, section, "savePeriod", "15m")
-	confString(c.IssuerCNFilter, section, "issuerCNFilter", "")
 	confString(c.CertPath, section, "certPath", "")
 	confString(c.GoogleProjectId, section, "googleProjectId", "")
 	confString(c.RedisHost, section, "redisHost", "")
@@ -216,7 +213,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("remoteSettingsURL = The base url for remote settings requests")
 	fmt.Println("ctLogMetadata = A string containing a JSON array of CTLogMetadata objects, for debugging")
 	fmt.Println("googleProjectId = Google Cloud Platform Project ID, used for stackdriver logging")
-	fmt.Println("issuerCNFilter = Prefixes to match for CNs for permitted issuers, comma delimited")
 	fmt.Println("runForever = Run forever, pausing `pollingDelay` seconds between runs")
 	fmt.Println("pollingDelay= Wait time in seconds between polls. Jitter will be added.")
 	fmt.Println("logExpiredEntries = Add expired entries to the database")
