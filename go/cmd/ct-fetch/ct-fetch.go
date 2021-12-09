@@ -145,11 +145,19 @@ func (v *CtLogSubtreeVerifier) Consume(leaf []byte) {
 	v.hashStack = append(v.hashStack, rfc6962LeafHash(leaf))
 	v.numConsumed += 1
 
-	// Iteratively pop a pair of siblings off the stack and replace them
-	// by H(1 || Left || Right). The number of times we do this is equal
-	// to the height of the largest complete subtree that contains the leaf
-	// that we just consumed.
-	iter := bits.TrailingZeros64(v.numConsumed)
+	// Now we'll iteratively pop pairs of siblings off the stack and
+	// replace them by their parent hash.
+	var iter int
+	if v.numConsumed >= v.Subtree.Size() {
+		// If we've consumed the whole subtree (or too many leaves!) then
+		// we'll iterate until there's only one element on the stack.
+		iter = len(v.hashStack) - 1
+	} else {
+		// Otherwise, there is a largest complete (i.e. power-of-two sized)
+		// subtree that contains the leaf that we just consumed. We'll iterate
+		// until the root of that subtree is on top of the stack.
+		iter = bits.TrailingZeros64(v.numConsumed)
+	}
 	for iter > 0 {
 		n := len(v.hashStack) - 1
 		L := v.hashStack[n-1]
@@ -166,14 +174,6 @@ func (v *CtLogSubtreeVerifier) CheckClaim() error {
 	}
 	if v.numConsumed != v.Subtree.Size() {
 		return fmt.Errorf("CtLogSubtreeVerifier: Consumed %d leaves but needed %d.", v.numConsumed, v.Subtree.Size())
-	}
-	// Finish computing the Merkle tree head.
-	for len(v.hashStack) > 1 {
-		n := len(v.hashStack) - 1
-		L := v.hashStack[n-1]
-		R := v.hashStack[n]
-		v.hashStack = v.hashStack[:n-1]
-		v.hashStack = append(v.hashStack, rfc6962PairHash(L, R))
 	}
 	if bytes.Compare(v.Subtree.Root, v.hashStack[0]) != 0 {
 		return fmt.Errorf("CtLogSubtreeVerifier: Verification failed.")
