@@ -16,23 +16,23 @@ import (
 )
 
 type CTConfig struct {
-	RemoteSettingsURL  *string
-	CTLogMetadata      *string
-	CertPath           *string
-	GoogleProjectId    *string
-	RedisHost          *string
-	RedisTimeout       *string
-	BatchSize          *uint64
-	NumThreads         *int
-	RunForever         *bool
-	LogExpiredEntries  *bool
-	SavePeriod         *string
-	PollingDelay       *uint64
-	StatsRefreshPeriod *string
-	Config             *string
-	StatsDHost         *string
-	StatsDPort         *int
-	HealthAddr         *string
+	RemoteSettingsURL            *string
+	CTLogMetadata                *string
+	CertPath                     *string
+	GoogleProjectId              *string
+	RedisHost                    *string
+	RedisTimeout                 *string
+	BatchSize                    *uint64
+	NumThreads                   *int
+	RunForever                   *bool
+	LogExpiredEntries            *bool
+	SavePeriod                   *string
+	PollingDelay                 *uint64
+	StatsRefreshPeriod           *string
+	Config                       *string
+	StatsDHost                   *string
+	StatsDPort                   *int
+	HealthAddr                   *string
 	RemoteSettingsUpdateInterval *uint64
 }
 
@@ -122,23 +122,23 @@ func confString(p *string, section *ini.Section, key string, def string) {
 
 func NewCTConfig() *CTConfig {
 	return &CTConfig{
-		BatchSize:          new(uint64),
-		RemoteSettingsURL:  new(string),
-		CTLogMetadata:      new(string),
-		NumThreads:         new(int),
-		LogExpiredEntries:  new(bool),
-		RunForever:         new(bool),
-		CertPath:           new(string),
-		GoogleProjectId:    new(string),
-		StatsDHost:         new(string),
-		StatsDPort:         new(int),
-		HealthAddr:         new(string),
-		RedisHost:          new(string),
-		RedisTimeout:       new(string),
-		SavePeriod:         new(string),
-		StatsRefreshPeriod: new(string),
-		PollingDelay:       new(uint64),
-		RemoteSettingsUpdateInterval:       new(uint64),
+		BatchSize:                    new(uint64),
+		RemoteSettingsURL:            new(string),
+		CTLogMetadata:                new(string),
+		NumThreads:                   new(int),
+		LogExpiredEntries:            new(bool),
+		RunForever:                   new(bool),
+		CertPath:                     new(string),
+		GoogleProjectId:              new(string),
+		StatsDHost:                   new(string),
+		StatsDPort:                   new(int),
+		HealthAddr:                   new(string),
+		RedisHost:                    new(string),
+		RedisTimeout:                 new(string),
+		SavePeriod:                   new(string),
+		StatsRefreshPeriod:           new(string),
+		PollingDelay:                 new(uint64),
+		RemoteSettingsUpdateInterval: new(uint64),
 	}
 }
 
@@ -180,7 +180,7 @@ func (c *CTConfig) Init() {
 	confBool(c.LogExpiredEntries, section, "logExpiredEntries", false)
 	confBool(c.RunForever, section, "runForever", false)
 	confUint64(c.PollingDelay, section, "pollingDelay", 600)
-	confUint64(c.RemoteSettingsUpdateInterval, section, "remoteSettingsUpdateInterval", 60)
+	confUint64(c.RemoteSettingsUpdateInterval, section, "remoteSettingsUpdateInterval", 3600)
 	confString(c.SavePeriod, section, "savePeriod", "15m")
 	confString(c.CertPath, section, "certPath", "")
 	confString(c.GoogleProjectId, section, "googleProjectId", "")
