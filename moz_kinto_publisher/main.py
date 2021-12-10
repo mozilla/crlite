@@ -559,10 +559,10 @@ def publish_intermediates(*, args, rw_client):
         try:
             rw_client.delete_record(
                 collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-                id=record["id"],
+                id=record.kinto_id,
             )
         except KintoException as ke:
-            log.error(f"Couldn't delete record id {record['id']}: {ke}")
+            log.error(f"Couldn't delete record id {record.kinto_id}: {ke}")
 
     # New records
     for unique_id in to_upload:
