@@ -161,7 +161,7 @@ class PublisherClient(Client):
             raise KintoException("Malformed response from Kinto")
 
         if status != "work-in-progress":
-            log.info("Collection is not marked for review. Skipping.")
+            log.info(f"Collection {collection} is unchanged. Does not need review.")
             return
 
         try:
