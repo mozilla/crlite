@@ -145,6 +145,33 @@ class PublisherClient(Client):
                 + f"{response.content.decode('utf-8')}"
             )
 
+    def request_review_of_collection(self, *, collection=None):
+        try:
+            resp = self.get_collection(id=collection)
+        except KintoException as e:
+            log.error("Couldn't determine {collection} review status")
+            raise e
+
+        original = resp.get("data")
+        if original is None:
+            raise KintoException("Malformed response from Kinto")
+
+        status = original.get("status")
+        if status is None:
+            raise KintoException("Malformed response from Kinto")
+
+        if status != "work-in-progress":
+            log.info("Collection is not marked for review. Skipping.")
+            return
+
+        try:
+            resp = self.patch_collection(
+                original=original, changes=BasicPatch({"status": "to-review"})
+            )
+        except KintoException as e:
+            log.error("Couldn't request review of {collection}")
+            raise e
+
 
 class AttachedPem:
     def __init__(self, **kwargs):
@@ -621,6 +648,10 @@ def publish_intermediates(*, args, rw_client):
         if ver_int.crlite_enrolled and unique_id not in local_intermediates:
             raise KintoException(f"Failed to unenroll {unique_id}")
 
+    rw_client.request_review_of_collection(
+        collection=settings.KINTO_INTERMEDIATES_COLLECTION
+    )
+
 
 def clear_crlite_filters(*, rw_client, noop):
     if noop:
@@ -955,7 +986,7 @@ def publish_crlite(*, args, rw_client):
     log.info(f"New filter size: {full_filter_size} bytes")
 
     if "clear_all" in tasks or total_stash_size > full_filter_size:
-        log.info("Uploading a full filter based on {final_run_id}.")
+        log.info(f"Uploading a full filter based on {final_run_id}.")
 
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
         clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
@@ -995,6 +1026,8 @@ def publish_crlite(*, args, rw_client):
                 timestamp=published_run_db.get_run_timestamp(run_id),
                 noop=args.noop,
             )
+
+    rw_client.request_review_of_collection(collection=settings.KINTO_CRLITE_COLLECTION)
 
 
 def publish_ctlogs(*, args, rw_client):
@@ -1130,6 +1163,8 @@ def publish_ctlogs(*, args, rw_client):
             )
         except KintoException as ke:
             log.error(f"Update failed, {ke}")
+
+    rw_client.request_review_of_collection(collection=settings.KINTO_CTLOGS_COLLECTION)
 
 
 def main():
