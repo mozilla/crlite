@@ -1029,7 +1029,10 @@ def publish_crlite(*, args, rw_client):
                 noop=args.noop,
             )
 
-    rw_client.request_review_of_collection(collection=settings.KINTO_CRLITE_COLLECTION)
+    if not args.noop:
+        rw_client.request_review_of_collection(
+            collection=settings.KINTO_CRLITE_COLLECTION
+        )
 
 
 def publish_ctlogs(*, args, rw_client):
@@ -1166,7 +1169,10 @@ def publish_ctlogs(*, args, rw_client):
         except KintoException as ke:
             log.error(f"Update failed, {ke}")
 
-    rw_client.request_review_of_collection(collection=settings.KINTO_CTLOGS_COLLECTION)
+    if not args.noop:
+        rw_client.request_review_of_collection(
+            collection=settings.KINTO_CTLOGS_COLLECTION
+        )
 
 
 def main():
