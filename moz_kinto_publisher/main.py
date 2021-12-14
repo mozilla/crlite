@@ -542,15 +542,18 @@ def publish_intermediates(*, args, rw_client):
             log.error(f"Couldn't unenroll record id {record}: {ke}")
 
     # Delete any remote records that had parsing errors
-    for record in remote_error_records:
-        log.info(f"Deleting remote record with parsing error: {record}")
+    # (note these "records" are just dictionaries)
+    for raw_record in remote_error_records:
+        log.info(f"Deleting remote record with parsing error: {raw_record}")
         try:
             rw_client.delete_record(
                 collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-                id=record["id"],
+                id=raw_record["id"],
             )
         except KintoException as ke:
-            log.error(f"Couldn't delete record id {record['id']}: {ke}")
+            log.error(f"Couldn't delete record id {raw_record['id']}: {ke}")
+        except KeyError:  # raw_record doesn't have "id"
+            log.error(f"Couldn't delete record: {raw_record}")
 
     # Delete any expired remote records
     for unique_id in remote_expired:
@@ -679,7 +682,7 @@ def publish_crlite_record(
         )
     except KintoException as ke:
         log.error(
-            f"Failed to upload attachment. Removing stale MLBF record {recordid}: {ke}"
+            f"Failed to upload attachment. Removing stale CRLite record {recordid}: {ke}"
         )
         rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION,
