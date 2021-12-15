@@ -877,6 +877,7 @@ def crlite_determine_publish(*, existing_records, run_db):
 
     # If there are no existing records, publish a full filter.
     if not existing_records:
+        log.info("No existing records")
         return default
 
     # If the existing records are bad, publish a full filter.
@@ -886,16 +887,26 @@ def crlite_determine_publish(*, existing_records, run_db):
         log.error(f"Failed to verify existing record consistency: {se}")
         return default
 
-    # Get a list of run IDs that are newer than any existing record.
-    # These are candidates for inclusion in an incremental update.
-
     # A run ID is a "YYYYMMDD" date and an index, e.g. "20210101-3".
     # The record["attachment"]["filename"] field of an existing record is
     # in the format "<run id>-filter" or "<run id>-filter.stash".
+    record_run_ids = [
+        record["attachment"]["filename"].rsplit("-", 1)[0]
+        for record in existing_records
+    ]
+    record_run_dates = [id.split("-")[0] for id in record_run_ids]
+
+    # If it's been 10 days since a full filter, publish a full filter.
+    oldest_run_date = datetime.strptime(min(record_run_dates), "%Y%m%d")
+    if datetime.now() - oldest_run_date >= timedelta(days=10):
+        log.info("Published full filter is >= 10 days old")
+        return default
+
+    # Get a list of run IDs that are newer than any existing record.
+    # These are candidates for inclusion in an incremental update.
     old_run_ids = []
     new_run_ids = []
-    cut = existing_records[-1]
-    cut_date, cut_idx = [int(x) for x in cut["attachment"]["filename"].split("-")[:2]]
+    cut_date, cut_idx = [int(x) for x in record_run_ids[-1].split("-")]
     for run_id in run_db.run_identifiers:
         run_date, run_idx = [int(x) for x in run_id.split("-")]
         if run_date < cut_date or (run_date == cut_date and run_idx <= cut_idx):
@@ -904,15 +915,10 @@ def crlite_determine_publish(*, existing_records, run_db):
             new_run_ids.append(run_id)
 
     # If we don't have data from old runs, publish a full filter.
-    if not old_run_ids:
-        log.error("We do not have data to support existing records.")
-        return default
-
-    # If it's been 10 days since a full filter, publish a full filter.
-    min_run_id = min(run_id.split("-")[0] for run_id in old_run_ids)
-    min_date = datetime.strptime(min_run_id, "%Y%m%d")
-    if datetime.now() - min_date >= timedelta(days=10):
-        return default
+    for run_id in record_run_ids:
+        if run_id not in old_run_ids:
+            log.error("We do not have data to support existing records.")
+            return default
 
     # If the new runs fail a consistency check, publish a full filter.
     try:
