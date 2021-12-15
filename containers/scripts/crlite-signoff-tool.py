@@ -29,7 +29,7 @@ KINTO_CRLITE_COLLECTION = config("KINTO_CRLITE_COLLECTION", default="cert-revoca
 KINTO_INTERMEDIATES_COLLECTION = config(
     "KINTO_INTERMEDIATES_COLLECTION", default="intermediates"
 )
-KINTO_NOOP = config("KINTO_NOOP", default=False, cast=bool)
+KINTO_NOOP = config("KINTO_NOOP", default=False, cast=lambda x: bool(x))
 
 CRLITE_FRESHNESS_HOURS = config("CRLITE_FRESHNESS_HOURS", default="2")
 
