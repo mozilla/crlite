@@ -627,7 +627,9 @@ def publish_intermediates(*, args, rw_client):
             f"There are {len(verified_error_records)} broken intermediates. Re-run to fix."
         )
 
-    num_verified_enrolled = sum(1 for v in verified_intermediates if v.crlite_enrolled)
+    num_verified_enrolled = sum(
+        1 for v in verified_intermediates.values() if v.crlite_enrolled
+    )
     log.info(
         "{} intermediates locally, {} enrolled at Kinto of {} total.".format(
             len(local_intermediates), num_verified_enrolled, len(verified_intermediates)
