@@ -735,6 +735,11 @@ def publish_crlite_main_filter(
 
     coverage = []
     for ctlog in ctlogs:
+        if ctlog["LogID"] == "":
+            # This indicates the metadata for this log was produced by an
+            # old version of ct-fetch. It will get updated in a future run
+            # if the log is still enrolled.
+            continue
         coverage += [
             {
                 "logID": ctlog["LogID"],
