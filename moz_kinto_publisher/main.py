@@ -894,10 +894,12 @@ def crlite_determine_publish(*, existing_records, run_db):
         record["attachment"]["filename"].rsplit("-", 1)[0]
         for record in existing_records
     ]
-    record_run_dates = [id.split("-")[0] for id in record_run_ids]
+    record_run_dates = [
+        datetime.strptime(id.split("-")[0], "%Y%m%d") for id in record_run_ids
+    ]
 
     # If it's been 10 days since a full filter, publish a full filter.
-    oldest_run_date = datetime.strptime(min(record_run_dates), "%Y%m%d")
+    oldest_run_date = min(record_run_dates)
     if datetime.now() - oldest_run_date >= timedelta(days=10):
         log.info("Published full filter is >= 10 days old")
         return default
