@@ -2,7 +2,7 @@ import main
 import settings
 import unittest
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -19,6 +19,7 @@ def make_record(run_id, *, parent):
     identifier = f"{record_time}Z-{record_type}"
 
     random_id = hashlib.sha256(run_id.encode("utf-8")).hexdigest()
+    extension = "filter.stash" if parent else "filter"
 
     record = {
         "schema": 1,
@@ -26,7 +27,7 @@ def make_record(run_id, *, parent):
         "attachment": {
             "hash": "hash",
             "size": 0,
-            "filename": f"{run_id}",
+            "filename": f"{run_id}-{extension}",
             "location": "abc",
             "mimetype": "application/octet-stream",
         },
@@ -210,7 +211,7 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-2", parent=None),
             make_record("20491231-3", parent="20491231-2"),
         ]
-        db = MockRunDB(["20491231-3", "20500101-0"])
+        db = MockRunDB(["20491231-2", "20491231-3", "20500101-0"])
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
@@ -224,7 +225,16 @@ class TestPublishDecisions(unittest.TestCase):
             make_record("20491231-3", parent="20491231-2"),
         ]
         db = MockRunDB(
-            ["20491231-3", "20500101-0", "20500101-1", "20500101-2", "20500101-3"]
+            [
+                "20491231-0",
+                "20491231-1",
+                "20491231-2",
+                "20491231-3",
+                "20500101-0",
+                "20500101-1",
+                "20500101-2",
+                "20500101-3",
+            ]
         )
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
@@ -271,6 +281,53 @@ class TestPublishDecisions(unittest.TestCase):
                 "20491231-3",
             ]
         )
+        result = main.crlite_determine_publish(
+            existing_records=existing_records, run_db=db
+        )
+        self.assertEqual(result, {"upload": []})
+
+    def test_rundb_data_loss(self):
+        existing_records = [
+            make_record("20491231-0", parent=None),
+            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491231-2", parent="20491231-1"),
+        ]
+        db = MockRunDB(
+            [
+                "20491231-1",
+                "20491231-2",
+            ]
+        )
+        result = main.crlite_determine_publish(
+            existing_records=existing_records, run_db=db
+        )
+        self.assertEqual(result, {"clear_all": True, "upload": ["20491231-2"]})
+
+    def test_ten_day_old_full_filter(self):
+        ids = []
+        for i in [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]:
+            date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+            for j in [0, 1, 2, 3]:
+                ids += [f"{date}-{j}"]
+        existing_records = [make_record(ids[0], parent=None)]
+        for i in range(1, len(ids)):
+            existing_records += [make_record(ids[i], parent=ids[i - 1])]
+        db = MockRunDB(ids)
+        result = main.crlite_determine_publish(
+            existing_records=existing_records, run_db=db
+        )
+        self.assertEqual(result, {"clear_all": True, "upload": [ids[-1]]})
+
+    def test_nine_day_old_full_filter(self):
+        ids = []
+        for i in [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]:
+            date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+            for j in [0, 1, 2, 3]:
+                ids += [f"{date}-{j}"]
+        existing_records = [make_record(ids[0], parent=None)]
+        for i in range(1, len(ids)):
+            existing_records += [make_record(ids[i], parent=ids[i - 1])]
+        db = MockRunDB(ids)
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
