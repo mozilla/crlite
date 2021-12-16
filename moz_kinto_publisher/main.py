@@ -954,6 +954,7 @@ def publish_crlite(*, args, rw_client):
         published_run_db.await_most_recent_run(timeout=timedelta(minutes=5))
     except TimeoutException as te:
         log.warning(f"The most recent run is not ready to be published (waited {te}).")
+        return
 
     tasks = crlite_determine_publish(
         existing_records=existing_records, run_db=published_run_db
