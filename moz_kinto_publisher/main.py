@@ -733,6 +733,32 @@ def publish_crlite_main_filter(
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
     identifier = f"{record_time}Z-full"
 
+    # Each full filter has a `coverage` field which tells users which
+    # certificates ct-fetch has downloaded from each CT log.
+    #
+    # The ct-fetch process tells us which CT logs it is monitoring, and for each log
+    # it tells us
+    #   (1) the contiguous range of indices of Merkle tree leaves that it downloaded,
+    #   (2) the earliest timestamp it saw on those Merkle tree leaves, and
+    #   (3) the latest timestamp it saw on those Merkle tree leaves.
+    #
+    # Communicating (1) to users directly is no good---users don't see leaf
+    # indices. However (2) and (3) are useful, because users see timestamps in
+    # embedded SCTs.
+    #
+    # The timestamp in an embedded SCT is a promise from a log that it will
+    # assign an index in the next "maximum merge delay" (MMD) window. So if
+    #   timestamp(Cert A) + MMD <= timestamp(Cert B)
+    # then
+    #   index(Cert A) < index(Cert B).
+    #
+    # It follows that if t0 is the time from (2) and t1 is the time from (3),
+    # then a certificate has an index in (1) if
+    #   t0 + MMD <= timestamp(certificate) <= t1 - MMD
+    #
+    # Note that this is an "if" not an "only if". In some special cases we can
+    # extend the coverage beyond [t0 + MMD, t1 - MMD]. See below.
+    #
     coverage = []
     for ctlog in ctlogs:
         if ctlog["LogID"] == "":
@@ -740,11 +766,25 @@ def publish_crlite_main_filter(
             # old version of ct-fetch. It will get updated in a future run
             # if the log is still enrolled.
             continue
+
+        if ctlog["MinEntry"] == 0:
+            # MinTimestamp is guaranteed to be the smallest timestamp
+            # in the log.
+            minTimeCovered = ctlog["MinTimestamp"]
+        else:
+            minTimeCovered = ctlog["MinTimestamp"] + ctlog["MMD"]
+
+        maxTimeCovered = ctlog["MaxTimestamp"] - ctlog["MMD"]
+
+        if minTimeCovered >= maxTimeCovered:
+            # No certificates are unambiguously covered.
+            continue
+
         coverage += [
             {
                 "logID": ctlog["LogID"],
-                "minTimestamp": ctlog["MinTimestamp"],
-                "maxTimestamp": ctlog["MaxTimestamp"],
+                "minTimestamp": minTimeCovered,
+                "maxTimestamp": maxTimeCovered,
             }
         ]
 
