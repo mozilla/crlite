@@ -223,3 +223,7 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, err
 func (ec *MockRemoteCache) LoadAllLogStates() ([]types.CTLogState, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
+
+func (ec *MockRemoteCache) Migrate(logData *types.CTLogMetadata) error {
+	return nil
+}

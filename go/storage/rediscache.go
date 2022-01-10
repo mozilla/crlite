@@ -184,7 +184,51 @@ func shortUrlToLogKey(shortUrl string) string {
 	return fmt.Sprintf("log::%s", strings.TrimRight(shortUrl, "/"))
 }
 
-func (ec *RedisCache) StoreLogState(log *CertificateLog) error {
+func (ec *RedisCache) Migrate(logData *types.CTLogMetadata) error {
+	logUrlObj, err := url.Parse(logData.URL)
+	if err != nil {
+		return err
+	}
+
+	shortUrl := logUrlObj.Host + strings.TrimRight(logUrlObj.Path, "/")
+	newKey := shortUrlToLogKey(shortUrl)
+	_, err = ec.client.Get(newKey).Bytes()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	haveNew := err != redis.Nil
+
+	oldKey := newKey + "/"
+	oldData, err := ec.client.Get(oldKey).Bytes()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	haveOld := err != redis.Nil
+
+	// If we have both new and old data, then just delete old.
+	if haveOld && haveNew {
+		ec.client.Del(oldKey)
+		return nil
+	}
+
+	// If we have old data but not new, migrate.
+	if haveOld {
+		var log types.CTLogState
+		if err = json.Unmarshal(oldData, &log); err != nil {
+			return err
+		}
+		if err = ec.StoreLogState(&log); err != nil {
+			return err
+		}
+		ec.client.Del(oldKey)
+		return nil
+	}
+
+	// No data. Nothing to do.
+	return nil
+}
+
+func (ec *RedisCache) StoreLogState(log *types.CTLogState) error {
 	encoded, err := json.Marshal(log)
 	if err != nil {
 		return err
