@@ -4,8 +4,6 @@ import (
 	"encoding/base64"
 	"reflect"
 	"testing"
-
-	"github.com/mozilla/crlite/go/storage"
 )
 
 const (
@@ -42,17 +40,17 @@ func Test_DecodeCRL(t *testing.T) {
 		t.Errorf("Expected 220 entries, got %d.", len(filledList.RevokedCertificates))
 	}
 
-	expectedSerial := storage.NewSerialFromHex("0101ea518c68c0f00789e9cd92736c75")
-	actualSerial := storage.NewSerialFromBytes(filledList.RevokedCertificates[0].SerialNumber.Bytes)
+	expectedSerial := NewSerialFromHex("0101ea518c68c0f00789e9cd92736c75")
+	actualSerial := NewSerialFromBytes(filledList.RevokedCertificates[0].SerialNumber.Bytes)
 	if !reflect.DeepEqual(expectedSerial, actualSerial) {
 		t.Errorf("Expected %s, but got %s", expectedSerial, actualSerial)
 	}
 }
 
 func Test_SerialSet(t *testing.T) {
-	testSerials := []storage.Serial{
-		storage.NewSerialFromHex("BB"),
-		storage.NewSerialFromHex("AA"),
+	testSerials := []Serial{
+		NewSerialFromHex("BB"),
+		NewSerialFromHex("AA"),
 	}
 
 	set := NewSerialSet()

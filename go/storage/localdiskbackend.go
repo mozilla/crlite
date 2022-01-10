@@ -12,6 +12,8 @@ import (
 
 	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+
+	"github.com/mozilla/crlite/go"
 )
 
 const (
@@ -91,8 +93,8 @@ func (db *LocalDiskBackend) MarkDirty(id string) error {
 }
 
 func (db *LocalDiskBackend) ListExpirationDates(_ context.Context,
-	aNotBefore time.Time) ([]ExpDate, error) {
-	expDates := make([]ExpDate, 0)
+	aNotBefore time.Time) ([]types.ExpDate, error) {
+	expDates := make([]types.ExpDate, 0)
 
 	aNotBefore = time.Date(aNotBefore.Year(), aNotBefore.Month(), aNotBefore.Day(), 0, 0, 0, 0, time.UTC)
 
@@ -106,7 +108,7 @@ func (db *LocalDiskBackend) ListExpirationDates(_ context.Context,
 				return filepath.SkipDir
 			}
 
-			expDate, err := NewExpDate(info.Name())
+			expDate, err := types.NewExpDate(info.Name())
 			if err == nil && !expDate.IsExpiredAt(aNotBefore) {
 				expDates = append(expDates, expDate)
 				return filepath.SkipDir
@@ -119,8 +121,8 @@ func (db *LocalDiskBackend) ListExpirationDates(_ context.Context,
 }
 
 func (db *LocalDiskBackend) ListIssuersForExpirationDate(_ context.Context,
-	expDate ExpDate) ([]Issuer, error) {
-	issuers := make([]Issuer, 0)
+	expDate types.ExpDate) ([]types.Issuer, error) {
+	issuers := make([]types.Issuer, 0)
 
 	err := filepath.Walk(filepath.Join(db.rootPath, expDate.ID()), func(path string, info os.FileInfo,
 		err error) error {
@@ -130,7 +132,7 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(_ context.Context,
 		}
 		if strings.HasSuffix(info.Name(), kSuffixCertificates) {
 			id := strings.TrimSuffix(info.Name(), kSuffixCertificates)
-			issuers = append(issuers, NewIssuerFromString(id))
+			issuers = append(issuers, types.NewIssuerFromString(id))
 		}
 		return nil
 	})
@@ -139,10 +141,10 @@ func (db *LocalDiskBackend) ListIssuersForExpirationDate(_ context.Context,
 }
 
 func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Context,
-	expDate ExpDate, issuer Issuer) ([]Serial, error) {
+	expDate types.ExpDate, issuer types.Issuer) ([]types.Serial, error) {
 	defer metrics.MeasureSince([]string{"ListSerialsForExpirationDateAndIssuer"}, time.Now())
-	serials := make([]Serial, 0)
-	serialChan := make(chan UniqueCertIdentifier, 1*1024*1024)
+	serials := make([]types.Serial, 0)
+	serialChan := make(chan types.UniqueCertIdentifier, 1*1024*1024)
 	quitChan := make(chan struct{})
 
 	err := db.StreamSerialsForExpirationDateAndIssuer(ctx, expDate, issuer, quitChan, serialChan)
@@ -159,7 +161,7 @@ func (db *LocalDiskBackend) ListSerialsForExpirationDateAndIssuer(ctx context.Co
 }
 
 func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Context,
-	expDate ExpDate, issuer Issuer, _ <-chan struct{}, sChan chan<- UniqueCertIdentifier) error {
+	expDate types.ExpDate, issuer types.Issuer, _ <-chan struct{}, sChan chan<- types.UniqueCertIdentifier) error {
 
 	return filepath.Walk(filepath.Join(db.rootPath, expDate.ID(), issuer.ID()), func(path string,
 		info os.FileInfo, err error) error {
@@ -170,11 +172,11 @@ func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Co
 		if strings.HasSuffix(info.Name(), kSuffixCertificates) {
 			id := strings.TrimSuffix(info.Name(), kSuffixCertificates)
 			// TODO: read file, pull out serials -- this isn't right
-			serial, err := NewSerialFromIDString(id)
+			serial, err := types.NewSerialFromIDString(id)
 			if err != nil {
 				return err
 			}
-			sChan <- UniqueCertIdentifier{
+			sChan <- types.UniqueCertIdentifier{
 				SerialNum: serial,
 				Issuer:    issuer,
 				ExpDate:   expDate,
@@ -185,14 +187,14 @@ func (db *LocalDiskBackend) StreamSerialsForExpirationDateAndIssuer(_ context.Co
 	})
 }
 
-func (db *LocalDiskBackend) AllocateExpDateAndIssuer(_ context.Context, expDate ExpDate,
-	issuer Issuer) error {
+func (db *LocalDiskBackend) AllocateExpDateAndIssuer(_ context.Context, expDate types.ExpDate,
+	issuer types.Issuer) error {
 	path := filepath.Join(db.rootPath, expDate.ID(), issuer.ID())
 	return makeDirectoryIfNotExist(path)
 }
 
-func (db *LocalDiskBackend) StoreCertificatePEM(_ context.Context, serial Serial, expDate ExpDate,
-	issuer Issuer, b []byte) error {
+func (db *LocalDiskBackend) StoreCertificatePEM(_ context.Context, serial types.Serial, expDate types.ExpDate,
+	issuer types.Issuer, b []byte) error {
 	glog.Warningf("Need to store into " + kSuffixCertificates)
 	return fmt.Errorf("Unimplemented")
 }
@@ -208,8 +210,8 @@ func (db *LocalDiskBackend) StoreLogState(_ context.Context, log *CertificateLog
 	return db.store(path, encoded)
 }
 
-func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issuer Issuer,
-	serials []Serial) error {
+func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issuer types.Issuer,
+	serials []types.Serial) error {
 	path := filepath.Join(db.rootPath, issuer.ID())
 	if err := makeDirectoryIfNotExist(path); err != nil {
 		return err
@@ -235,8 +237,8 @@ func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issue
 	return nil
 }
 
-func (db *LocalDiskBackend) LoadCertificatePEM(_ context.Context, serial Serial, expDate ExpDate,
-	issuer Issuer) ([]byte, error) {
+func (db *LocalDiskBackend) LoadCertificatePEM(_ context.Context, serial types.Serial, expDate types.ExpDate,
+	issuer types.Issuer) ([]byte, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
 

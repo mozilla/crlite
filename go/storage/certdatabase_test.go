@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"reflect"
 	"testing"
+
+	"github.com/mozilla/crlite/go"
 )
 
 const (
@@ -67,15 +69,15 @@ func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase)
 	return mockBackend, mockCache, storageDB
 }
 
-func mkExp(s string) ExpDate {
-	d, err := NewExpDate(s)
+func mkExp(s string) types.ExpDate {
+	d, err := types.NewExpDate(s)
 	if err != nil {
 		panic(err)
 	}
 	return d
 }
 
-func expDatesAndStringsEqual(t *testing.T, expected []string, found ExpDateList) {
+func expDatesAndStringsEqual(t *testing.T, expected []string, found types.ExpDateList) {
 	if len(expected) != len(found) {
 		t.Errorf("Expected %s result %s", expected, found)
 	}
@@ -97,14 +99,14 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 		t.Errorf("Should have been empty with an empty DB: %v", l)
 	}
 
-	issuer := NewIssuerFromString("Honesty Issuer")
+	issuer := types.NewIssuerFromString("Honesty Issuer")
 
 	{
-		expDate, err := NewExpDate("2040-02-03-19")
+		expDate, err := types.NewExpDate("2040-02-03-19")
 		if err != nil {
 			t.Error(err)
 		}
-		serial := NewSerialFromHex("FEEDBEEF")
+		serial := types.NewSerialFromHex("FEEDBEEF")
 
 		kc := storageDB.GetKnownCertificates(expDate, issuer)
 		_, err = kc.WasUnknown(serial)
@@ -125,11 +127,11 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 	}
 
 	{
-		expDate, err := NewExpDate("2040-02-03")
+		expDate, err := types.NewExpDate("2040-02-03")
 		if err != nil {
 			t.Error(err)
 		}
-		serial := NewSerialFromHex("BEEF")
+		serial := types.NewSerialFromHex("BEEF")
 		kc := storageDB.GetKnownCertificates(expDate, issuer)
 		_, err = kc.WasUnknown(serial)
 		if err != nil {

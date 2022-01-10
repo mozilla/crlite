@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/mozilla/crlite/go"
 )
 
 type MockRemoteCache struct {
@@ -193,7 +194,7 @@ func (ec *MockRemoteCache) ListRemove(key string, value string) error {
 	return err
 }
 
-func (ec *MockRemoteCache) StoreLogState(log *CertificateLog) error {
+func (ec *MockRemoteCache) StoreLogState(log *types.CTLogState) error {
 	encoded, err := json.Marshal(log)
 	if err != nil {
 		return err
@@ -203,7 +204,7 @@ func (ec *MockRemoteCache) StoreLogState(log *CertificateLog) error {
 	return nil
 }
 
-func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
+func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, error) {
 	data, ok := ec.Data[shortUrl]
 	if !ok {
 		return nil, fmt.Errorf("Log state not found")
@@ -212,13 +213,13 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*CertificateLog, error
 		return nil, fmt.Errorf("Unexpected number of log states")
 	}
 
-	var log CertificateLog
+	var log types.CTLogState
 	if err := json.Unmarshal([]byte(data[0]), &log); err != nil {
 		return nil, err
 	}
 	return &log, nil
 }
 
-func (ec *MockRemoteCache) LoadAllLogStates() ([]CertificateLog, error) {
+func (ec *MockRemoteCache) LoadAllLogStates() ([]types.CTLogState, error) {
 	return nil, fmt.Errorf("Unimplemented")
 }
