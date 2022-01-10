@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 var (
@@ -57,7 +57,7 @@ func NewCrlAuditor(issuers *rootprogram.MozIssuers) *CrlAuditor {
 }
 
 func (auditor *CrlAuditor) getSubject(identifier downloader.DownloadIdentifier) string {
-	issuer, ok := identifier.(*storage.Issuer)
+	issuer, ok := identifier.(*types.Issuer)
 	if !ok {
 		return ""
 	}

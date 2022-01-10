@@ -70,7 +70,7 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 }
 
 func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup,
-	issuerChan <-chan storage.Issuer, resultChan chan<- types.IssuerCrlMap) {
+	issuerChan <-chan types.Issuer, resultChan chan<- types.IssuerCrlMap) {
 	defer wg.Done()
 
 	issuerCrls := make(types.IssuerCrlMap)
@@ -121,7 +121,7 @@ func (cv *CrlVerifier) IsValid(path string) error {
 	return err
 }
 
-func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl url.URL, issuer storage.Issuer) (string, error) {
+func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl url.URL, issuer types.Issuer) (string, error) {
 	err := os.MkdirAll(filepath.Join(*crlpath, issuer.ID()), permModeDir)
 	if err != nil {
 		glog.Warningf("Couldn't make directory: %s", err)
@@ -227,7 +227,7 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, shasum[:], err
 }
 
-func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
+func (ae *AggregateEngine) verifyCRL(aIssuer types.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
 	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
 	crl, _, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
@@ -259,15 +259,15 @@ func (ae *AggregateEngine) verifyCRL(aIssuer storage.Issuer, dlTracer *downloade
 	return crl, nil
 }
 
-func processCRL(aCRL *pkix.CertificateList) ([]storage.Serial, error) {
+func processCRL(aCRL *pkix.CertificateList) ([]types.Serial, error) {
 	revokedList, err := types.DecodeRawTBSCertList(aCRL.TBSCertList.Raw)
 	if err != nil {
-		return []storage.Serial{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
+		return []types.Serial{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
 	}
 
-	serials := make([]storage.Serial, 0, 1024*16)
+	serials := make([]types.Serial, 0, 1024*16)
 	for _, ent := range revokedList.RevokedCertificates {
-		serial := storage.NewSerialFromBytes(ent.SerialNumber.Bytes)
+		serial := types.NewSerialFromBytes(ent.SerialNumber.Bytes)
 		serials = append(serials, serial)
 	}
 
@@ -287,7 +287,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		}
 
 		serialCount := 0
-		serials := make([]storage.Serial, 0, 128*1024)
+		serials := make([]types.Serial, 0, 128*1024)
 
 		for _, crlUrlPath := range tuple.CrlUrlPaths {
 			select {
@@ -358,7 +358,7 @@ func (ae *AggregateEngine) identifyCrlsByIssuer(ctx context.Context) types.Issue
 		glog.Fatal(err)
 	}
 
-	issuerChan := make(chan storage.Issuer, len(issuerList))
+	issuerChan := make(chan types.Issuer, len(issuerList))
 
 	var count int64
 	for _, issuerObj := range issuerList {
@@ -431,7 +431,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 
 		if len(urls) > 0 {
 			crlChan <- types.IssuerCrlUrls{
-				Issuer: storage.NewIssuerFromString(issuer),
+				Issuer: types.NewIssuerFromString(issuer),
 				Urls:   urls,
 			}
 			count = count + 1

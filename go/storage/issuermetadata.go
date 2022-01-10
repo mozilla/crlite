@@ -8,20 +8,21 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/mozilla/crlite/go"
 )
 
 const kIssuers = "issuer"
 const kCrls = "crl"
 
 type IssuerMetadata struct {
-	issuer         Issuer
+	issuer         types.Issuer
 	cache          RemoteCache
 	mutex          *sync.RWMutex
 	knownCrlDPs    map[string]struct{}
 	knownIssuerDNs map[string]struct{}
 }
 
-func NewIssuerMetadata(aIssuer Issuer, aCache RemoteCache) *IssuerMetadata {
+func NewIssuerMetadata(aIssuer types.Issuer, aCache RemoteCache) *IssuerMetadata {
 	return &IssuerMetadata{
 		issuer:         aIssuer,
 		cache:          aCache,

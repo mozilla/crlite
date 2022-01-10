@@ -3,12 +3,15 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/armon/go-metrics"
 	"github.com/go-redis/redis"
 	"github.com/golang/glog"
+
+	"github.com/mozilla/crlite/go"
 )
 
 const EMPTY_QUEUE string = "redis: nil"
@@ -190,21 +193,21 @@ func (ec *RedisCache) StoreLogState(log *CertificateLog) error {
 	return ec.client.Set(shortUrlToLogKey(log.ShortURL), encoded, NO_EXPIRATION).Err()
 }
 
-func (ec *RedisCache) LoadLogState(shortUrl string) (*CertificateLog, error) {
+func (ec *RedisCache) LoadLogState(shortUrl string) (*types.CTLogState, error) {
 	data, err := ec.client.Get(shortUrlToLogKey(shortUrl)).Bytes()
 	if err != nil {
 		return nil, err
 	}
 
-	var log CertificateLog
+	var log types.CTLogState
 	if err = json.Unmarshal(data, &log); err != nil {
 		return nil, err
 	}
 	return &log, nil
 }
 
-func (ec *RedisCache) LoadAllLogStates() ([]CertificateLog, error) {
-	ctLogList := make([]CertificateLog, 0)
+func (ec *RedisCache) LoadAllLogStates() ([]types.CTLogState, error) {
+	ctLogList := make([]types.CTLogState, 0)
 	keyChan := make(chan string)
 	go func() {
 		err := ec.KeysToChan("log::*", keyChan)
@@ -219,7 +222,7 @@ func (ec *RedisCache) LoadAllLogStates() ([]CertificateLog, error) {
 			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
 		}
 
-		ctLogList = append(ctLogList, CertificateLog{})
+		ctLogList = append(ctLogList, types.CTLogState{})
 		if err := json.Unmarshal(data, &ctLogList[len(ctLogList)-1]); err != nil {
 			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
 		}

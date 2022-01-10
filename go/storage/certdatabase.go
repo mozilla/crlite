@@ -9,6 +9,8 @@ import (
 	"github.com/bluele/gcache"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
+
+	"github.com/mozilla/crlite/go"
 )
 
 type CertDatabase struct {
@@ -29,7 +31,7 @@ func NewCertDatabase(aExtCache RemoteCache) (CertDatabase, error) {
 	return db, nil
 }
 
-func (db *CertDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
+func (db *CertDatabase) GetIssuerMetadata(aIssuer types.Issuer) *IssuerMetadata {
 	db.metaMutex.Lock()
 	defer db.metaMutex.Unlock()
 
@@ -42,12 +44,12 @@ func (db *CertDatabase) GetIssuerMetadata(aIssuer Issuer) *IssuerMetadata {
 	return im
 }
 
-func (db *CertDatabase) GetCTLogsFromCache() ([]CertificateLog, error) {
+func (db *CertDatabase) GetCTLogsFromCache() ([]types.CTLogState, error) {
 	return db.extCache.LoadAllLogStates()
 }
 
-func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
-	issuerMap := make(map[string]IssuerDate)
+func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]types.IssuerDate, error) {
+	issuerMap := make(map[string]types.IssuerDate)
 	allChan := make(chan string)
 	go func() {
 		err := db.extCache.KeysToChan("serials::*", allChan)
@@ -59,11 +61,11 @@ func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
 	for entry := range allChan {
 		parts := strings.Split(entry, "::")
 		if len(parts) != 3 {
-			return []IssuerDate{}, fmt.Errorf("Unexpected key format: %s", entry)
+			return []types.IssuerDate{}, fmt.Errorf("Unexpected key format: %s", entry)
 		}
 
-		issuer := NewIssuerFromString(parts[2])
-		expDate, err := NewExpDate(parts[1])
+		issuer := types.NewIssuerFromString(parts[2])
+		expDate, err := types.NewExpDate(parts[1])
 		if err != nil {
 			glog.Warningf("Couldn't parse expiration date %s: %s", entry, err)
 			continue
@@ -71,9 +73,9 @@ func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
 
 		_, ok := issuerMap[issuer.ID()]
 		if !ok {
-			issuerMap[issuer.ID()] = IssuerDate{
+			issuerMap[issuer.ID()] = types.IssuerDate{
 				Issuer:   issuer,
-				ExpDates: make([]ExpDate, 0),
+				ExpDates: make([]types.ExpDate, 0),
 			}
 		}
 
@@ -82,18 +84,18 @@ func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]IssuerDate, error) {
 		issuerMap[issuer.ID()] = tmp
 	}
 
-	issuerList := make([]IssuerDate, 0, len(issuerMap))
+	issuerList := make([]types.IssuerDate, 0, len(issuerMap))
 	for _, v := range issuerMap {
 		issuerList = append(issuerList, v)
 	}
 	return issuerList, nil
 }
 
-func (db *CertDatabase) SaveLogState(aLogObj *CertificateLog) error {
+func (db *CertDatabase) SaveLogState(aLogObj *types.CTLogState) error {
 	return db.extCache.StoreLogState(aLogObj)
 }
 
-func (db *CertDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
+func (db *CertDatabase) GetLogState(aUrl *url.URL) (*types.CTLogState, error) {
 	shortUrl := fmt.Sprintf("%s%s", aUrl.Host, strings.TrimRight(aUrl.Path, "/"))
 
 	log, cacheErr := db.extCache.LoadLogState(shortUrl)
@@ -102,18 +104,18 @@ func (db *CertDatabase) GetLogState(aUrl *url.URL) (*CertificateLog, error) {
 	}
 
 	glog.Warningf("Allocating brand new log for %+v, cache err=%v", shortUrl, cacheErr)
-	return &CertificateLog{
+	return &types.CTLogState{
 		ShortURL: shortUrl,
 	}, nil
 }
 
 func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
 	aLogURL string, aEntryId int64) error {
-	expDate := NewExpDateFromTime(aCert.NotAfter)
-	issuer := NewIssuer(aIssuer)
+	expDate := types.NewExpDateFromTime(aCert.NotAfter)
+	issuer := types.NewIssuer(aIssuer)
 	knownCerts := db.GetKnownCertificates(expDate, issuer)
 
-	serialNum := NewSerial(aCert)
+	serialNum := types.NewSerial(aCert)
 
 	// WasUnknown stores the certificate if it was unknown.
 	certWasUnknown, err := knownCerts.WasUnknown(serialNum)
@@ -133,8 +135,8 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 	return nil
 }
 
-func (db *CertDatabase) GetKnownCertificates(aExpDate ExpDate,
-	aIssuer Issuer) *KnownCertificates {
+func (db *CertDatabase) GetKnownCertificates(aExpDate types.ExpDate,
+	aIssuer types.Issuer) *KnownCertificates {
 	var kc *KnownCertificates
 
 	id := aExpDate.ID() + aIssuer.ID()
