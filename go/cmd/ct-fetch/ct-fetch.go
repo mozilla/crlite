@@ -32,6 +32,7 @@ import (
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/jpillora/backoff"
+
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/engine"
@@ -271,7 +272,7 @@ type LogWorker struct {
 	Client    *client.LogClient
 	LogData   *types.CTLogMetadata
 	STH       *ct.SignedTreeHead
-	LogState  *storage.CertificateLog
+	LogState  *types.CTLogState
 	WorkOrder LogWorkerTask
 	JobSize   uint64
 }
@@ -399,7 +400,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 
 		if len(ep.LogEntry.Chain) < 1 {
 			glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-				ep.LogData.URL, precert, ep.LogEntry.Index, storage.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+				ep.LogData.URL, precert, ep.LogEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 			continue
 		}
 

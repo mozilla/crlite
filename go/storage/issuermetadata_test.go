@@ -11,10 +11,11 @@ import (
 	"time"
 
 	newx509 "github.com/google/certificate-transparency-go/x509"
+	"github.com/mozilla/crlite/go"
 )
 
 func Test_DuplicateCRLs(t *testing.T) {
-	meta := NewIssuerMetadata(NewIssuerFromString("issuer"), NewMockRemoteCache())
+	meta := NewIssuerMetadata(types.NewIssuerFromString("issuer"), NewMockRemoteCache())
 
 	if err := meta.addCRL("ldaps://ldap.crl"); err != nil {
 		t.Error(err)
@@ -59,7 +60,7 @@ func Test_DuplicateCRLs(t *testing.T) {
 	}
 }
 
-func makeCert(t *testing.T, issuerDN string, expDate string, serial Serial) *newx509.Certificate {
+func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial) *newx509.Certificate {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
@@ -100,9 +101,9 @@ func makeCert(t *testing.T, issuerDN string, expDate string, serial Serial) *new
 func Test_Accumulate(t *testing.T) {
 	issuerCN := "My First Issuer (tm)"
 	issuerDN := fmt.Sprintf("CN=%s", issuerCN)
-	firstCert := makeCert(t, issuerCN, "2001-01-01", NewSerialFromHex("00"))
+	firstCert := makeCert(t, issuerCN, "2001-01-01", types.NewSerialFromHex("00"))
 
-	issuerObj := NewIssuer(firstCert)
+	issuerObj := types.NewIssuer(firstCert)
 	meta := NewIssuerMetadata(issuerObj, NewMockRemoteCache())
 
 	err := meta.Accumulate(firstCert)
@@ -110,7 +111,7 @@ func Test_Accumulate(t *testing.T) {
 		t.Error(err)
 	}
 
-	nextCert := makeCert(t, issuerCN, "2001-01-01", NewSerialFromHex("01"))
+	nextCert := makeCert(t, issuerCN, "2001-01-01", types.NewSerialFromHex("01"))
 	err = meta.Accumulate(nextCert)
 	if err != nil {
 		t.Error(err)

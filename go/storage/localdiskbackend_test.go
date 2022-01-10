@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mozilla/crlite/go"
 )
 
 func makeLocalDiskHarness(t *testing.T) *LocalDiskTestHarness {
@@ -61,8 +63,8 @@ func Test_KnownCertificateList(t *testing.T) {
 	h := makeLocalDiskHarness(t)
 	defer h.cleanup()
 
-	issuer := NewIssuerFromString("issuerAKI")
-	serials := []Serial{NewSerialFromHex("01"), NewSerialFromHex("02"), NewSerialFromHex("03")}
+	issuer := types.NewIssuerFromString("issuerAKI")
+	serials := []types.Serial{types.NewSerialFromHex("01"), types.NewSerialFromHex("02"), types.NewSerialFromHex("03")}
 
 	err := h.db.StoreKnownCertificateList(context.TODO(), issuer, serials)
 	if err != nil {

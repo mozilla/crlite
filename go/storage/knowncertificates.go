@@ -5,18 +5,19 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
+	"github.com/mozilla/crlite/go"
 )
 
 const kSerials = "serials"
 
 type KnownCertificates struct {
-	expDate   ExpDate
-	issuer    Issuer
+	expDate   types.ExpDate
+	issuer    types.Issuer
 	cache     RemoteCache
 	expirySet bool
 }
 
-func NewKnownCertificates(aExpDate ExpDate, aIssuer Issuer, aCache RemoteCache) *KnownCertificates {
+func NewKnownCertificates(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *KnownCertificates {
 	return &KnownCertificates{
 		expDate:   aExpDate,
 		issuer:    aIssuer,
@@ -35,7 +36,7 @@ func (kc *KnownCertificates) serialId(params ...string) string {
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
-func (kc *KnownCertificates) WasUnknown(aSerial Serial) (bool, error) {
+func (kc *KnownCertificates) WasUnknown(aSerial types.Serial) (bool, error) {
 	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.BinaryString())
 	if err != nil {
 		return false, err
@@ -62,7 +63,7 @@ func (kc *KnownCertificates) Count() int64 {
 	return int64(count)
 }
 
-func (kc *KnownCertificates) Known() []Serial {
+func (kc *KnownCertificates) Known() []types.Serial {
 	// Redis' scan methods regularly provide duplicates. The duplication
 	// happens at this level, pulling from SetToChan, so we make a hash-set
 	// here to de-duplicate when the memory impacts are the most minimal.
@@ -82,9 +83,9 @@ func (kc *KnownCertificates) Known() []Serial {
 		count += 1
 	}
 
-	serialList := make([]Serial, 0, count)
+	serialList := make([]types.Serial, 0, count)
 	for str := range serials {
-		bs, err := NewSerialFromBinaryString(str)
+		bs, err := types.NewSerialFromBinaryString(str)
 		if err != nil {
 			glog.Errorf("Failed to populate serial str=[%s] %v", str, err)
 			continue

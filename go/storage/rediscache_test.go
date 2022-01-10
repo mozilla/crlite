@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/mozilla/crlite/go"
 )
 
 var kRedisHost = "RedisHost"
@@ -208,7 +210,7 @@ func BenchmarkSortedCacheInsertion(b *testing.B) {
 	for i = 0; i < uint64(b.N); i++ {
 		buf := make([]byte, binary.Size(i))
 		binary.BigEndian.PutUint64(buf, i)
-		serial := NewSerialFromHex(hex.EncodeToString(buf))
+		serial := types.NewSerialFromHex(hex.EncodeToString(buf))
 		_, err := rc.SetInsert("sortedCacheBenchmark", serial.String())
 		if err != nil {
 			b.Error(err)
@@ -455,7 +457,7 @@ func TestRedisLogState(t *testing.T) {
 	rc.client.Del("log::short_url/location")
 	defer rc.client.Del("log::short_url/location")
 
-	log := &CertificateLog{
+	log := &types.CTLogState{
 		ShortURL:     "short_url/location",
 		MaxEntry:     123456789,
 		MaxTimestamp: uint64(time.Now().Unix()),

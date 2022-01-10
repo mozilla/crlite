@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
@@ -30,9 +31,9 @@ var (
 )
 
 type knownWorkUnit struct {
-	issuer   storage.Issuer
+	issuer   types.Issuer
 	issuerDN string
-	expDates []storage.ExpDate
+	expDates []types.ExpDate
 }
 
 type knownWorker struct {
@@ -48,7 +49,7 @@ func (kw knownWorker) run(wg *sync.WaitGroup, workChan <-chan knownWorkUnit, qui
 
 	for tuple := range workChan {
 		var serialCount int
-		serials := make([]storage.Serial, 0, 128*1024)
+		serials := make([]types.Serial, 0, 128*1024)
 
 		for _, expDate := range tuple.expDates {
 			select {

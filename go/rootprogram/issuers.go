@@ -18,8 +18,9 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
+
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 const (
@@ -137,16 +138,16 @@ func (mi *MozIssuers) DatasetAge() time.Duration {
 	return time.Since(mi.modTime)
 }
 
-func (mi *MozIssuers) GetIssuers() []storage.Issuer {
+func (mi *MozIssuers) GetIssuers() []types.Issuer {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	issuers := make([]storage.Issuer, len(mi.issuerMap))
+	issuers := make([]types.Issuer, len(mi.issuerMap))
 	i := 0
 
 	for _, value := range mi.issuerMap {
 		cert := value.certs[0].cert
-		issuers[i] = storage.NewIssuer(cert)
+		issuers[i] = types.NewIssuer(cert)
 		i++
 	}
 	return issuers
@@ -224,7 +225,7 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 	return nil
 }
 
-func (mi *MozIssuers) Enroll(aIssuer storage.Issuer) {
+func (mi *MozIssuers) Enroll(aIssuer types.Issuer) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
@@ -235,12 +236,12 @@ func (mi *MozIssuers) Enroll(aIssuer storage.Issuer) {
 	}
 }
 
-func (mi *MozIssuers) IsIssuerInProgram(aIssuer storage.Issuer) bool {
+func (mi *MozIssuers) IsIssuerInProgram(aIssuer types.Issuer) bool {
 	_, ok := mi.issuerMap[aIssuer.ID()]
 	return ok
 }
 
-func (mi *MozIssuers) IsIssuerEnrolled(aIssuer storage.Issuer) bool {
+func (mi *MozIssuers) IsIssuerEnrolled(aIssuer types.Issuer) bool {
 	if _, ok := mi.issuerMap[aIssuer.ID()]; ok {
 		data := mi.issuerMap[aIssuer.ID()]
 		return data.enrolled
@@ -248,7 +249,7 @@ func (mi *MozIssuers) IsIssuerEnrolled(aIssuer storage.Issuer) bool {
 	return false
 }
 
-func (mi *MozIssuers) GetCertificateForIssuer(aIssuer storage.Issuer) (*x509.Certificate, error) {
+func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*x509.Certificate, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
@@ -259,7 +260,7 @@ func (mi *MozIssuers) GetCertificateForIssuer(aIssuer storage.Issuer) (*x509.Cer
 	return entry.certs[0].cert, nil
 }
 
-func (mi *MozIssuers) GetSubjectForIssuer(aIssuer storage.Issuer) (string, error) {
+func (mi *MozIssuers) GetSubjectForIssuer(aIssuer types.Issuer) (string, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
@@ -294,8 +295,8 @@ func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum in
 	return cert, nil
 }
 
-func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string) storage.Issuer {
-	issuer := storage.NewIssuer(aCert)
+func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string) types.Issuer {
+	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
 		subjectDN: aCert.Subject.String(),
@@ -317,8 +318,8 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 	return issuer
 }
 
-func (mi *MozIssuers) NewTestIssuerFromSubjectString(aSub string) storage.Issuer {
-	issuer := storage.NewIssuerFromString(aSub)
+func (mi *MozIssuers) NewTestIssuerFromSubjectString(aSub string) types.Issuer {
+	issuer := types.NewIssuerFromString(aSub)
 	ic := issuerCert{
 		subjectDN: aSub,
 	}

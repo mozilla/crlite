@@ -18,7 +18,7 @@ import (
 	"time"
 
 	newx509 "github.com/google/certificate-transparency-go/x509"
-	"github.com/mozilla/crlite/go/storage"
+	"github.com/mozilla/crlite/go"
 )
 
 const (
@@ -102,7 +102,7 @@ func loadSampleIssuers(content string) (*MozIssuers, error) {
 	return mi, mi.LoadFromDisk(tmpfile.Name())
 }
 
-func makeCert(t *testing.T, issuerDN string, expDate string, serial storage.Serial) (*newx509.Certificate, string) {
+func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial) (*newx509.Certificate, string) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
@@ -203,19 +203,19 @@ func Test_IsIssuerInProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if mi.IsIssuerInProgram(storage.NewIssuerFromString("abc")) != false {
+	if mi.IsIssuerInProgram(types.NewIssuerFromString("abc")) != false {
 		t.Error("Not a valid issuer")
 	}
 
-	if mi.IsIssuerInProgram(storage.NewIssuerFromString("")) != false {
+	if mi.IsIssuerInProgram(types.NewIssuerFromString("")) != false {
 		t.Error("Blank is not a good issuer")
 	}
 
-	if mi.IsIssuerInProgram(storage.NewIssuerFromString("Test Corporation SA")) != false {
+	if mi.IsIssuerInProgram(types.NewIssuerFromString("Test Corporation SA")) != false {
 		t.Error("Not the common name, should only respond to the Issuer")
 	}
 
-	if mi.IsIssuerInProgram(storage.NewIssuerFromString(kFirstTwoLinesIssuerID)) != true {
+	if mi.IsIssuerInProgram(types.NewIssuerFromString(kFirstTwoLinesIssuerID)) != true {
 		t.Error("Issuer should be true")
 	}
 }
@@ -226,7 +226,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cert, err := mi.GetCertificateForIssuer(storage.NewIssuerFromString("abc"))
+	cert, err := mi.GetCertificateForIssuer(types.NewIssuerFromString("abc"))
 	if err.Error() != "Unknown issuer: abc" {
 		t.Error(err)
 	}
@@ -234,7 +234,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Error("Cert should have been nil")
 	}
 
-	cert, err = mi.GetCertificateForIssuer(storage.NewIssuerFromString(""))
+	cert, err = mi.GetCertificateForIssuer(types.NewIssuerFromString(""))
 	if err != nil && err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 		t.Error("Cert should have been nil")
 	}
 
-	cert, err = mi.GetCertificateForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	cert, err = mi.GetCertificateForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -261,7 +261,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString("abc"))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString("abc"))
 	if err.Error() != "Unknown issuer: abc" {
 		t.Error(err)
 	}
@@ -269,7 +269,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Error("Subject should have been blank")
 	}
 
-	subject, err = mi.GetSubjectForIssuer(storage.NewIssuerFromString(""))
+	subject, err = mi.GetSubjectForIssuer(types.NewIssuerFromString(""))
 	if err != nil && err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 		t.Error("Subject should have been blank")
 	}
 
-	subject, err = mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err = mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -321,12 +321,12 @@ func Test_SaveIssuersList(t *testing.T) {
 
 func Test_SaveLoadIssuersList(t *testing.T) {
 	enrolledCert, enrolledCertPem := makeCert(t, "CN=Enrolled Issuer", "2001-01-01",
-		storage.NewSerialFromHex("00"))
-	enrolledIssuer := storage.NewIssuer(enrolledCert)
+		types.NewSerialFromHex("00"))
+	enrolledIssuer := types.NewIssuer(enrolledCert)
 
 	notEnrolledCert, notEnrolledCertPem := makeCert(t, "CN=Not Enrolled Issuer", "2001-12-01",
-		storage.NewSerialFromHex("FF"))
-	notEnrolledIssuer := storage.NewIssuer(notEnrolledCert)
+		types.NewSerialFromHex("FF"))
+	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
 	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem)
@@ -365,8 +365,8 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 
 func Test_IsIssuerEnrolled(t *testing.T) {
 	cert, certPem := makeCert(t, "CN=Issuer", "2001-01-01",
-		storage.NewSerialFromHex("00"))
-	issuer := storage.NewIssuer(cert)
+		types.NewSerialFromHex("00"))
+	issuer := types.NewIssuer(cert)
 
 	mi := NewMozillaIssuers()
 	mi.InsertIssuerFromCertAndPem(cert, certPem)
@@ -416,7 +416,7 @@ func Test_LoadFromURL(t *testing.T) {
 		t.Error(err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -445,7 +445,7 @@ func Test_LoadFromURLToDefaultLocation(t *testing.T) {
 		t.Error(err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -478,7 +478,7 @@ func Test_LoadFrom404URLNoLocal(t *testing.T) {
 		t.Error("Expected failure")
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err == nil || !strings.Contains(err.Error(), "Unknown issuer") {
 		t.Errorf("Expected error, got: %s", err)
 	}
@@ -516,7 +516,7 @@ func Test_LoadFrom404URLWithLocal(t *testing.T) {
 		t.Errorf("Expected success with local file, got %s", err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -556,7 +556,7 @@ func Test_LoadInvalidWithLocal(t *testing.T) {
 		t.Errorf("Expected success with local file, got %s", err)
 	}
 
-	subject, err := mi.GetSubjectForIssuer(storage.NewIssuerFromString(kFirstTwoLinesIssuerID))
+	subject, err := mi.GetSubjectForIssuer(types.NewIssuerFromString(kFirstTwoLinesIssuerID))
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}

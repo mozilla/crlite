@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"github.com/mozilla/crlite/go"
 	"reflect"
 	"sort"
 	"testing"
@@ -10,19 +11,19 @@ import (
 
 func Test_Unknown(t *testing.T) {
 	backend := NewMockRemoteCache()
-	testIssuer := NewIssuerFromString("test issuer")
+	testIssuer := types.NewIssuerFromString("test issuer")
 
-	expDate, err := NewExpDate("2029-01-30")
+	expDate, err := types.NewExpDate("2029-01-30")
 	if err != nil {
 		t.Error(err)
 	}
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	testList := []Serial{
-		NewSerialFromHex("01"),
-		NewSerialFromHex("02"),
-		NewSerialFromHex("03"),
-		NewSerialFromHex("04"),
+	testList := []types.Serial{
+		types.NewSerialFromHex("01"),
+		types.NewSerialFromHex("02"),
+		types.NewSerialFromHex("03"),
+		types.NewSerialFromHex("04"),
 	}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
@@ -36,11 +37,11 @@ func Test_Unknown(t *testing.T) {
 		}
 	}
 
-	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == false {
+	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
 	}
 
-	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == true {
+	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == true {
 		t.Error("5 should now have been known")
 	}
 
@@ -56,22 +57,22 @@ func Test_Unknown(t *testing.T) {
 
 func Test_KnownCertificatesKnown(t *testing.T) {
 	backend := NewMockRemoteCache()
-	testIssuer := NewIssuerFromString("test issuer")
+	testIssuer := types.NewIssuerFromString("test issuer")
 
-	expDate, err := NewExpDate("2029-01-30")
+	expDate, err := types.NewExpDate("2029-01-30")
 	if err != nil {
 		t.Error(err)
 	}
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	testList := SerialList{NewSerialFromHex("01"), NewSerialFromHex("03"), NewSerialFromHex("05")}
+	testList := types.SerialList{types.NewSerialFromHex("01"), types.NewSerialFromHex("03"), types.NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
 		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
 
-	result := SerialList(kc.Known())
+	result := types.SerialList(kc.Known())
 	sort.Sort(result)
 	if !reflect.DeepEqual(testList, result) {
 		t.Errorf("Known should get the data: %+v // %+v", testList, result)
@@ -84,14 +85,14 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 
 func Test_ExpireAt(t *testing.T) {
 	backend := NewMockRemoteCache()
-	testIssuer := NewIssuerFromString("test issuer")
+	testIssuer := types.NewIssuerFromString("test issuer")
 
 	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
-	expDate := NewExpDateFromTime(date)
+	expDate := types.NewExpDateFromTime(date)
 
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	if u, _ := kc.WasUnknown(NewSerialFromHex("05")); u == false {
+	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
 	}
 

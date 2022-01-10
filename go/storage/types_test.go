@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/mozilla/crlite/go"
 )
 
 // issuer:ca
@@ -39,28 +40,17 @@ Tqhe91GhlQ==
 )
 
 func TestIssuerLazyInit(t *testing.T) {
-	i := Issuer{
-		id:   nil,
-		spki: SPKI{[]byte{0xFF}},
-	}
-	if i.id != nil {
-		t.Fatal("Should start with a nil id")
-	}
+	i := types.NewIssuer(&x509.Certificate{RawSubjectPublicKeyInfo: []byte{0xFF}})
 
 	if i.ID() != "qBAK5qoZQNC2Y7sxzUZhQuu9vVGHExuS2TgYmHgy64k=" {
 		t.Errorf("Unexpected encoding: %s", i.ID())
 	}
-
-	if i.id == nil {
-		t.Error("ID should no longer be nil")
-	}
 }
 
 func TestSerial(t *testing.T) {
-	x := NewSerialFromHex("DEADBEEF")
-	y := Serial{
-		serial: []byte{0xDE, 0xAD, 0xBE, 0xEF},
-	}
+	x := types.NewSerialFromHex("DEADBEEF")
+	y, _ := types.NewSerialFromBinaryString(string([]byte{0xDE, 0xAD, 0xBE, 0xEF}))
+
 	if !reflect.DeepEqual(x, y) {
 		t.Errorf("Serials should match")
 	}
@@ -86,7 +76,7 @@ func TestSerialFromCertWithLeadingZeroes(t *testing.T) {
 		t.Error(err)
 	}
 
-	x := NewSerial(cert)
+	x := types.NewSerial(cert)
 	// The Serial should be only the Value of the serialNumber field, so in this
 	// case [00, AA].
 	// The Stringification is the hexification, lowercase
@@ -101,13 +91,13 @@ func TestSerialFromCertWithLeadingZeroes(t *testing.T) {
 }
 
 func TestSerialJson(t *testing.T) {
-	serials := []Serial{NewSerialFromHex("ABCDEF"), NewSerialFromHex("001100")}
+	serials := []types.Serial{types.NewSerialFromHex("ABCDEF"), types.NewSerialFromHex("001100")}
 	data, err := json.Marshal(serials)
 	if err != nil {
 		t.Error(err)
 	}
 
-	var decoded []Serial
+	var decoded []types.Serial
 	err = json.Unmarshal(data, &decoded)
 	if err != nil {
 		t.Errorf("Decoding %s got error %v", string(data), err)
@@ -120,7 +110,7 @@ func TestSerialJson(t *testing.T) {
 
 func TestSerialBigInt(t *testing.T) {
 	bint := big.NewInt(0xCAFEDEAD)
-	serial := NewSerialFromBytes(bint.Bytes())
+	serial := types.NewSerialFromBytes(bint.Bytes())
 	reflex := serial.AsBigInt()
 	if reflex.Cmp(bint) != 0 {
 		t.Errorf("Expected %v but got %v", bint, reflex)
@@ -128,18 +118,18 @@ func TestSerialBigInt(t *testing.T) {
 }
 
 func TestSerialBinaryStrings(t *testing.T) {
-	serials := []Serial{
-		NewSerialFromHex("ABCDEF"),
-		NewSerialFromHex("001100"),
-		NewSerialFromHex("ABCDEF0100101010010101010100101010"),
-		NewSerialFromHex("00ABCDEF01001010101010101010010101"),
-		NewSerialFromHex("FFFFFFFFFFFFFF00F00FFFFFFFFFFFFFFF"),
+	serials := []types.Serial{
+		types.NewSerialFromHex("ABCDEF"),
+		types.NewSerialFromHex("001100"),
+		types.NewSerialFromHex("ABCDEF0100101010010101010100101010"),
+		types.NewSerialFromHex("00ABCDEF01001010101010101010010101"),
+		types.NewSerialFromHex("FFFFFFFFFFFFFF00F00FFFFFFFFFFFFFFF"),
 	}
 
 	for _, s := range serials {
 		astr := s.BinaryString()
 
-		decoded, err := NewSerialFromBinaryString(astr)
+		decoded, err := types.NewSerialFromBinaryString(astr)
 		if err != nil {
 			t.Error(err)
 		}
@@ -150,9 +140,9 @@ func TestSerialBinaryStrings(t *testing.T) {
 }
 
 func TestSerialID(t *testing.T) {
-	x := NewSerialFromHex("DEADBEEF")
+	x := types.NewSerialFromHex("DEADBEEF")
 	idStr := x.ID()
-	decoded, err := NewSerialFromIDString(idStr)
+	decoded, err := types.NewSerialFromIDString(idStr)
 	if err != nil {
 		t.Error(err)
 	}
@@ -160,7 +150,7 @@ func TestSerialID(t *testing.T) {
 		t.Errorf("Should match %+v & %+v", x, decoded)
 	}
 
-	if _, err := NewSerialFromIDString("not base64"); err == nil {
+	if _, err := types.NewSerialFromIDString("not base64"); err == nil {
 		t.Error("Expected an error decoding an invalid ID string")
 	}
 
@@ -170,7 +160,7 @@ func TestSerialID(t *testing.T) {
 }
 
 func TestLog(t *testing.T) {
-	log := CertificateLog{
+	log := types.CTLogState{
 		ShortURL:       "log.example.com/2525",
 		MaxEntry:       math.MaxInt64,
 		MaxTimestamp:   uint64(time.Date(2525, time.May, 20, 19, 21, 54, 39, time.UTC).Unix()),
@@ -201,8 +191,8 @@ func TestLog(t *testing.T) {
 }
 
 func TestExpDate(t *testing.T) {
-	testParsing := func(d string) ExpDate {
-		expDate, err := NewExpDate(d)
+	testParsing := func(d string) types.ExpDate {
+		expDate, err := types.NewExpDate(d)
 		if err != nil {
 			t.Error(err)
 		}
@@ -241,7 +231,7 @@ func TestExpDateFromTime(t *testing.T) {
 	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
 	truncDate := time.Date(2004, 01, 20, 0, 0, 0, 0, time.UTC)
 
-	expDate := NewExpDateFromTime(date)
+	expDate := types.NewExpDateFromTime(date)
 	if !expDate.IsExpiredAt(date) {
 		t.Errorf("Should have expired at its own time")
 	}
@@ -252,13 +242,13 @@ func TestExpDateFromTime(t *testing.T) {
 }
 
 func TestParseUniqueCertIdentifier(t *testing.T) {
-	_, err := ParseUniqueCertIdentifier("a::b")
+	_, err := types.ParseUniqueCertIdentifier("a::b")
 	if err == nil {
 		t.Error("Should have been an error")
 	}
 
 	expected := "2019-04-28-22::an issuer::AESq_w=="
-	n, err := ParseUniqueCertIdentifier(expected)
+	n, err := types.ParseUniqueCertIdentifier(expected)
 	if err != nil {
 		t.Error(err)
 	}

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	. "github.com/mozilla/crlite/go"
 )
 
 func mkExpDate(s string) ExpDate {

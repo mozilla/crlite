@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 func assertEmptyList(t *testing.T, a *CrlAuditor) {
@@ -66,7 +66,7 @@ func assertOnlyEntryInList(t *testing.T, a *CrlAuditor, entryKind CrlAuditEntryK
 	return nil
 }
 
-func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
+func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer types.Issuer,
 	issuersObj *rootprogram.MozIssuers, url *url.URL) {
 	t.Helper()
 	if ent.Url != url.String() {
@@ -85,7 +85,7 @@ func assertEntryUrlAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Is
 	assertValidEntry(t, ent)
 }
 
-func assertEntryUrlPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer storage.Issuer,
+func assertEntryUrlPathAndIssuer(t *testing.T, ent *CrlAuditEntry, issuer types.Issuer,
 	issuersObj *rootprogram.MozIssuers, url *url.URL, path string) {
 	t.Helper()
 	if ent.Path != path {
