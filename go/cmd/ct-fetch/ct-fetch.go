@@ -747,7 +747,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 	for index <= last {
 		cycleTime = time.Now()
 
-		glog.Infof("[%s] Asking for %d entries", lw.Name(), last-index+1)
 		// TODO(jms) Add an option to get entries from disk.
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
 		if err != nil {
@@ -771,7 +770,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries"}, cycleTime)
 		b.Reset()
 
-		glog.Infof("[%s] Got %d entries", lw.Name(), len(resp.Entries))
 		for _, entry := range resp.Entries {
 			cycleTime = time.Now()
 
