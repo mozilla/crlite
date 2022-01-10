@@ -313,6 +313,10 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 	ld.DownloaderWaitGroup.Add(1)
 	defer ld.DownloaderWaitGroup.Done()
 
+	if err := ld.database.Migrate(&logMeta); err != nil {
+		return err
+	}
+
 	for {
 		if !enrolledLogs.IsEnrolled(logMeta.LogID) {
 			return nil

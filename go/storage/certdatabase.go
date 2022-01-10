@@ -91,6 +91,10 @@ func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]types.IssuerDate, error)
 	return issuerList, nil
 }
 
+func (db *CertDatabase) Migrate(aLogData *types.CTLogMetadata) error {
+	return db.extCache.Migrate(aLogData)
+}
+
 func (db *CertDatabase) SaveLogState(aLogObj *types.CTLogState) error {
 	return db.extCache.StoreLogState(aLogObj)
 }

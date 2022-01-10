@@ -29,7 +29,8 @@ type RemoteCache interface {
 	ListRemove(key string, value string) error
 	TrySet(k string, v string, life time.Duration) (string, error)
 	KeysToChan(pattern string, c chan<- string) error
-	StoreLogState(aLogObj *CertificateLog) error
-	LoadLogState(aLogUrl string) (*CertificateLog, error)
-	LoadAllLogStates() ([]CertificateLog, error)
+	StoreLogState(aLogObj *types.CTLogState) error
+	LoadLogState(aLogUrl string) (*types.CTLogState, error)
+	LoadAllLogStates() ([]types.CTLogState, error)
+	Migrate(logData *types.CTLogMetadata) error
 }
