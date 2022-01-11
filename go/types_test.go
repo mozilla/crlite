@@ -2,7 +2,6 @@ package types
 
 import (
 	"encoding/base64"
-	"reflect"
 	"testing"
 )
 
@@ -42,47 +41,7 @@ func Test_DecodeCRL(t *testing.T) {
 
 	expectedSerial := NewSerialFromHex("0101ea518c68c0f00789e9cd92736c75")
 	actualSerial := NewSerialFromBytes(filledList.RevokedCertificates[0].SerialNumber.Bytes)
-	if !reflect.DeepEqual(expectedSerial, actualSerial) {
+	if expectedSerial.BinaryString() != actualSerial.BinaryString() {
 		t.Errorf("Expected %s, but got %s", expectedSerial, actualSerial)
-	}
-}
-
-func Test_SerialSet(t *testing.T) {
-	testSerials := []Serial{
-		NewSerialFromHex("BB"),
-		NewSerialFromHex("AA"),
-	}
-
-	set := NewSerialSet()
-	isNew := set.Add(testSerials[0])
-	if isNew == false {
-		t.Error("Should have been new")
-	}
-	isNew = set.Add(testSerials[0])
-	if isNew == true {
-		t.Error("Should not have been new")
-	}
-	isNew = set.Add(testSerials[1])
-	if isNew == false {
-		t.Error("Should have been new")
-	}
-
-	actualSerials := set.List()
-
-	if len(actualSerials) != len(testSerials) {
-		t.Error("Length mismatch")
-	}
-
-	for _, i := range actualSerials {
-		var seen bool
-		for _, j := range testSerials {
-			if j.ID() == i.ID() {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			t.Errorf("Didn't find %v", i)
-		}
 	}
 }

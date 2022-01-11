@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math"
-	"math/big"
 	"reflect"
 	"testing"
 	"time"
@@ -55,7 +54,7 @@ func TestSerial(t *testing.T) {
 		t.Errorf("Serials should match")
 	}
 
-	if x.Cmp(y) != 0 {
+	if x.BinaryString() != y.BinaryString() {
 		t.Errorf("Should compare the same")
 	}
 
@@ -83,11 +82,6 @@ func TestSerialFromCertWithLeadingZeroes(t *testing.T) {
 	if x.String() != "00aa" {
 		t.Errorf("Lost leading zeroes: %s != 00aa", x.String())
 	}
-
-	// The internal ID repr is base64
-	if x.ID() != "AKo=" {
-		t.Errorf("ID was %s but should be AKo=", x.ID())
-	}
 }
 
 func TestSerialJson(t *testing.T) {
@@ -105,15 +99,6 @@ func TestSerialJson(t *testing.T) {
 
 	if !reflect.DeepEqual(serials, decoded) {
 		t.Errorf("Should match %+v %+v", serials, decoded)
-	}
-}
-
-func TestSerialBigInt(t *testing.T) {
-	bint := big.NewInt(0xCAFEDEAD)
-	serial := types.NewSerialFromBytes(bint.Bytes())
-	reflex := serial.AsBigInt()
-	if reflex.Cmp(bint) != 0 {
-		t.Errorf("Expected %v but got %v", bint, reflex)
 	}
 }
 
@@ -136,26 +121,6 @@ func TestSerialBinaryStrings(t *testing.T) {
 		if !reflect.DeepEqual(s, decoded) {
 			t.Errorf("Expected to match %v != %v", s, decoded)
 		}
-	}
-}
-
-func TestSerialID(t *testing.T) {
-	x := types.NewSerialFromHex("DEADBEEF")
-	idStr := x.ID()
-	decoded, err := types.NewSerialFromIDString(idStr)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(x, decoded) {
-		t.Errorf("Should match %+v & %+v", x, decoded)
-	}
-
-	if _, err := types.NewSerialFromIDString("not base64"); err == nil {
-		t.Error("Expected an error decoding an invalid ID string")
-	}
-
-	if x.HexString() != "deadbeef" {
-		t.Errorf("Expected HexString to match %s", x.HexString())
 	}
 }
 
@@ -221,22 +186,5 @@ func TestExpDateFromTime(t *testing.T) {
 
 	if expDate.IsExpiredAt(truncDate.Add(-1 * time.Millisecond)) {
 		t.Errorf("Should not be expired a moment earlier")
-	}
-}
-
-func TestParseUniqueCertIdentifier(t *testing.T) {
-	_, err := types.ParseUniqueCertIdentifier("a::b")
-	if err == nil {
-		t.Error("Should have been an error")
-	}
-
-	expected := "2019-04-28-22::an issuer::AESq_w=="
-	n, err := types.ParseUniqueCertIdentifier(expected)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if n.String() != expected {
-		t.Errorf("Expected %s got %s", expected, n.String())
 	}
 }
