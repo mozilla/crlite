@@ -3,8 +3,6 @@ package storage
 import (
 	"encoding/json"
 	"github.com/mozilla/crlite/go"
-	"reflect"
-	"sort"
 	"testing"
 	"time"
 )
@@ -65,20 +63,27 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	}
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	testList := types.SerialList{types.NewSerialFromHex("01"), types.NewSerialFromHex("03"), types.NewSerialFromHex("05")}
+	testList := []types.Serial{types.NewSerialFromHex("01"), types.NewSerialFromHex("03"), types.NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
 	for i, serial := range testList {
 		testStrings[i] = serial.BinaryString()
 	}
 	backend.Data[kc.serialId()] = testStrings
 
-	result := types.SerialList(kc.Known())
-	sort.Sort(result)
-	if !reflect.DeepEqual(testList, result) {
-		t.Errorf("Known should get the data: %+v // %+v", testList, result)
-	}
-
+	result := kc.Known()
 	if kc.Count() != 3 {
+		t.Errorf("Expected 3, got %d", kc.Count())
+	}
+	count := 0
+	for _, input := range testList {
+		for _, output := range result {
+			if input.BinaryString() == output.BinaryString() {
+				count += 1
+				break
+			}
+		}
+	}
+	if count != 3 {
 		t.Errorf("Expected 3, got %d", kc.Count())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -60,7 +61,7 @@ func Test_DuplicateCRLs(t *testing.T) {
 	}
 }
 
-func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial) *newx509.Certificate {
+func makeCert(t *testing.T, issuerDN string, expDate string, serial *big.Int) *newx509.Certificate {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
@@ -74,7 +75,7 @@ func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial
 	notBefore := notAfter.AddDate(-1, 0, 0)
 
 	template := x509.Certificate{
-		SerialNumber: serial.AsBigInt(),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName: issuerDN,
 		},
@@ -101,7 +102,7 @@ func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial
 func Test_Accumulate(t *testing.T) {
 	issuerCN := "My First Issuer (tm)"
 	issuerDN := fmt.Sprintf("CN=%s", issuerCN)
-	firstCert := makeCert(t, issuerCN, "2001-01-01", types.NewSerialFromHex("00"))
+	firstCert := makeCert(t, issuerCN, "2001-01-01", new(big.Int).SetInt64(0))
 
 	issuerObj := types.NewIssuer(firstCert)
 	meta := NewIssuerMetadata(issuerObj, NewMockRemoteCache())
@@ -111,7 +112,7 @@ func Test_Accumulate(t *testing.T) {
 		t.Error(err)
 	}
 
-	nextCert := makeCert(t, issuerCN, "2001-01-01", types.NewSerialFromHex("01"))
+	nextCert := makeCert(t, issuerCN, "2001-01-01", new(big.Int).SetInt64(1))
 	err = meta.Accumulate(nextCert)
 	if err != nil {
 		t.Error(err)
