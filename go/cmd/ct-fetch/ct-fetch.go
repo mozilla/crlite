@@ -92,7 +92,7 @@ func uint64ToTimestamp(timestamp uint64) *time.Time {
 
 type CtLogEntry struct {
 	LogEntry *ct.LogEntry
-	LogData  *types.CTLogMetadata
+	LogMeta  *types.CTLogMetadata
 }
 
 type CtLogSubtree struct {
@@ -270,7 +270,7 @@ type LogSyncEngine struct {
 type LogWorker struct {
 	Database  storage.CertDatabase
 	Client    *client.LogClient
-	LogData   *types.CTLogMetadata
+	LogMeta   *types.CTLogMetadata
 	STH       *ct.SignedTreeHead
 	LogState  *types.CTLogState
 	WorkOrder LogWorkerTask
@@ -278,7 +278,7 @@ type LogWorker struct {
 }
 
 func (lw LogWorker) Name() string {
-	return lw.LogData.URL
+	return lw.LogMeta.URL
 }
 
 type LogWorkerTask int
@@ -309,23 +309,23 @@ func (ld *LogSyncEngine) StartDatabaseThreads() {
 }
 
 // Blocking function, run from a thread
-func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs, logData types.CTLogMetadata) error {
+func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs, logMeta types.CTLogMetadata) error {
 	ld.DownloaderWaitGroup.Add(1)
 	defer ld.DownloaderWaitGroup.Done()
 
 	for {
-		if !enrolledLogs.IsEnrolled(logData.LogID) {
+		if !enrolledLogs.IsEnrolled(logMeta.LogID) {
 			return nil
 		}
 
-		worker, err := ld.NewLogWorker(ctx, &logData)
+		worker, err := ld.NewLogWorker(ctx, &logMeta)
 		if err != nil {
 			return err
 		}
 
 		err = worker.Run(ctx, ld.entryChan)
 		if err != nil {
-			glog.Errorf("[%s] Could not sync log: %s", logData.URL, err)
+			glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
 			return err
 		}
 
@@ -335,7 +335,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 
 		select {
 		case <-ctx.Done():
-			glog.Infof("[%s] Downloader exiting.", logData.URL)
+			glog.Infof("[%s] Downloader exiting.", logMeta.URL)
 			return nil
 		default:
 		}
@@ -390,7 +390,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		}
 
 		if err != nil {
-			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 			continue
 		}
 
@@ -400,21 +400,21 @@ func (ld *LogSyncEngine) insertCTWorker() {
 
 		if len(ep.LogEntry.Chain) < 1 {
 			glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-				ep.LogData.URL, precert, ep.LogEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+				ep.LogMeta.URL, precert, ep.LogEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 			continue
 		}
 
 		issuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
 		if err != nil {
-			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 			continue
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "ParseCertificates"}, parseTime)
 
 		storeTime := time.Now()
-		err = ld.database.Store(cert, issuingCert, ep.LogData.URL, ep.LogEntry.Index)
+		err = ld.database.Store(cert, issuingCert, ep.LogMeta.URL, ep.LogEntry.Index)
 		if err != nil {
-			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogData.URL, ep.LogEntry.Index, err)
+			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 		}
 		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
 
@@ -431,45 +431,45 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	}
 }
 
-func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogData *types.CTLogMetadata) (*LogWorker, error) {
+func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
-	logUrlObj, err := url.Parse(ctLogData.URL)
+	logUrlObj, err := url.Parse(ctLogMeta.URL)
 	if err != nil {
-		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogData.URL, err)
+		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogMeta.URL, err)
 		return nil, err
 	}
 
 	logObj, err := ld.database.GetLogState(logUrlObj)
 	if err != nil {
-		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogData.URL, err)
+		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogMeta.URL, err)
 		return nil, err
 	}
 
-	if logObj.LogID != ctLogData.LogID {
+	if logObj.LogID != ctLogMeta.LogID {
 		// The LogID shouldn't change, but we'll treat the input as
 		// authoritative. Old versions of ct-fetch didn't store the
 		// LogID in redis, so we will hit this on upgrade.
-		logObj.LogID = ctLogData.LogID
+		logObj.LogID = ctLogMeta.LogID
 	}
 
-	if logObj.MMD != uint64(ctLogData.MMD) {
+	if logObj.MMD != uint64(ctLogMeta.MMD) {
 		// Likewise storing MMD is new.
-		logObj.MMD = uint64(ctLogData.MMD)
+		logObj.MMD = uint64(ctLogMeta.MMD)
 	}
 
-	ctLog, err := client.New(ctLogData.URL, &httpClient, jsonclient.Options{
+	ctLog, err := client.New(ctLogMeta.URL, &httpClient, jsonclient.Options{
 		UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
 	})
 	if err != nil {
-		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogData.URL, err)
+		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogMeta.URL, err)
 		return nil, err
 	}
 
-	glog.Infof("[%s] Fetching signed tree head... ", ctLogData.URL)
+	glog.Infof("[%s] Fetching signed tree head... ", ctLogMeta.URL)
 	sth, fetchErr := ctLog.GetSTH(ctx)
 	if fetchErr == nil {
-		glog.Infof("[%s] %d total entries as of %s", ctLogData.URL, sth.TreeSize,
+		glog.Infof("[%s] %d total entries as of %s", ctLogMeta.URL, sth.TreeSize,
 			uint64ToTimestamp(sth.Timestamp).Format(time.ANSIC))
 	}
 
@@ -477,7 +477,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogData *types.CTLo
 	var task LogWorkerTask
 	if fetchErr != nil {
 		// Temporary network failure?
-		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogData.URL, fetchErr)
+		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogMeta.URL, fetchErr)
 		task = Sleep
 	} else if sth.TreeSize <= 3 {
 		// For technical reasons, we can't verify our download
@@ -511,7 +511,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogData *types.CTLo
 		Database:  ld.database,
 		Client:    ctLog,
 		LogState:  logObj,
-		LogData:   ctLogData,
+		LogMeta:   ctLogMeta,
 		STH:       sth,
 		WorkOrder: task,
 		JobSize:   batchSize,
@@ -792,7 +792,7 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 			case <-ctx.Done():
 				glog.Infof("[%s] Cancelled", lw.Name())
 				return minTimestamp, maxTimestamp, nil
-			case entryChan <- CtLogEntry{logEntry, lw.LogData}:
+			case entryChan <- CtLogEntry{logEntry, lw.LogMeta}:
 				metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
 			}
 
