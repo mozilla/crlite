@@ -77,17 +77,6 @@ func mkExp(s string) types.ExpDate {
 	return d
 }
 
-func expDatesAndStringsEqual(t *testing.T, expected []string, found types.ExpDateList) {
-	if len(expected) != len(found) {
-		t.Errorf("Expected %s result %s", expected, found)
-	}
-	for i, val := range expected {
-		if found[i].ID() != val {
-			t.Errorf("Mismatch at idx=%d: expected %s got %s", i, val, found[i])
-		}
-	}
-}
-
 func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 	_, _, storageDB := getTestHarness(t)
 

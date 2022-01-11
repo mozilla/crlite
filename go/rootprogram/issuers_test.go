@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -102,7 +103,7 @@ func loadSampleIssuers(content string) (*MozIssuers, error) {
 	return mi, mi.LoadFromDisk(tmpfile.Name())
 }
 
-func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial) (*newx509.Certificate, string) {
+func makeCert(t *testing.T, issuerDN string, expDate string, serial *big.Int) (*newx509.Certificate, string) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
@@ -116,7 +117,7 @@ func makeCert(t *testing.T, issuerDN string, expDate string, serial types.Serial
 	notBefore := notAfter.AddDate(-1, 0, 0)
 
 	template := x509.Certificate{
-		SerialNumber: serial.AsBigInt(),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName: issuerDN,
 		},
@@ -321,11 +322,11 @@ func Test_SaveIssuersList(t *testing.T) {
 
 func Test_SaveLoadIssuersList(t *testing.T) {
 	enrolledCert, enrolledCertPem := makeCert(t, "CN=Enrolled Issuer", "2001-01-01",
-		types.NewSerialFromHex("00"))
+		new(big.Int).SetInt64(0))
 	enrolledIssuer := types.NewIssuer(enrolledCert)
 
 	notEnrolledCert, notEnrolledCertPem := makeCert(t, "CN=Not Enrolled Issuer", "2001-12-01",
-		types.NewSerialFromHex("FF"))
+		new(big.Int).SetInt64(255))
 	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
@@ -365,7 +366,7 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 
 func Test_IsIssuerEnrolled(t *testing.T) {
 	cert, certPem := makeCert(t, "CN=Issuer", "2001-01-01",
-		types.NewSerialFromHex("00"))
+		new(big.Int).SetInt64(0))
 	issuer := types.NewIssuer(cert)
 
 	mi := NewMozillaIssuers()

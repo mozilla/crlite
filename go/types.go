@@ -1,7 +1,6 @@
 package types
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
@@ -9,9 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/certificate-transparency-go/x509"
-	"math/big"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -78,10 +75,7 @@ func (o *Issuer) ID() string {
 }
 
 func (o *Issuer) MarshalJSON() ([]byte, error) {
-	if o.id == nil {
-		_ = o.ID()
-	}
-	return json.Marshal(o.id)
+	return json.Marshal(o.ID())
 }
 
 func (o *Issuer) UnmarshalJSON(data []byte) error {
@@ -110,10 +104,6 @@ type Serial struct {
 	serial []byte
 }
 
-func (s Serial) ID() string {
-	return base64.URLEncoding.EncodeToString(s.serial)
-}
-
 func (s Serial) String() string {
 	return s.HexString()
 }
@@ -124,10 +114,6 @@ func (s Serial) BinaryString() string {
 
 func (s Serial) HexString() string {
 	return hex.EncodeToString(s.serial)
-}
-
-func (s Serial) Cmp(o Serial) int {
-	return bytes.Compare(s.serial, o.serial)
 }
 
 func (s Serial) MarshalJSON() ([]byte, error) {
@@ -143,20 +129,6 @@ func (s *Serial) UnmarshalJSON(data []byte) error {
 	return err
 }
 
-func (s Serial) MarshalBinary() ([]byte, error) {
-	return s.MarshalJSON()
-}
-
-func (s *Serial) UnmarshalBinary(data []byte) error {
-	return s.UnmarshalJSON(data)
-}
-
-func (s *Serial) AsBigInt() *big.Int {
-	serialBigInt := big.NewInt(0)
-	serialBigInt.SetBytes(s.serial)
-	return serialBigInt
-}
-
 type IssuerCrlMap map[string]map[string]bool
 
 func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
@@ -170,15 +142,6 @@ func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
 		}
 		self[issuer] = selfCrls
 	}
-}
-
-type IssuerRevocations struct {
-	Issuer         Issuer
-	RevokedSerials []Serial
-}
-
-func (self IssuerRevocations) Merge(other IssuerRevocations) {
-	panic("Not implemented")
 }
 
 type IssuerCrlUrls struct {
@@ -219,44 +182,11 @@ func DecodeRawTBSCertList(data []byte) (*TBSCertificateListWithRawSerials, error
 	return &tbsCertList, err
 }
 
-type SerialSet struct {
-	setData map[string]struct{}
-}
-
-func NewSerialSet() *SerialSet {
-	return &SerialSet{
-		setData: make(map[string]struct{}),
-	}
-}
-
-func (s *SerialSet) Add(serial Serial) bool {
-	_, alreadyExisted := s.setData[serial.ID()]
-	s.setData[serial.ID()] = struct{}{}
-	return !alreadyExisted
-}
-
 func NewSerialFromBytes(b []byte) Serial {
 	obj := Serial{
 		serial: b,
 	}
 	return obj
-}
-
-func NewSerialFromIDString(s string) (Serial, error) {
-	bytes, err := base64.URLEncoding.DecodeString(s)
-	if err != nil {
-		return Serial{}, err
-	}
-	return NewSerialFromBytes(bytes), nil
-}
-
-func (s SerialSet) List() []Serial {
-	serialList := make([]Serial, 0, len(s.setData))
-	for idString := range s.setData {
-		serial, _ := NewSerialFromIDString(idString)
-		serialList = append(serialList, serial)
-	}
-	return serialList
 }
 
 type tbsCertWithRawSerial struct {
@@ -289,76 +219,9 @@ func NewSerialFromBinaryString(s string) (Serial, error) {
 	return NewSerialFromBytes(bytes), nil
 }
 
-type SerialList []Serial
-
-func (sl SerialList) Len() int {
-	return len(sl)
-}
-
-func (sl SerialList) Less(i, j int) bool {
-	return sl[i].Cmp(sl[j]) < 0
-}
-
-func (sl SerialList) Swap(i, j int) {
-	tmp := sl[i]
-	sl[i] = sl[j]
-	sl[j] = tmp
-}
-
-type UniqueCertIdentifier struct {
-	ExpDate   ExpDate
-	Issuer    Issuer
-	SerialNum Serial
-}
-
-func ParseUniqueCertIdentifier(s string) (UniqueCertIdentifier, error) {
-	parts := strings.Split(s, "::")
-	if len(parts) != 3 {
-		return UniqueCertIdentifier{}, fmt.Errorf("Expected 3 parts, got %d", len(parts))
-	}
-
-	e, err := NewExpDate(parts[0])
-	if err != nil {
-		return UniqueCertIdentifier{}, err
-	}
-
-	i := NewIssuerFromString(parts[1])
-
-	n, err := NewSerialFromIDString(parts[2])
-	if err != nil {
-		return UniqueCertIdentifier{}, err
-	}
-
-	return UniqueCertIdentifier{
-		ExpDate:   e,
-		Issuer:    i,
-		SerialNum: n,
-	}, nil
-}
-
-func (uci UniqueCertIdentifier) String() string {
-	return fmt.Sprintf("%s::%s::%s", uci.ExpDate.ID(), uci.Issuer.ID(), uci.SerialNum.ID())
-}
-
 type IssuerAndDate struct {
 	ExpDate ExpDate
 	Issuer  Issuer
-}
-
-func ParseIssuerAndDate(s string) (IssuerAndDate, error) {
-	parts := strings.Split(s, "/")
-	if len(parts) != 2 {
-		return IssuerAndDate{},
-			fmt.Errorf("Unexpected number of parts: %d from %s", len(parts), s)
-	}
-	expDate, err := NewExpDate(parts[0])
-	if err != nil {
-		return IssuerAndDate{}, err
-	}
-	return IssuerAndDate{
-		ExpDate: expDate,
-		Issuer:  NewIssuerFromString(parts[1]),
-	}, nil
 }
 
 func (t *IssuerAndDate) String() string {
@@ -416,22 +279,6 @@ func (e ExpDate) ID() string {
 		return e.date.Format(kExpirationFormatWithHour)
 	}
 	return e.date.Format(kExpirationFormat)
-}
-
-type ExpDateList []ExpDate
-
-func (sl ExpDateList) Len() int {
-	return len(sl)
-}
-
-func (sl ExpDateList) Less(i, j int) bool {
-	return sl[i].date.Before(sl[j].date)
-}
-
-func (sl ExpDateList) Swap(i, j int) {
-	tmp := sl[i]
-	sl[i] = sl[j]
-	sl[j] = tmp
 }
 
 type IssuerDate struct {
