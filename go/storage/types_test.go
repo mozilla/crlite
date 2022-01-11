@@ -171,23 +171,6 @@ func TestLog(t *testing.T) {
 	if log.String() != expectedString {
 		t.Errorf("Expecting %s but got %s", expectedString, log.String())
 	}
-
-	expectedID := "bG9nLmV4YW1wbGUuY29tLzI1MjU="
-	if log.ID() != expectedID {
-		t.Errorf("Expecting ID of %s but got %s", expectedID, log.ID())
-	}
-
-	// From previous version
-	log = CertificateLog{
-		ShortURL:     "yeti2021.ct.digicert.com/log/",
-		MaxEntry:     1517184,
-		MaxTimestamp: uint64(time.Date(2019, time.August, 30, 05, 30, 16, 82, time.UTC).Unix()),
-	}
-
-	expectedID = "eWV0aTIwMjEuY3QuZGlnaWNlcnQuY29tL2xvZy8="
-	if log.ID() != expectedID {
-		t.Errorf("Expecting ID of %s but got %s", expectedID, log.ID())
-	}
 }
 
 func TestExpDate(t *testing.T) {
