@@ -329,6 +329,9 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 			return err
 		}
 
+		// We did useful work. Register an update for the health service.
+		ld.RegisterUpdate()
+
 		if !*ctconfig.RunForever {
 			return nil
 		}
@@ -340,6 +343,12 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 		default:
 		}
 	}
+}
+
+func (ld *LogSyncEngine) RegisterUpdate() {
+	ld.lastUpdateMutex.Lock()
+	defer ld.lastUpdateMutex.Unlock()
+	ld.lastUpdateTime = time.Now()
 }
 
 func (ld *LogSyncEngine) ApproximateMostRecentUpdateTimestamp() time.Time {
@@ -375,6 +384,13 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	defer healthStatusTicker.Stop()
 
 	for ep := range ld.entryChan {
+		select { // Taking something off the queue is useful work.
+		// So indicate server health when requested.
+		case <-healthStatusTicker.C:
+			ld.RegisterUpdate()
+		default:
+		}
+
 		var cert *x509.Certificate
 		var err error
 		precert := false
@@ -419,15 +435,6 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
 
 		metrics.IncrCounter([]string{"insertCTWorker", "Inserted"}, 1)
-
-		select {
-		case <-healthStatusTicker.C:
-			ld.lastUpdateMutex.Lock()
-			ld.lastUpdateTime = time.Now()
-			ld.lastUpdateMutex.Unlock()
-		default:
-			// Nothing to do, selecting to make the above nonblocking
-		}
 	}
 }
 
