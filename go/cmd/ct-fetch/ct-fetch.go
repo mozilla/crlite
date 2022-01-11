@@ -527,12 +527,13 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 
 func (lw *LogWorker) sleep(ctx context.Context) {
 	// Sleep for ctconfig.PollingDelay seconds (+/- 10%).
-	duration := time.Duration((1 + 0.1*rand.NormFloat64()) * float64(*ctconfig.PollingDelay))
-	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.Name(), duration)
+	jitteredPollingDelay := (1 + 0.1*rand.NormFloat64()) * float64(*ctconfig.PollingDelay)
+	duration := time.Duration(jitteredPollingDelay) * time.Second
+	glog.Infof("[%s] Stopped. Sleeping for %d seconds", lw.Name(), int(jitteredPollingDelay))
 	select {
 	case <-ctx.Done():
 		glog.Infof("[%s] Signal caught. Exiting.", lw.Name())
-	case <-time.After(duration * time.Second):
+	case <-time.After(duration):
 	}
 }
 
@@ -1053,10 +1054,10 @@ func main() {
 		}
 
 		duration := time.Since(approxUpdateTimestamp)
-		evaluationTime := 2 * time.Duration(*ctconfig.PollingDelay)
+		evaluationTime := 2 * time.Duration(*ctconfig.PollingDelay) * time.Second
 		if duration > evaluationTime {
 			w.WriteHeader(500)
-			_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelay (%v)", duration, evaluationTime)))
+			_, err := w.Write([]byte(fmt.Sprintf("error: %v since last update, which is longer than 2 * pollingDelay", duration)))
 			if err != nil {
 				glog.Warningf("Couldn't return poor health status: %+v", err)
 			}
@@ -1064,7 +1065,7 @@ func main() {
 		}
 
 		w.WriteHeader(200)
-		_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelay (%v)", duration, evaluationTime)))
+		_, err := w.Write([]byte(fmt.Sprintf("ok: %v since last update, which is shorter than 2 * pollingDelay", duration)))
 		if err != nil {
 			glog.Warningf("Couldn't return ok health status: %+v", err)
 		}
