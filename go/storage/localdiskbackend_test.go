@@ -39,26 +39,6 @@ func (h *LocalDiskTestHarness) cleanup() {
 	h.Remove(h.root)
 }
 
-func Test_LocalDiskStoreLoad(t *testing.T) {
-	t.Skip("Disabled")
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-	BackendTestStoreLoad(t, h.db)
-}
-
-func Test_LocalDiskListFiles(t *testing.T) {
-	t.Skip("Disabled")
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-	BackendTestListFiles(t, h.db)
-}
-
-func Test_LocalDiskLogState(t *testing.T) {
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-	BackendTestLogState(t, h.db)
-}
-
 func Test_KnownCertificateList(t *testing.T) {
 	h := makeLocalDiskHarness(t)
 	defer h.cleanup()
