@@ -331,9 +331,8 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			}
 		}
 
-		// Issuer is considered enrolled if no CRLs failed to download or process,
-		// and at least one revocation was collected
-		if anyCrlFailed == false && serialCount > 0 {
+		// Issuer is considered enrolled if all known CRLs were processed
+		if anyCrlFailed == false {
 			ae.issuers.Enroll(tuple.Issuer)
 
 			glog.Infof("[%s] Saving %d revoked serials", tuple.Issuer.ID(), serialCount)
