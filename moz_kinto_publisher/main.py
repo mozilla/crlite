@@ -499,14 +499,21 @@ def load_remote_intermediates(*, kinto_client):
     return remote_intermediates, remote_error_records
 
 
-def publish_intermediates(*, args, rw_client):
+def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
 
     run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
     if not run_identifiers:
         log.warning("No run identifiers found")
         return
 
-    run_id = run_identifiers[-1]
+    # We only enroll intermediates in CRLite when we publish a new full filter.
+    # But we can still update intermediates for preloading when new_filter_run_id is None.
+    if new_filter_run_id:
+        run_id = new_filter_run_id
+        allow_crlite_enrollment = True
+    else:
+        run_id = run_identifiers[-1]
+        allow_crlite_enrollment = False
 
     run_id_path = args.download_path / Path(run_id)
     run_id_path.mkdir(parents=True, exist_ok=True)
@@ -597,6 +604,9 @@ def publish_intermediates(*, args, rw_client):
     # New records
     for unique_id in to_upload:
         record = local_intermediates[unique_id]
+        if not allow_crlite_enrollment:
+            log.info(f"Skipping enrollment of: {record}")
+            record.crlite_enrolled = False
         log.info(f"Adding new record: {record}")
         try:
             record.add_to_kinto(rw_client=rw_client)
@@ -607,6 +617,13 @@ def publish_intermediates(*, args, rw_client):
     for unique_id in to_update:
         local_int = local_intermediates[unique_id]
         remote_int = remote_intermediates[unique_id]
+        if not allow_crlite_enrollment:
+            log.info(f"Skipping enrollment of: {local_int}")
+            local_int.crlite_enrolled = False
+        # Enrollment might be the only change, and might be
+        # disallowed. So we might not have an update at all.
+        if local_int.equals(remote_record=remote_int):
+            continue
         log.info(f"Updating record: {local_int} to {remote_int}")
         try:
             local_int.update_kinto(
@@ -980,6 +997,9 @@ def crlite_determine_publish(*, existing_records, run_db):
 
 
 def publish_crlite(*, args, rw_client):
+    # returns the run_id of a new full filter if one is published, otherwise None
+    rv = None
+
     existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
@@ -994,7 +1014,7 @@ def publish_crlite(*, args, rw_client):
         published_run_db.await_most_recent_run(timeout=timedelta(minutes=5))
     except TimeoutException as te:
         log.warning(f"The most recent run is not ready to be published (waited {te}).")
-        return
+        return rv
 
     tasks = crlite_determine_publish(
         existing_records=existing_records, run_db=published_run_db
@@ -1004,7 +1024,7 @@ def publish_crlite(*, args, rw_client):
 
     if not tasks["upload"]:
         log.info("Nothing to do.")
-        return
+        return rv
 
     args.download_path.mkdir(parents=True, exist_ok=True)
 
@@ -1066,6 +1086,7 @@ def publish_crlite(*, args, rw_client):
             ctlogs=ctlogs,
             noop=args.noop,
         )
+        rv = final_run_id
 
     else:
         log.info("Uploading stashes.")
@@ -1087,6 +1108,8 @@ def publish_crlite(*, args, rw_client):
         rw_client.request_review_of_collection(
             collection=settings.KINTO_CRLITE_COLLECTION
         )
+
+    return rv
 
 
 def publish_ctlogs(*, args, rw_client):
@@ -1283,10 +1306,14 @@ def main():
         publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        publish_crlite(args=args, rw_client=rw_client)
+        new_filter_run_id = publish_crlite(args=args, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
-        publish_intermediates(args=args, rw_client=rw_client)
+        publish_intermediates(
+            args=args,
+            rw_client=rw_client,
+            new_filter_run_id=new_filter_run_id,
+        )
     except KintoException as ke:
         log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
