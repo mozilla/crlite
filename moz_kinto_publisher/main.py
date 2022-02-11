@@ -489,14 +489,14 @@ def load_remote_intermediates(*, kinto_client):
         try:
             intObj = Intermediate(**record)
             intObj.download_pem()  # intObj.pemAttachment was set by constructor
-            remote_intermediates[intObj.unique_id()] = intObj
+            if intObj.unique_id() in remote_intermediates:
+                log.warning("Will remove duplicate intermediate: {intObj}")
+                remote_error_records.append(record)
+            else:
+                remote_intermediates[intObj.unique_id()] = intObj
         except IntermediateRecordError as ire:
             log.warning("Skipping broken intermediate record at Kinto: {}".format(ire))
             remote_error_records.append(record)
-        except KeyError as ke:
-            log.error("Critical error importing Kinto dataset: {}".format(ke))
-            log.error("Record: {}".format(record))
-            raise ke
     return remote_intermediates, remote_error_records
 
 
