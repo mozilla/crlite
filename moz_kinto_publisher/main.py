@@ -107,10 +107,8 @@ def asciiPemToBinaryDer(pem: str) -> bytes:
 
 
 @lru_cache
-def get_attachments_base_url():
-    return requests.get(settings.KINTO_RW_SERVER_URL).json()["capabilities"][
-        "attachments"
-    ]["base_url"]
+def get_attachments_base_url(client):
+    return client.server_info()["capabilities"]["attachments"]["base_url"]
 
 
 class PublisherClient(Client):
@@ -350,16 +348,20 @@ class Intermediate:
             raise IntermediateRecordError("Cannot parse PEM data: {}".format(e))
         self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
 
-    def download_pem(self):
+    def download_pem(self, kinto_client):
         if not self.pemAttachment:
             raise Exception("pemAttachment not set")
-        r = requests.get(f"{get_attachments_base_url()}{self.pemAttachment.location}")
+        r = requests.get(
+            f"{get_attachments_base_url(kinto_client)}{self.pemAttachment.location}"
+        )
         r.raise_for_status()
         self.set_pem(r.text)
 
-    def is_expired(self):
+    def is_expired(self, kinto_client=None):
         if not self.cert:
-            self.download_pem()
+            if not kinto_client:
+                raise Exception("cannot download PEM without client")
+            self.download_pem(kinto_client)
         return self.cert.not_valid_after <= datetime.utcnow()
 
     def delete_from_kinto(self, *, rw_client=None):
@@ -488,9 +490,11 @@ def load_remote_intermediates(*, kinto_client):
     ):
         try:
             intObj = Intermediate(**record)
-            intObj.download_pem()  # intObj.pemAttachment was set by constructor
+            intObj.download_pem(
+                kinto_client
+            )  # intObj.pemAttachment was set by constructor
             if intObj.unique_id() in remote_intermediates:
-                log.warning("Will remove duplicate intermediate: {intObj}")
+                log.warning(f"Will remove duplicate intermediate: {intObj}")
                 remote_error_records.append(record)
             else:
                 remote_intermediates[intObj.unique_id()] = intObj
@@ -551,7 +555,7 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
     remote_expired = set()
     for i in remote_only:
         try:
-            if remote_intermediates[i].is_expired():
+            if remote_intermediates[i].is_expired(kinto_client=rw_client):
                 remote_expired.add(i)
         except Exception as e:
             log.warning(f"Failed to track expiration for {i}: {e}")
