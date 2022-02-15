@@ -215,7 +215,7 @@ class TestPublishDecisions(unittest.TestCase):
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
-        self.assertEqual(result, {"upload": ["20500101-0"]})
+        self.assertEqual(result, {"clear_all": False, "upload": ["20500101-0"]})
 
     def test_continue_with_four_stashes(self):
         existing_records = [
@@ -240,7 +240,11 @@ class TestPublishDecisions(unittest.TestCase):
             existing_records=existing_records, run_db=db
         )
         self.assertEqual(
-            result, {"upload": ["20500101-0", "20500101-1", "20500101-2", "20500101-3"]}
+            result,
+            {
+                "clear_all": False,
+                "upload": ["20500101-0", "20500101-1", "20500101-2", "20500101-3"],
+            },
         )
 
     def test_up_to_date_single_entry(self):
@@ -261,7 +265,7 @@ class TestPublishDecisions(unittest.TestCase):
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
-        self.assertEqual(result, {"upload": []})
+        self.assertEqual(result, {"clear_all": False, "upload": []})
 
     def test_up_to_date(self):
         existing_records = [
@@ -284,7 +288,7 @@ class TestPublishDecisions(unittest.TestCase):
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
-        self.assertEqual(result, {"upload": []})
+        self.assertEqual(result, {"clear_all": False, "upload": []})
 
     def test_rundb_data_loss(self):
         existing_records = [
@@ -331,4 +335,4 @@ class TestPublishDecisions(unittest.TestCase):
         result = main.crlite_determine_publish(
             existing_records=existing_records, run_db=db
         )
-        self.assertEqual(result, {"upload": []})
+        self.assertEqual(result, {"clear_all": False, "upload": []})
