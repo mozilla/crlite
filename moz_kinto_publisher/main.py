@@ -998,7 +998,7 @@ def crlite_determine_publish(*, existing_records, run_db):
         log.error(f"Failed to verify run ID consistency: {se}")
         return default
 
-    return {"upload": new_run_ids}
+    return {"clear_all": False, "upload": new_run_ids}
 
 
 def publish_crlite(*, args, rw_client):
@@ -1033,19 +1033,6 @@ def publish_crlite(*, args, rw_client):
 
     args.download_path.mkdir(parents=True, exist_ok=True)
 
-    new_stash_paths = []
-    for run_id in tasks["upload"]:
-        run_id_path = args.download_path / Path(run_id)
-        run_id_path.mkdir(parents=True, exist_ok=True)
-        stash_path = run_id_path / Path("stash")
-        workflow.download_and_retry_from_google_cloud(
-            args.filter_bucket,
-            f"{run_id}/mlbf/filter.stash",
-            stash_path,
-            timeout=timedelta(minutes=5),
-        )
-        new_stash_paths.append(stash_path)
-
     final_run_id = tasks["upload"][-1]
     filter_path = args.download_path / Path(final_run_id) / Path("filter")
     workflow.download_and_retry_from_google_cloud(
@@ -1055,18 +1042,38 @@ def publish_crlite(*, args, rw_client):
         timeout=timedelta(minutes=5),
     )
 
-    existing_stash_size = sum(
-        x["attachment"]["size"] for x in existing_records if x["incremental"]
-    )
-    update_stash_size = sum(stash_path.stat().st_size for stash_path in new_stash_paths)
+    if not tasks["clear_all"]:
+        # We might upload a stash. But if the stashes are too big, we'll set
+        # the `clear_all` flag and upload a full filter instead.
+        new_stash_paths = []
+        for run_id in tasks["upload"]:
+            run_id_path = args.download_path / Path(run_id)
+            run_id_path.mkdir(parents=True, exist_ok=True)
+            stash_path = run_id_path / Path("stash")
+            workflow.download_and_retry_from_google_cloud(
+                args.filter_bucket,
+                f"{run_id}/mlbf/filter.stash",
+                stash_path,
+                timeout=timedelta(minutes=5),
+            )
+            new_stash_paths.append(stash_path)
 
-    total_stash_size = existing_stash_size + update_stash_size
-    full_filter_size = filter_path.stat().st_size
+        existing_stash_size = sum(
+            x["attachment"]["size"] for x in existing_records if x["incremental"]
+        )
+        update_stash_size = sum(
+            stash_path.stat().st_size for stash_path in new_stash_paths
+        )
 
-    log.info(f"New stash size: {total_stash_size} bytes")
-    log.info(f"New filter size: {full_filter_size} bytes")
+        total_stash_size = existing_stash_size + update_stash_size
+        full_filter_size = filter_path.stat().st_size
+        if total_stash_size > full_filter_size:
+            tasks["clear_all"] = True
+        else:
+            log.info(f"New stash size: {total_stash_size} bytes")
+            log.info(f"New filter size: {full_filter_size} bytes")
 
-    if "clear_all" in tasks or total_stash_size > full_filter_size:
+    if tasks["clear_all"]:
         log.info(f"Uploading a full filter based on {final_run_id}.")
 
         clear_crlite_filters(rw_client=rw_client, noop=args.noop)
