@@ -1034,7 +1034,10 @@ def publish_crlite(*, args, rw_client):
     args.download_path.mkdir(parents=True, exist_ok=True)
 
     final_run_id = tasks["upload"][-1]
-    filter_path = args.download_path / Path(final_run_id) / Path("filter")
+    final_run_id_path = args.download_path / Path(final_run_id)
+    final_run_id_path.mkdir(parents=True, exist_ok=True)
+
+    filter_path = final_run_id_path / Path("filter")
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
         f"{final_run_id}/mlbf/filter",
