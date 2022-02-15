@@ -13,7 +13,7 @@ setup(
         "google-api-core",
         "google-cloud-core",
         "google-cloud-storage",
-        "kinto-http>=9.1",
+        "kinto-http>=10.9",
         "moz_crlite_lib>=0.2",
         "moz_crlite_query>=0.5.0",
         "progressbar2>=3.40",
