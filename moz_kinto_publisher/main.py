@@ -130,7 +130,7 @@ class PublisherClient(Client):
                 fileContents = f.read()
 
         attachmentEndpoint = "buckets/{}/collections/{}/records/{}/attachment".format(
-            self._bucket_name, collection or self._collection_name, recordId
+            self.bucket_name, collection or self.collection_name, recordId
         )
         response = requests.post(
             self.session.server_url + attachmentEndpoint,
