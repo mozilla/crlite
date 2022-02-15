@@ -571,19 +571,19 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
         log.info("Noop flag set, exiting before any intermediate updates")
         return
 
-    # Enrolled intermediates must be in the local list
-    for unique_id in remote_only & remote_enrolled:
+    # All intermediates must be in the local list
+    for unique_id in remote_only:
         record = remote_intermediates[unique_id]
-        log.info(f"Unenrolling deleted {record} from CRLite")
+        log.info(f"Removing deleted intermediate {record}")
         try:
-            record.unenroll_from_crlite_in_kinto(rw_client=rw_client)
+            record.delete_from_kinto(rw_client=rw_client)
         except KintoException as ke:
-            log.error(f"Couldn't unenroll record id {record}: {ke}")
+            log.error(f"Couldn't delete record {record}: {ke}")
 
-    # Delete any remote records that had parsing errors
+    # Delete any remote records that had errors
     # (note these "records" are just dictionaries)
     for raw_record in remote_error_records:
-        log.info(f"Deleting remote record with parsing error: {raw_record}")
+        log.info(f"Deleting remote record with error: {raw_record}")
         try:
             rw_client.delete_record(
                 collection=settings.KINTO_INTERMEDIATES_COLLECTION,
@@ -593,18 +593,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
             log.error(f"Couldn't delete record id {raw_record['id']}: {ke}")
         except KeyError:  # raw_record doesn't have "id"
             log.error(f"Couldn't delete record: {raw_record}")
-
-    # Delete any expired remote records
-    for unique_id in remote_expired:
-        record = remote_intermediates[unique_id]
-        log.info(f"Deleting expired remote record: {record}")
-        try:
-            rw_client.delete_record(
-                collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-                id=record.kinto_id,
-            )
-        except KintoException as ke:
-            log.error(f"Couldn't delete record id {record.kinto_id}: {ke}")
 
     # New records
     for unique_id in to_upload:
@@ -658,7 +646,7 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
         )
     )
 
-    # Every local intermediate should be on remote
+    # Every local intermediate should be in the remote list
     for unique_id, local_int in local_intermediates.items():
         if unique_id not in verified_intermediates:
             raise KintoException(f"Failed to upload {unique_id}")
@@ -667,10 +655,10 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
                 "Local/Remote metadata mismatch for uniqueId={}".format(unique_id)
             )
 
-    # Every enrolled remote intermediate should be in the local list
-    for unique_id, ver_int in verified_intermediates.items():
-        if ver_int.crlite_enrolled and unique_id not in local_intermediates:
-            raise KintoException(f"Failed to unenroll {unique_id}")
+    # Every remote intermediate should be in the local list
+    for unique_id in verified_intermediates.keys():
+        if unique_id not in local_intermediates:
+            raise KintoException(f"Failed to remove {unique_id}")
 
     rw_client.request_review_of_collection(
         collection=settings.KINTO_INTERMEDIATES_COLLECTION
