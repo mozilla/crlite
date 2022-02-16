@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
 import datetime
 import hashlib
 import subprocess
 import sys
 import json
 import tempfile
+from cryptography import x509
 from pathlib import Path
 
 import requests
@@ -87,7 +89,10 @@ class SignoffClient(Client):
         rs_records = self.get_records(collection=KINTO_INTERMEDIATES_COLLECTION)
 
         # An intermediate is identified by its Subject DN and SPKI hash
-        k = lambda x: (x["subjectDN"], x["pubKeyHash"])
+        k = lambda x: (
+            base64.urlsafe_b64decode(x["subjectDN"]),
+            base64.urlsafe_b64decode(x["pubKeyHash"]),
+        )
 
         # We may have multiple certificates for an intermediate. These should all
         # have the same `crlite_enrolled` value.
@@ -102,7 +107,18 @@ class SignoffClient(Client):
 
         # The CRLite aggregator and Remote Settings should agree on enrollment
         for r in aggregator_records:
-            if k(r) not in rs_icas:
+            try:
+                subjectDN = x509.load_pem_x509_certificate(
+                    r["pem"].encode("utf-8")
+                ).subject.public_bytes()
+            except ValueError as e:
+                log.warning(
+                    f"Cannot parse PEM data in aggregator record for {r['subject']}"
+                )
+                continue
+            r_id = (subjectDN, base64.urlsafe_b64decode(r["pubKeyHash"]))
+
+            if r_id not in rs_icas:
                 # This usually indicates that we skipped enrollment because of
                 # a defect in the intermediate's certificate. The CRLite
                 # aggregator and moz_kinto_publisher don't use the same library
@@ -111,7 +127,7 @@ class SignoffClient(Client):
                 log.warning(
                     f"Missing remote settings record for {r['subject']}--{r['pubKeyHash']}"
                 )
-            elif r["enrollment"] != rs_icas[k(r)]["enrollment"]:
+            elif r["enrolled"] != rs_icas[r_id]["crlite_enrolled"]:
                 raise KintoException(
                     f"Inconsistent enrollment for {r['subject']}--{r['pubKeyHash']}"
                 )
