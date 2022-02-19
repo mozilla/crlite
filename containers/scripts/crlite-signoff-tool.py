@@ -127,7 +127,7 @@ class SignoffClient(Client):
                 log.warning(
                     f"Missing remote settings record for {r['subject']}--{r['pubKeyHash']}"
                 )
-            elif r["enrolled"] != rs_icas[r_id]["crlite_enrolled"]:
+            elif r["enrolled"] == False and rs_icas[r_id]["crlite_enrolled"] == True:
                 raise KintoException(
                     f"Inconsistent enrollment for {r['subject']}--{r['pubKeyHash']}"
                 )
