@@ -610,14 +610,15 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
     for unique_id in to_update:
         local_int = local_intermediates[unique_id]
         remote_int = remote_intermediates[unique_id]
-        if not allow_crlite_enrollment:
-            log.info(f"Skipping enrollment of: {local_int}")
-            local_int.crlite_enrolled = False
+        if not allow_crlite_enrollment and local_int.crlite_enrolled:
+            if not remote_int.crlite_enrolled:
+                log.info(f"Skipping enrollment of: {local_int}")
+                local_int.crlite_enrolled = False
         # Enrollment might be the only change, and might be
         # disallowed. So we might not have an update at all.
         if local_int.equals(remote_record=remote_int):
             continue
-        log.info(f"Updating record: {local_int} to {remote_int}")
+        log.info(f"Updating record: {remote_int} to {local_int}")
         try:
             local_int.update_kinto(
                 rw_client=rw_client,
