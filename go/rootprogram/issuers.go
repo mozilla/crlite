@@ -39,6 +39,7 @@ type IssuerData struct {
 }
 
 type EnrolledIssuer struct {
+	UniqueID   string `json:"uniqueID"`
 	PubKeyHash string `json:"pubKeyHash"`
 	Whitelist  bool   `json:"whitelist"`
 	SubjectDN  string `json:"subjectDN"`
@@ -163,7 +164,9 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	for _, val := range mi.issuerMap {
 		for _, cert := range val.certs {
 			pubKeyHash := sha256.Sum256(cert.cert.RawSubjectPublicKeyInfo)
+			uniqueID := sha256.Sum256(append(cert.cert.RawSubject, cert.cert.RawSubjectPublicKeyInfo...))
 			issuers = append(issuers, EnrolledIssuer{
+				UniqueID:   base64.URLEncoding.EncodeToString(uniqueID[:]),
 				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
 				Whitelist:  false,
 				SubjectDN:  base64.URLEncoding.EncodeToString([]byte(cert.subjectDN)),
