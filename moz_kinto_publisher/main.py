@@ -738,7 +738,7 @@ def publish_crlite_record(
 
 
 def publish_crlite_main_filter(
-    *, rw_client, filter_path, filename, timestamp, ctlogs, noop
+    *, rw_client, filter_path, filename, timestamp, ctlogs, intermediates, noop
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
@@ -799,11 +799,18 @@ def publish_crlite_main_filter(
             }
         ]
 
+    enrolledIssuers = []
+    for issuer in intermediates:
+        if issuer["enrolled"]:
+            uid = base64.urlsafe_b64decode(issuer["uniqueID"])
+            enrolledIssuers.append(base64.b64encode(uid))
+
     attributes = {
         "details": {"name": identifier},
         "incremental": False,
         "effectiveTimestamp": record_epoch_time_ms,
         "coverage": coverage,
+        "enrolledIssuers": enrolledIssuers,
     }
 
     log.info(f"Publishing full filter {filter_path} {timestamp}")
@@ -1081,6 +1088,16 @@ def publish_crlite(*, args, rw_client):
         with open(ctlogs_path, "r") as f:
             ctlogs = json.load(f)
 
+        enrolled_path = args.download_path / Path(final_run_id) / Path("enrolled.json")
+        workflow.download_and_retry_from_google_cloud(
+            args.filter_bucket,
+            f"{final_run_id}/enrolled.json",
+            enrolled_path,
+            timeout=timedelta(minutes=5),
+        )
+        with open(enrolled_path, "r") as f:
+            intermediates = json.load(f)
+
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
@@ -1088,6 +1105,7 @@ def publish_crlite(*, args, rw_client):
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
             ctlogs=ctlogs,
+            intermediates=intermediates,
             noop=args.noop,
         )
         rv = final_run_id
