@@ -39,6 +39,7 @@ def make_record(run_id, *, parent):
         record["parent"] = hashlib.sha256(parent.encode("utf-8")).hexdigest()
     else:
         record["coverage"] = []
+        record["enrolledIssuers"] = []
     return record
 
 
