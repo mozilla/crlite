@@ -870,6 +870,8 @@ def crlite_verify_record_consistency(*, existing_records):
             raise ConsistencyException(f"Malformed record {r}.")
         if not r["incremental"] and not "coverage" in r:
             raise ConsistencyException(f"Malformed record {r}.")
+        if not r["incremental"] and not "enrolledIssuers" in r:
+            raise ConsistencyException(f"Malformed record {r}.")
 
     # There must be exactly 1 full filter in the existing records.
     full_filters = [r for r in existing_records if not r["incremental"]]
