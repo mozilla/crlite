@@ -799,11 +799,12 @@ def publish_crlite_main_filter(
             }
         ]
 
-    enrolledIssuers = []
+    enrolledIssuers = set()
     for issuer in intermediates:
         if issuer["enrolled"]:
             uid = base64.urlsafe_b64decode(issuer["uniqueID"])
             enrolledIssuers.append(base64.b64encode(uid))
+    enrolledIssuers = list(enrolledIssuers)
 
     attributes = {
         "details": {"name": identifier},
