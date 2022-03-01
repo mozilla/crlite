@@ -803,7 +803,7 @@ def publish_crlite_main_filter(
     for issuer in intermediates:
         if issuer["enrolled"]:
             uid = base64.urlsafe_b64decode(issuer["uniqueID"])
-            enrolledIssuers.append(base64.b64encode(uid))
+            enrolledIssuers.add(base64.b64encode(uid).decode("utf-8"))
     enrolledIssuers = list(enrolledIssuers)
 
     attributes = {
