@@ -1143,11 +1143,13 @@ def publish_ctlogs(*, args, rw_client):
     #
     # Schema for our ct-logs kinto collection:
     #   {
+    #       "admissible": boolean
     #       "crlite_enrolled": boolean,
     #       "description": string,
     #       "key": string,
     #       "logID": string,
     #       "mmd": integer,
+    #       "operator": string
     #       "url": string
     #   }
     #
@@ -1156,20 +1158,33 @@ def publish_ctlogs(*, args, rw_client):
         "https://www.gstatic.com/ct/log_list/v3/log_list.json"
     ).json()
 
+    # The "state" of a log determines whether its SCTs are admissible in policy checks.
+    # We largely follow Chrome's behavior defined here:
+    #    https://googlechrome.github.io/CertificateTransparency/log_states.html,
+    # except we are not enforcing the restrictions on "retired" logs.
+    admissible_states = ["qualified", "usable", "readonly", "retired"]
+
     # Google groups CT logs according to their operators, we want a flat list
-    upstream_logs_raw = [
-        ctlog for operator in log_list_json["operators"] for ctlog in operator["logs"]
-    ]
+    upstream_logs_raw = []
+    for operator in log_list_json["operators"]:
+        for ctlog in operator["logs"]:
+            ctlog["operator"] = operator["name"]
+            ctlog["admissible"] = any(
+                state in ctlog["state"] for state in admissible_states
+            )
+            upstream_logs_raw.append(ctlog)
 
     # Translate |upstream_logs_raw| to our schema (and remove unused fields)
     upstream_logs = [
         {
+            "admissible": ctlog["admissible"],
             "crlite_enrolled": False,
             "description": ctlog["description"],
             "key": ctlog["key"],
             "logID": ctlog["log_id"],
-            "url": ctlog["url"],
             "mmd": ctlog["mmd"],
+            "operator": ctlog["operator"],
+            "url": ctlog["url"],
         }
         for ctlog in upstream_logs_raw
     ]
@@ -1249,9 +1264,13 @@ def publish_ctlogs(*, args, rw_client):
 
         upstream_log = upstream_lut[known_id]
 
+        # This script is not responsible for updating crlite enrollment,
+        # so preserve the existing value.
+        upstream_log["crlite_enrolled"] = known_log["crlite_enrolled"]
+
         need_update = False
-        for i in ["description", "key", "url", "mmd"]:
-            if upstream_log[i] != known_log[i]:
+        for i in ["description", "key", "url", "mmd", "admissible", "operator"]:
+            if upstream_log[i] != known_log.get(i, None):
                 need_update = True
 
         if not need_update:
