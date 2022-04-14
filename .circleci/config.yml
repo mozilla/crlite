@@ -67,7 +67,7 @@ jobs:
       - run:
          name: Check format with Black
          command: |
-            pip install "black==20.8b1"
+            pip install "black==22.3.0"
             python -m black --check .
 
   golang-build-and-test:
