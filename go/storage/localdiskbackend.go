@@ -1,8 +1,8 @@
 package storage
 
 import (
+	"bufio"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -36,29 +36,6 @@ func makeDirectoryIfNotExist(id string) error {
 	return nil
 }
 
-func (db *LocalDiskBackend) store(path string, data []byte) error {
-	if err := makeDirectoryIfNotExist(path); err != nil {
-		return err
-	}
-
-	fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
-	if err != nil {
-		return err
-	}
-
-	bytesWritten, err := fd.Write(data)
-	if err != nil {
-		fd.Close() // ignore error
-		return err
-	}
-
-	if len(data) != bytesWritten {
-		return fmt.Errorf("Only wrote %d of %d bytes.", bytesWritten, len(data))
-	}
-
-	return fd.Close()
-}
-
 func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issuer types.Issuer,
 	serials []types.Serial) error {
 	path := filepath.Join(db.rootPath, issuer.ID())
@@ -70,14 +47,21 @@ func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issue
 	if err != nil {
 		return err
 	}
-
 	defer fd.Close()
+
+	writer := bufio.NewWriter(fd)
+	defer writer.Flush()
+
 	for _, s := range serials {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			_, err := fd.Write([]byte(s.HexString() + "\n"))
+			_, err := writer.WriteString(s.HexString())
+			if err != nil {
+				return err
+			}
+			err = writer.WriteByte('\n')
 			if err != nil {
 				return err
 			}
