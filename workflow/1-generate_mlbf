@@ -26,18 +26,21 @@ def main():
         parser.print_usage()
         sys.exit(0)
 
-    parentDir = (os.path.dirname(os.path.abspath(__file__)) / Path("..")).resolve()
+    runIdPath = args.identifier[0]
 
-    exe = os.path.expanduser(f"{parentDir}/create_filter_cascade/certs_to_crlite.py")
+    exe = os.path.expanduser(f"~/rust-create-cascade")
     cmdline = [
         exe,
-        "-knownPath",
-        os.path.join(args.identifier[0], "known"),
-        "-revokedPath",
-        os.path.join(args.identifier[0], "revoked"),
+        "-vv",
+        "--known",
+        os.path.join(runIdPath, "known"),
+        "--revoked",
+        os.path.join(runIdPath, "revoked"),
+        "--outdir",
+        os.path.join(runIdPath, "mlbf"),
+        "--clobber",
+        "--murmurhash3",
     ]
-
-    cmdline = cmdline + args.identifier
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
@@ -46,19 +49,15 @@ def main():
                 latest = all_runs.pop()
                 dest = Path(tempfile.mkdtemp()) / Path(latest)
                 dest.mkdir()
+                prev_revset = dest / Path("prev_revset.bin")
 
                 workflow.download_from_google_cloud(
                     args.filter_bucket,
-                    f"{latest}/mlbf/list-revoked.keys",
-                    dest / Path("list-revoked.keys"),
-                )
-                workflow.download_from_google_cloud(
-                    args.filter_bucket,
-                    f"{latest}/mlbf/list-valid.keys",
-                    dest / Path("list-valid.keys"),
+                    f"{latest}/mlbf/revset.bin",
+                    prev_revset,
                 )
 
-                cmdline = cmdline + ["-previd", dest]
+                cmdline = cmdline + ["--prev-revset", prev_revset]
         except exceptions.NotFound as e:
             log.error(f"Could not download existing filter: {e}")
         except Exception as e:
