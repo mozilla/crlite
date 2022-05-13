@@ -156,7 +156,9 @@ fn include<T>(
     while let Some(Ok(ref serial)) = known_serials.next() {
         if revoked_serial_set.contains(serial) {
             let key = crlite_key(issuer, &decode_serial(serial));
-            builder.include(key).ok();
+            builder
+                .include(key)
+                .expect("Capacity error. Did the file contents change?");
         }
     }
 }
@@ -311,11 +313,10 @@ fn create_cascade(out_file: &Path, revoked_dir: &Path, known_dir: &Path, hash_al
     info!("Eliminating false positives");
     let cascade = builder.finalize().expect("build error");
 
-    info!("Verifying cascade");
-    check_all(&cascade, revoked_dir, known_dir);
-
     info!("Testing serialization");
     let cascade_bytes = cascade.to_bytes().expect("cannot serialize cascade");
+    info!("Cascade is {} bytes", cascade_bytes.len());
+
     if let Some(cascade) =
         Cascade::from_bytes(cascade_bytes.clone()).expect("cannot deserialize cascade")
     {
@@ -324,6 +325,9 @@ fn create_cascade(out_file: &Path, revoked_dir: &Path, known_dir: &Path, hash_al
         warn!("Produced empty cascade. Exiting.");
         return;
     }
+
+    info!("Verifying cascade");
+    check_all(&cascade, revoked_dir, known_dir);
 
     info!("Writing cascade to {}", out_file.display());
     let mut filter_writer = File::create(out_file).expect("cannot open file");
@@ -372,6 +376,8 @@ fn write_revset_and_stash(
         if let Ok(decoded) = bincode::deserialize(&prev_list_bytes) {
             prev_keys = decoded;
         }
+    } else {
+        warn!("Previous revset not found. Stash file will be large.");
     }
 
     let mut revset = HashSet::new();
@@ -411,11 +417,13 @@ fn write_revset_and_stash(
         }
     }
 
+    info!("Revset is {} bytes", revset.len());
     let mut revset_writer = File::create(revset_file).expect("cannot open list file");
     revset_writer
         .write_all(&bincode::serialize(&revset).unwrap())
         .expect("can't write revset file");
 
+    info!("Stash is {} bytes", stash.len());
     let mut stash_writer = File::create(stash_file).expect("cannot open stash file");
     stash_writer
         .write_all(&stash)
@@ -471,7 +479,7 @@ fn main() {
 
     if std::fs::create_dir_all(&out_dir).is_err() {
         error!("Could not create out directory: {}", out_dir.display());
-        err = true
+        err = true;
     } else if !args.clobber {
         if filter_file.exists() {
             error!(
@@ -505,12 +513,7 @@ fn main() {
     };
 
     info!("Generating cascade");
-    create_cascade(
-        filter_file,
-        revoked_dir,
-        known_dir,
-        hash_alg,
-    );
+    create_cascade(filter_file, revoked_dir, known_dir, hash_alg);
 
     info!("Generating stash file");
     write_revset_and_stash(
