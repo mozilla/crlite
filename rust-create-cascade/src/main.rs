@@ -321,13 +321,13 @@ fn create_cascade(out_file: &Path, revoked_dir: &Path, known_dir: &Path, hash_al
         Cascade::from_bytes(cascade_bytes.clone()).expect("cannot deserialize cascade")
     {
         info!("\n{}", cascade);
+
+        info!("Verifying cascade");
+        check_all(&cascade, revoked_dir, known_dir);
     } else {
         warn!("Produced empty cascade. Exiting.");
         return;
     }
-
-    info!("Verifying cascade");
-    check_all(&cascade, revoked_dir, known_dir);
 
     info!("Writing cascade to {}", out_file.display());
     let mut filter_writer = File::create(out_file).expect("cannot open file");
