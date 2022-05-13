@@ -11,6 +11,7 @@ RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 
 # rust-cascade with the builder feature needs rust:1.61.
 # TODO(jms): Pin to 1.61 and skip the rustup step once 1.61 is stable.
+# https://github.com/mozilla/crlite/issues/255
 FROM rust:latest as rust-builder
 RUN mkdir /build
 ADD rust-create-cascade /build/rust-create-cascade/
