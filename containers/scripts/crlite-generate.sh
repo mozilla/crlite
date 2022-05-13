@@ -16,7 +16,8 @@ if [ ! -d ${ID}/log ] ; then
   mkdir ${ID}/log
 fi
 
-${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${crlite_persistent:-/ct}/crls \
+CRLS=${crlite_persistent:-/ct}/crls
+${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${CRLS} \
               -revokedpath ${ID}/revoked \
               -enrolledpath ${ID}/enrolled.json \
               -auditpath ${ID}/crl-audit.json \
@@ -46,9 +47,10 @@ ${workflow}/1-generate_mlbf ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
+  echo "archiving crls"
+  tar -cvzf ${ID}/crls.tar.gz -C ${CRLS} .
   ${workflow}/2-upload_artifacts_to_storage ${ID} \
-              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-              --extra_folders ${crlite_persistent:-/ct}/crls:crls
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
 fi
 
 echo "crlite_processing"
