@@ -30,6 +30,10 @@ ${crlite_bin:-~/go/bin}/aggregate-known -knownpath ${ID}/known \
               -stderrthreshold=INFO -alsologtostderr \
               -log_dir ${WORKDIR}/log
 
+# Mark the known and revoked directories as read-only.
+# rust-create-cascade assumes they will not change during its execution.
+chmod -R a-w "${ID}/known"
+chmod -R a-w "${ID}/revoked"
 
 echo "crlite-fullrun: list known folder"
 ls -latS ${ID}/known | head

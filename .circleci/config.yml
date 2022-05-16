@@ -49,7 +49,6 @@ jobs:
           name: Install Package
           command: |
             pip install --editable .
-            pip install --editable create_filter_cascade
             pip install --editable moz_crlite_lib
 
       - run:
