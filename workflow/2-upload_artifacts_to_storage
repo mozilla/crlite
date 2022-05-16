@@ -19,11 +19,9 @@ parser.add_argument(
     type=Path,
 )
 parser.add_argument(
-    "--extra_folders", help="More folders to upload as '/path/:remote_name'", nargs="*"
-)
-parser.add_argument(
     "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
 )
+
 
 @Retry(deadline=60)
 def uploadBlob(bucket, remoteFilePath, localFilePath):
@@ -75,19 +73,7 @@ def main():
     for path, dirs, files in os.walk(runIdPath):
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(runIdPath.parent)
-
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
-
-    if args.extra_folders:
-        for extraString in args.extra_folders:
-            localPath, remotePath = extraString.split(":")
-            for path, dirs, files in os.walk(localPath):
-                remoteFolder = (
-                    Path(runIdPath.name)
-                    / remotePath
-                    / Path(path).relative_to(localPath)
-                )
-                uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
 
     for path, dirs, files in os.walk(runIdPath / "mlbf"):
         remoteFolder = Path("latest")
