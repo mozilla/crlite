@@ -39,7 +39,6 @@ def main():
         "--outdir",
         os.path.join(runIdPath, "mlbf"),
         "--clobber",
-        "--murmurhash3",
     ]
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
