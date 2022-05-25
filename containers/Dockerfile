@@ -12,8 +12,13 @@ RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 # rust-cascade with the builder feature needs rust >= 1.61.
 FROM rust:1.61-bullseye as rust-builder
 RUN mkdir /build
+
 ADD rust-create-cascade /build/rust-create-cascade/
 WORKDIR /build/rust-create-cascade
+RUN cargo build --release --target-dir /build
+
+ADD rust-query-crlite /build/rust-query-crlite/
+WORKDIR /build/rust-query-crlite
 RUN cargo build --release --target-dir /build
 
 
@@ -38,6 +43,7 @@ VOLUME /var/log /processing /persistent
 
 COPY --from=go-builder /build/bin /app/
 COPY --from=rust-builder /build/release/rust-create-cascade /app/
+COPY --from=rust-builder /build/release/rust-query-crlite /app/
 
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow

@@ -19,9 +19,6 @@ from kinto_http.exceptions import KintoException
 KINTO_RW_SERVER_URL = config(
     "KINTO_RW_SERVER_URL", default="https://settings-writer.stage.mozaws.net/v1/"
 )
-KINTO_RO_SERVER_URL = config(
-    "KINTO_RO_SERVER_URL", default="https://settings-cdn.stage.mozaws.net/v1/"
-)
 KINTO_AUTH_USER = config("KINTO_AUTH_USER", default="")
 KINTO_AUTH_PASSWORD = config("KINTO_AUTH_PASSWORD", default="")
 KINTO_BUCKET = config("KINTO_BUCKET", default="security-state-staging")
@@ -30,8 +27,6 @@ KINTO_INTERMEDIATES_COLLECTION = config(
     "KINTO_INTERMEDIATES_COLLECTION", default="intermediates"
 )
 KINTO_NOOP = config("KINTO_NOOP", default=False, cast=lambda x: bool(x))
-
-CRLITE_FRESHNESS_HOURS = config("CRLITE_FRESHNESS_HOURS", default="2")
 
 
 class SignoffClient(Client):
@@ -63,78 +58,30 @@ class SignoffClient(Client):
             raise e
 
 
-def download_host_file(filename, output_dir, host_url):
-    headers = {"X-Automated-Tool": "https://github.com/mozilla/crlite"}
-    hosts_file_path = Path(output_dir) / filename
-    r = requests.get(host_url, headers=headers)
-    r.raise_for_status()
-    with hosts_file_path.open("wb") as fd:
-        fd.write(r.content)
-    log.info(
-        f"Downloaded {host_url} to {hosts_file_path} "
-        + f"(sz={hosts_file_path.stat().st_size})"
-    )
-
-
 if __name__ == "__main__":
     OK = 0
     ERROR = 1
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "collection",
+        help="Collection to sign, either 'cert-revocations' or 'intermediates'",
+    )
+    parser.add_argument(
         "--noop", default=KINTO_NOOP, action="store_true", help="Don't update Kinto"
-    )
-    parser.add_argument(
-        "--moz-crlite-query", help="Path to the moz-crlite-query tool", required=True
-    )
-    parser.add_argument(
-        "--host-file-urls",
-        help="URLs of host files to download and check, comma or space (or both) delimited",
-        nargs="+",
-        default=[],
-        metavar="url",
     )
     args = parser.parse_args()
 
-    sub_args = [
-        sys.executable,
-        args.moz_crlite_query,
-        "--force-update",
-        "--crlite-url",
-        KINTO_RO_SERVER_URL
-        + str(
-            Path("buckets")
-            / KINTO_BUCKET
-            / "collections"
-            / KINTO_CRLITE_COLLECTION
-            / "records"
-        ),
-        "--check-not-revoked",
-        "--check-freshness",
-        CRLITE_FRESHNESS_HOURS,
-        "--structured",
-    ]
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        sub_args.extend(["--db", temp_dir])
-        for url in args.host_file_urls:
-            filename = hashlib.sha256(url.encode("utf-8")).hexdigest()
-            try:
-                download_host_file(filename, temp_dir, url)
-            except requests.exceptions.HTTPError as e:
-                log.error(f"Could not download hosts file to check: {e}")
-                sys.exit(ERROR)
-            sub_args.extend(["--hosts-file", str(Path(temp_dir) / filename)])
-
-        log.info(f"Running {sub_args}")
-        try:
-            subprocess.run(sub_args, check=True)
-        except subprocess.CalledProcessError as e:
-            log.error(f"Error in moz_crlite_query: {e}")
-            sys.exit(ERROR)
+    if args.collection == "cert-revocations":
+        collection = KINTO_CRLITE_COLLECTION
+    elif args.collection == "intermediates":
+        collection = KINTO_INTERMEDIATES_COLLECTION
+    else:
+        log.error(f"Unknown collection {args.collection}")
+        sys.exit(ERROR)
 
     if args.noop:
-        log.info("Would sign off, but noop requested")
+        log.info(f"Would sign off on {collection}, but noop requested")
         sys.exit(OK)
 
     auth = requests.auth.HTTPBasicAuth(KINTO_AUTH_USER, KINTO_AUTH_PASSWORD)
@@ -146,8 +93,7 @@ if __name__ == "__main__":
     )
 
     try:
-        rw_client.sign_collection(collection=KINTO_CRLITE_COLLECTION)
-        rw_client.sign_collection(collection=KINTO_INTERMEDIATES_COLLECTION)
+        rw_client.sign_collection(collection=collection)
     except KintoException as e:
         log.error(f"Kinto exception: {e}")
         sys.exit(ERROR)
