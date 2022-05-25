@@ -48,7 +48,8 @@ const COVERAGE_V1_ENTRY_BYTES: usize = 48;
 const ENROLLMENT_SERIALIZATION_VERSION: u8 = 1;
 const ENROLLMENT_V1_ENTRY_BYTES: usize = 32;
 
-const OID_SCT_EXTENSION: &der_parser::Oid = &oid!(1.3.6 .1 .4 .1 .11129 .2 .4 .2);
+#[rustfmt::skip]
+const OID_SCT_EXTENSION: &der_parser::Oid = &oid!(1.3.6.1.4.1.11129.2.4.2);
 
 type CRLiteKey = Vec<u8>;
 type DERCert = Vec<u8>;
@@ -173,7 +174,7 @@ fn update_db(
 
     if full_filters.len() != 1 {
         return Err(CRLiteDBError::from(
-            "multiple full filters in remote settings",
+            "number of full filters found in remote settings is not 1",
         ));
     }
 
@@ -486,8 +487,7 @@ impl Enrollment {
                 Ok(()) => (),
                 _ => return Err(CRLiteDBError::from("truncted CRLite enrollment file")),
             };
-            let issuer_id = &enrollment_entry[..];
-            enrollment.insert(issuer_id.to_vec());
+            enrollment.insert(enrollment_entry.to_vec());
         }
         Ok(Enrollment(enrollment))
     }
@@ -515,11 +515,11 @@ impl Intermediates {
         for der in list {
             if let Ok((_, cert)) = X509Certificate::from_der(&der.contents) {
                 let name = cert.tbs_certificate.subject.as_raw();
-                if let Some(existing) = intermediates.0.get_mut(name) {
-                    existing.push(der.contents);
-                } else {
-                    intermediates.0.insert(name.to_vec(), vec![der.contents]);
-                }
+                intermediates
+                    .0
+                    .entry(name.to_vec())
+                    .or_insert_with(Vec::new)
+                    .push(der.contents);
             } else {
                 return Err(CRLiteDBError::from("error reading CCADB report"));
             }
@@ -595,55 +595,66 @@ fn query_https_hosts(db: &CRLiteDB, hosts: &[&str]) -> Result<CmdResult, CRLiteD
             .with_no_client_auth(),
     );
 
-    'host_loop: for host in hosts.iter() {
-        let (host, port) = host.rsplit_once(':').unwrap_or((host, "443"));
-        let port: u16 = port
-            .parse()
-            .map_err(|_| CRLiteDBError::from(format!("{}: malformed host port", host)))?;
-        let addrs = (String::from(host), port)
-            .to_socket_addrs()
-            .map_err(|e| CRLiteDBError::from(format!("could not lookup {}: {}", host, e)))?;
-        for addr in addrs {
-            let server_name = rustls::ServerName::try_from(host)
-                .map_err(|_| CRLiteDBError::from(format!("invalid DNS name: {}", host)))?;
-
-            let mut conn = rustls::ClientConnection::new(Arc::clone(&config), server_name)
-                .map_err(|e| CRLiteDBError::from(format!("{}: tls error: {}", host, e)))?;
-
-            let mut sock = TcpStream::connect(addr)
-                .map_err(|e| CRLiteDBError::from(format!("{}: tcp error: {}", host, e)))?;
-
-            let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-            let _ = tls.write_all("HEAD / HTTP/1.1\r\n\r\n".as_bytes());
-
-            if let Some(certs) = conn.peer_certificates() {
-                if let Ok((_, cert)) = X509Certificate::from_der(certs[0].as_ref()) {
-                    debug!("Loaded certificate from {}", host);
-                    let status = db.query(&cert);
-                    match status {
-                        Status::Expired => warn!("{} {:?}", host, status),
-                        Status::Good => info!("{} {:?}", host, status),
-                        Status::NotCovered => warn!("{} {:?}", host, status),
-                        Status::NotEnrolled => warn!("{} {:?}", host, status),
-                        Status::Revoked => {
-                            found_revoked_certs = true;
-                            error!("{} {:?}", host, status);
-                        }
-                    }
-                    continue 'host_loop; // no need to check further addrs
-                }
-            }
+    for host in hosts.iter() {
+        if CmdResult::SomeRevoked == query_https_host(db, host, Arc::clone(&config))? {
+            found_revoked_certs = true;
         }
-        // None of the addresses for this host worked
-        return Err(CRLiteDBError::from(format!(
-            "could not obtain cert for {}",
-            host
-        )));
     }
+
     match found_revoked_certs {
         true => Ok(CmdResult::SomeRevoked),
         false => Ok(CmdResult::NoneRevoked),
     }
+}
+
+fn query_https_host(
+    db: &CRLiteDB,
+    host: &str,
+    tls_config: Arc<rustls::ClientConfig>,
+) -> Result<CmdResult, CRLiteDBError> {
+    let (host, port) = host.rsplit_once(':').unwrap_or((host, "443"));
+    let port: u16 = port
+        .parse()
+        .map_err(|_| CRLiteDBError::from(format!("{}: malformed host port", host)))?;
+    let addrs = (String::from(host), port)
+        .to_socket_addrs()
+        .map_err(|e| CRLiteDBError::from(format!("could not lookup {}: {}", host, e)))?;
+    for addr in addrs {
+        let server_name = rustls::ServerName::try_from(host)
+            .map_err(|_| CRLiteDBError::from(format!("invalid DNS name: {}", host)))?;
+
+        let mut conn = rustls::ClientConnection::new(Arc::clone(&tls_config), server_name)
+            .map_err(|e| CRLiteDBError::from(format!("{}: tls error: {}", host, e)))?;
+
+        let mut sock = TcpStream::connect(addr)
+            .map_err(|e| CRLiteDBError::from(format!("{}: tcp error: {}", host, e)))?;
+
+        let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+        let _ = tls.flush(); // ClientConnection waits for a write before doing the TLS handshake.
+
+        if let Some(certs) = conn.peer_certificates() {
+            if let Ok((_, cert)) = X509Certificate::from_der(certs[0].as_ref()) {
+                debug!("Loaded certificate from {}", host);
+                let status = db.query(&cert);
+                match status {
+                    Status::Expired => warn!("{} {:?}", host, status),
+                    Status::Good => info!("{} {:?}", host, status),
+                    Status::NotCovered => warn!("{} {:?}", host, status),
+                    Status::NotEnrolled => warn!("{} {:?}", host, status),
+                    Status::Revoked => error!("{} {:?}", host, status),
+                }
+                match status {
+                    Status::Revoked => return Ok(CmdResult::SomeRevoked),
+                    _ => return Ok(CmdResult::NoneRevoked),
+                }
+            }
+        }
+    }
+    // None of the addresses for this host worked
+    return Err(CRLiteDBError::from(format!(
+        "could not obtain cert for {}",
+        host
+    )));
 }
 
 fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBError> {
@@ -653,13 +664,16 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
             warn!("File does not exist: {}", file.display());
             continue;
         }
-        let input = std::fs::read(&file);
-        if input.is_err() {
-            warn!("Could not read file: {}", file.display());
-            continue;
-        }
-        let input = input.unwrap();
-        debug!("Loaded certificate {}", file.display());
+        let input = match std::fs::read(&file) {
+            Ok(input) => {
+                debug!("Loaded certificate from {}", file.display());
+                input
+            }
+            Err(_) => {
+                warn!("Could not read file: {}", file.display());
+                continue;
+            }
+        };
         let der_cert = match pem::parse(&input) {
             Ok(pem_cert) => pem_cert.contents,
             _ => input,
@@ -726,6 +740,7 @@ enum Subcommand {
     X509 { files: Vec<PathBuf> },
 }
 
+#[derive(PartialEq)]
 enum CmdResult {
     SomeRevoked,
     NoneRevoked,
@@ -767,12 +782,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    let db = CRLiteDB::load(&args.db);
-    if let Err(e) = db {
-        error!("Error loading CRLite DB: {}", e.message);
-        std::process::exit(1);
-    }
-    let db = db.unwrap();
+    let db = match CRLiteDB::load(&args.db) {
+        Ok(db) => db,
+        Err(e) => {
+            error!("Error loading CRLite DB: {}", e.message);
+            std::process::exit(1);
+        }
+    };
 
     let result = match args.command {
         Subcommand::Signoff { ref host_file_url } => signoff(&db, host_file_url),
