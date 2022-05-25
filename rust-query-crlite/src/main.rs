@@ -84,10 +84,11 @@ fn serial_bytes(n: &num_bigint::BigUint) -> Vec<u8> {
 
 #[derive(Debug)]
 enum Status {
+    Expired,
     Good,
-    Revoked,
-    NotEnrolled,
     NotCovered,
+    NotEnrolled,
+    Revoked,
 }
 
 #[derive(Debug)]
@@ -366,6 +367,12 @@ impl CRLiteDB {
             return Status::Revoked;
         }
 
+        // An expired certificate, even if enrolled and covered, might
+        // not be included in the filter.
+        if !cert.tbs_certificate.validity.is_valid() {
+            return Status::Expired;
+        }
+
         let crlite_key = crlite_key(&issuer_spki_hash, &serial);
         if self.filter.has(crlite_key) {
             Status::Revoked
@@ -614,9 +621,10 @@ fn query_https_hosts(db: &CRLiteDB, hosts: &[&str]) -> Result<CmdResult, CRLiteD
                     debug!("Loaded certificate from {}", host);
                     let status = db.query(&cert);
                     match status {
+                        Status::Expired => warn!("{} {:?}", host, status),
                         Status::Good => info!("{} {:?}", host, status),
-                        Status::NotEnrolled => warn!("{} {:?}", host, status),
                         Status::NotCovered => warn!("{} {:?}", host, status),
+                        Status::NotEnrolled => warn!("{} {:?}", host, status),
                         Status::Revoked => {
                             found_revoked_certs = true;
                             error!("{} {:?}", host, status);
@@ -659,9 +667,10 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
         if let Ok((_, cert)) = X509Certificate::from_der(&der_cert) {
             let status = db.query(&cert);
             match status {
+                Status::Expired => warn!("{} {:?}", file.display(), status),
                 Status::Good => info!("{} {:?}", file.display(), status),
-                Status::NotEnrolled => warn!("{} {:?}", file.display(), status),
                 Status::NotCovered => warn!("{} {:?}", file.display(), status),
+                Status::NotEnrolled => warn!("{} {:?}", file.display(), status),
                 Status::Revoked => {
                     found_revoked_certs = true;
                     error!("{} {:?}", file.display(), status);
