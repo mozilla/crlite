@@ -413,7 +413,7 @@ struct Coverage(HashMap<LogID, (u64, u64)>);
 impl Coverage {
     fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
         let mut reader = BufReader::new(bytes);
-        if (bytes.len() - 1 % COVERAGE_V1_ENTRY_BYTES) == 0 {
+        if (bytes.len() - 1) % COVERAGE_V1_ENTRY_BYTES != 0 {
             return Err(CRLiteDBError::from("truncated CRLite coverage file"));
         }
         let count = (bytes.len() - 1) / COVERAGE_V1_ENTRY_BYTES;
