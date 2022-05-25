@@ -71,12 +71,22 @@ fn enrollment_key(issuer_dn: &[u8], issuer_spki: &[u8]) -> EnrollmentKey {
     hasher.finalize().to_vec()
 }
 
-// x509_parser parses the serial number to a BigUint, but DER integers are signed
-// so we need to retain a leading 0 byte in some cases where BitUint::to_bytes_be
-// drops it.
+// x509_parser parses a serial number to a BigUint, but we want the DER integer encoding.  The DER
+// encoding of n is the shortest octet string that encodes n as a signed, two's complement, big
+// endian integer. We can use BigUint::to_bytes_be to get an unsigned, big endian, octet encoding
+// of the serial number. This differs from the DER encoding if and only if to_bytes_be value has a
+// 1 in what would be the sign position of the DER encoding. In this case, we have to pad with a
+// leading zero.
+//
+// XXX: This assumes that the certificate has a non-negative serial number. While this is required
+// by the BRs, it would be nice if we could check revocation status of certificates with malformed
+// serials.
 fn serial_bytes(n: &num_bigint::BigUint) -> Vec<u8> {
     let mut bytes = vec![];
-    if n.bits() % 8 == 0 {
+    let num_bits = n.bits();
+    // the top bit of the serial number is in the sign position if num_bits is a
+    // non-zero multiple of 8.
+    if num_bits >= 8 && num_bits % 8 == 0 {
         bytes.push(0);
     }
     bytes.extend_from_slice(&n.to_bytes_be());
