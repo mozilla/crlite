@@ -703,6 +703,7 @@ struct Cli {
 enum RemoteSettingsInstance {
     Prod,
     Stage,
+    Dev,
 }
 
 #[derive(Parser, Debug)]
@@ -737,6 +738,7 @@ fn main() {
 
     if args.update.is_some() {
         let (attachment_url, collection_url) = match args.update.unwrap() {
+            RemoteSettingsInstance::Dev => (STAGE_ATTACH_URL, STAGE_URL),
             RemoteSettingsInstance::Stage => (STAGE_ATTACH_URL, STAGE_URL),
             RemoteSettingsInstance::Prod => (PROD_ATTACH_URL, PROD_URL),
         };
