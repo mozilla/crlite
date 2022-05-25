@@ -22,9 +22,13 @@ fi
 # sign off on intermediates
 python3 "${SCRIPTS}/crlite-signoff-tool.py" intermediates
 
-# sign off on cert-revocations if verification domains test passes
+# Sign off on cert-revocations if the verification domains test passes and the
+# filter is less than 10 MB.
 if "${RUST_QUERY_CRLITE}" -vvv --db "${OUTPUT}" --update "${INSTANCE}" signoff "${crlite_verify_host_file_urls}"
 then
-  python3 "${SCRIPTS}/crlite-signoff-tool.py" cert-revocations
+  if (( $(stat --format=%s "${OUTPUT}/crlite.filter") < 10*1024*1024 ))
+  then
+    python3 "${SCRIPTS}/crlite-signoff-tool.py" cert-revocations
+  fi
 fi
 
