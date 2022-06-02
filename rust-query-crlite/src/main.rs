@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io::prelude::Write;
 use std::io::{BufReader, Read};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use x509_parser::prelude::*;
@@ -629,35 +629,15 @@ fn query_https_host(
     let addrs = (String::from(host), port)
         .to_socket_addrs()
         .map_err(|e| CRLiteDBError::from(format!("could not lookup {}: {}", host, e)))?;
-    for addr in addrs {
-        let server_name = rustls::ServerName::try_from(host)
-            .map_err(|_| CRLiteDBError::from(format!("invalid DNS name: {}", host)))?;
-
-        let mut conn = rustls::ClientConnection::new(Arc::clone(&tls_config), server_name)
-            .map_err(|e| CRLiteDBError::from(format!("{}: tls error: {}", host, e)))?;
-
-        let mut sock = TcpStream::connect(addr)
-            .map_err(|e| CRLiteDBError::from(format!("{}: tcp error: {}", host, e)))?;
-
-        let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-        let _ = tls.flush(); // ClientConnection waits for a write before doing the TLS handshake.
-
-        if let Some(certs) = conn.peer_certificates() {
-            if let Ok((_, cert)) = X509Certificate::from_der(certs[0].as_ref()) {
-                debug!("Loaded certificate from {}", host);
-                let status = db.query(&cert);
-                match status {
-                    Status::Expired => warn!("{} {:?}", host, status),
-                    Status::Good => info!("{} {:?}", host, status),
-                    Status::NotCovered => warn!("{} {:?}", host, status),
-                    Status::NotEnrolled => warn!("{} {:?}", host, status),
-                    Status::Revoked => error!("{} {:?}", host, status),
-                }
-                match status {
-                    Status::Revoked => return Ok(CmdResult::SomeRevoked),
-                    _ => return Ok(CmdResult::NoneRevoked),
-                }
-            }
+    for addr in addrs.as_ref() {
+        match query_https_addr(db, host, addr, Arc::clone(&tls_config)) {
+            Ok(result) => return Ok(result),
+            Err(e) => warn!("{}", e.message),
+        }
+        // Some servers consistently reset our first TLS connection. Try again!
+        match query_https_addr(db, host, addr, Arc::clone(&tls_config)) {
+            Ok(result) => return Ok(result),
+            Err(_) => (),
         }
     }
     // None of the addresses for this host worked
@@ -665,6 +645,46 @@ fn query_https_host(
         "could not obtain cert for {}",
         host
     )));
+}
+
+fn query_https_addr(
+    db: &CRLiteDB,
+    host: &str,
+    addr: &SocketAddr,
+    tls_config: Arc<rustls::ClientConfig>,
+) -> Result<CmdResult, CRLiteDBError> {
+    let server_name = rustls::ServerName::try_from(host)
+        .map_err(|_| CRLiteDBError::from(format!("invalid DNS name: {}", host)))?;
+
+    let mut conn = rustls::ClientConnection::new(Arc::clone(&tls_config), server_name)
+        .map_err(|e| CRLiteDBError::from(format!("{}: tls error: {}", host, e)))?;
+
+    let mut sock = TcpStream::connect(addr)
+        .map_err(|e| CRLiteDBError::from(format!("{}: tcp error: {}", host, e)))?;
+
+    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+    tls.flush() // finish the handshake
+        .map_err(|e| CRLiteDBError::from(format!("{}: tls error: {}", host, e)))?;
+
+    let certs = conn
+        .peer_certificates()
+        .ok_or_else(|| CRLiteDBError::from("no peer certificates"))?;
+    let (_, cert) = X509Certificate::from_der(certs[0].as_ref())
+        .map_err(|_| CRLiteDBError::from("could not parse certificate"))?;
+
+    debug!("Loaded certificate from {}", host);
+    let status = db.query(&cert);
+    match status {
+        Status::Expired => warn!("{} {:?}", host, status),
+        Status::Good => info!("{} {:?}", host, status),
+        Status::NotCovered => warn!("{} {:?}", host, status),
+        Status::NotEnrolled => warn!("{} {:?}", host, status),
+        Status::Revoked => error!("{} {:?}", host, status),
+    }
+    match status {
+        Status::Revoked => Ok(CmdResult::SomeRevoked),
+        _ => Ok(CmdResult::NoneRevoked),
+    }
 }
 
 fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBError> {
