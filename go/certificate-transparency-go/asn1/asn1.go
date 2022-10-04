@@ -223,7 +223,7 @@ func (b BitString) RightAlign() []byte {
 }
 
 // parseBitString parses an ASN.1 bit string from the given byte slice and returns it.
-func parseBitString(bytes []byte, fieldName string) (ret BitString, err error) {
+func parseBitString(bytes []byte, lax bool, fieldName string) (ret BitString, err error) {
 	if len(bytes) == 0 {
 		err = SyntaxError{"zero length BIT STRING", fieldName}
 		return
@@ -231,7 +231,7 @@ func parseBitString(bytes []byte, fieldName string) (ret BitString, err error) {
 	paddingBits := int(bytes[0])
 	if paddingBits > 7 ||
 		len(bytes) == 1 && paddingBits > 0 ||
-		bytes[len(bytes)-1]&((1<<bytes[0])-1) != 0 {
+		(!lax && bytes[len(bytes)-1]&((1<<bytes[0])-1) != 0) {
 		err = SyntaxError{"invalid padding bits in BIT STRING", fieldName}
 		return
 	}
@@ -778,7 +778,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			case TagInteger:
 				result, err = parseInt64(innerBytes, params.lax, params.name)
 			case TagBitString:
-				result, err = parseBitString(innerBytes, params.name)
+				result, err = parseBitString(innerBytes, params.lax, params.name)
 			case TagOID:
 				result, err = parseObjectIdentifier(innerBytes, params.lax, params.name)
 			case TagUTCTime:
@@ -929,7 +929,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 		err = err1
 		return
 	case bitStringType:
-		bs, err1 := parseBitString(innerBytes, params.name)
+		bs, err1 := parseBitString(innerBytes, params.lax, params.name)
 		if err1 == nil {
 			v.Set(reflect.ValueOf(bs))
 		}

@@ -1839,7 +1839,12 @@ func parseCertificate(in *certificate) (*Certificate, error) {
 				// RFC 5280, 4.2.1.3
 				var usageBits asn1.BitString
 				if rest, err := asn1.Unmarshal(e.Value, &usageBits); err != nil {
-					return nil, err
+					var laxErr error
+					rest, laxErr = asn1.UnmarshalWithParams(e.Value, &usageBits, "lax")
+					if laxErr != nil {
+						return nil, laxErr
+					}
+					nfe.AddError(err)
 				} else if len(rest) != 0 {
 					return nil, errors.New("x509: trailing data after X.509 KeyUsage")
 				}
