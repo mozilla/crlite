@@ -69,22 +69,6 @@ func uint64Max(x, y uint64) uint64 {
 	return y
 }
 
-func certIsFilteredOut(aCert *x509.Certificate) bool {
-	// Skip unimportant entries, if configured
-
-	if aCert.BasicConstraintsValid && aCert.IsCA {
-		metrics.IncrCounter([]string{"certIsFilteredOut", "CA"}, 1)
-		return true
-	}
-
-	if aCert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
-		metrics.IncrCounter([]string{"certIsFilteredOut", "expired"}, 1)
-		return true
-	}
-
-	return false
-}
-
 func uint64ToTimestamp(timestamp uint64) *time.Time {
 	t := time.Unix(int64(timestamp/1000), int64(timestamp%1000))
 	return &t
@@ -414,7 +398,9 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			continue
 		}
 
-		if certIsFilteredOut(cert) {
+		// Skip expired certificates unless configured otherwise
+		if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+			metrics.IncrCounter([]string{"certIsFilteredOut", "expired"}, 1)
 			continue
 		}
 
