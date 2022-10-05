@@ -38,14 +38,14 @@ import (
 // range contiguous to the start.
 //
 // Examples:
-// 1. Tracker for [0, 99]: sub-ranges [10, 19] and [30, 39] added
-//    -> neither complete nor partially complete.
-// 2. Tracker for [0, 99]: sub-ranges [0, 19] and [30, 39] added
-//    -> not complete, but partially complete upto 19.
-// 3. Tracker for [0, 99]: sub-ranges [0, 19] and [20, 39] added
-//    -> not complete, but partially complete upto 39.
-// 4. Tracker for [0, 99]: sub-ranges [50, 99] and [0, 49] added
-//    -> complete.
+//  1. Tracker for [0, 99]: sub-ranges [10, 19] and [30, 39] added
+//     -> neither complete nor partially complete.
+//  2. Tracker for [0, 99]: sub-ranges [0, 19] and [30, 39] added
+//     -> not complete, but partially complete upto 19.
+//  3. Tracker for [0, 99]: sub-ranges [0, 19] and [20, 39] added
+//     -> not complete, but partially complete upto 39.
+//  4. Tracker for [0, 99]: sub-ranges [50, 99] and [0, 49] added
+//     -> complete.
 type Tracker struct {
 	start, end int64         // the extent of the range being tracked [start, end]
 	wm         watermarks    // the low, mid and high water marks (see below)
@@ -56,11 +56,12 @@ type Tracker struct {
 // watermarks encapsulates a set of three watermarks that are calculated when
 // subranges are added.  The watermarks are used to determine the completion
 // state of the tracker.  They are defined as follows:
-// * the 'low-water' mark indicates the lowest value in any sub-range added;
-// * the 'mid-water' mark indicates the high point in the lowest contiguous set
-//   of sub-ranges if we have a sub-range whose first index is 'start'; if not,
-//   it is set to -1.
-// * the 'high-water' mark indicates the highest value in any sub-range added.
+//   - the 'low-water' mark indicates the lowest value in any sub-range added;
+//   - the 'mid-water' mark indicates the high point in the lowest contiguous set
+//     of sub-ranges if we have a sub-range whose first index is 'start'; if not,
+//     it is set to -1.
+//   - the 'high-water' mark indicates the highest value in any sub-range added.
+//
 // When (lo, hi) == (start, end) of the expected range, and hi == mid, then the
 // full extent of the expected range has been recorded.
 type watermarks struct {
