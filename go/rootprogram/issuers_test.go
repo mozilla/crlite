@@ -23,68 +23,54 @@ import (
 )
 
 const (
-	// curl https://ccadb-public.secure.force.com/mozilla/PublicAllInterCertsIncTechConsWithPEMCSV | head -n 36 | pbcopy
-	kFirstTwoLines = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
-"AC Camerfirma, S.A.","AC Camerfirma","RACER","AC Camerfirma","AC Camerfirma SA","","RACER","AC Camerfirma SA","01","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2003 Dec 04","2023 Dec 04","http://crl.camerfirma.com/racer.crl","RSA 2047 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","","'-----BEGIN CERTIFICATE-----
-MIIGDzCCBPegAwIBAgIBATANBgkqhkiG9w0BAQUFADCBxjELMAkGA1UEBhMCRVMx
-KzApBgkqhkiG9w0BCQEWHGFjX2NhbWVyZmlybWFAY2FtZXJmaXJtYS5jb20xEjAQ
-BgNVBAUTCUE4Mjc0MzI4NzFDMEEGA1UEBxM6TWFkcmlkIChzZWUgY3VycmVudCBh
-ZGRyZXNzIGF0IHd3dy5jYW1lcmZpcm1hLmNvbS9hZGRyZXNzKTEZMBcGA1UEChMQ
-QUMgQ2FtZXJmaXJtYSBTQTEWMBQGA1UEAxMNQUMgQ2FtZXJmaXJtYTAeFw0wMzEy
-MDQxNzI2NDFaFw0yMzEyMDQxNzI2NDFaMIG4MQswCQYDVQQGEwJFUzElMCMGCSqG
-SIb3DQEJARYWY2FyYWNlckBjYW1lcmZpcm1hLmNvbTFDMEEGA1UEBxM6TWFkcmlk
-IChzZWUgY3VycmVudCBhZGRyZXNzIGF0IHd3dy5jYW1lcmZpcm1hLmNvbS9hZGRy
-ZXNzKTESMBAGA1UEBRMJQTgyNzQzMjg3MRkwFwYDVQQKExBBQyBDYW1lcmZpcm1h
-IFNBMQ4wDAYDVQQDEwVSQUNFUjCCAR8wDQYJKoZIhvcNAQEBBQADggEMADCCAQcC
-ggEAe03yy1HZxgtdg1b2NocXqtM73x6992kg9feecE3t36NAdYmy+oh6MKrT3CIQ
-RiHLm+/RyyudD6o0D0LNeGrRYpcFw7zEOYX/mMGTIXKLPku7BdoCvgyx4amyBigZ
-V6AjGn4+xIzQy5ljOyVlnfFfI49awkfX0+BNv5qWKpshg+WnFOW1Gd0MJXMH6uNs
-u2/HdqSgsvUQ1dQNelKxz+EbTfiuw+HwgQbpf/nse4oGv0cq0pA85gdEoO+fLOwR
-Z8DOfAaVYATnqfTvYexwYYcQ7NWDxCX05iVs51rbt5QrwIq/St7L/6xQd++0mlfA
-JoC7TF5Casqh2uS5KSMgI9WPwwIBA6OCAhUwggIRMBIGA1UdEwEB/wQIMAYBAf8C
-AQowNAYDVR0fBC0wKzApoCegJYYjaHR0cDovL2NybC5jYW1lcmZpcm1hLmNvbS9y
-YWNlci5jcmwwHQYDVR0OBBYEFL68CNQuugBMgNwmZ7Sl2N3DShr5MIGoBgNVHSME
-gaAwgZ2AFHDBlfpdpRa+YuikfePUZF/E4T6doYGBpH8wfTELMAkGA1UEBhMCRVUx
-JzAlBgNVBAoTHkFDIENhbWVyZmlybWEgU0EgQ0lGIEE4Mjc0MzI4NzEjMCEGA1UE
-CxMaaHR0cDovL3d3dy5jaGFtYmVyc2lnbi5vcmcxIDAeBgNVBAMTF0dsb2JhbCBD
-aGFtYmVyc2lnbiBSb290ggECME0GCCsGAQUFBwEBBEEwPzA9BggrBgEFBQcwAoYx
-aHR0cDovL3d3dy5jYW1lcmZpcm1hLmNvbS9jZXJ0cy9hY19jYW1lcmZpcm1hLmNy
-dDAOBgNVHQ8BAf8EBAMCAYYwIQYDVR0RBBowGIEWY2FyYWNlckBjYW1lcmZpcm1h
-LmNvbTAnBgNVHRIEIDAegRxhY19jYW1lcmZpcm1hQGNhbWVyZmlybWEuY29tMFAG
-A1UdIARJMEcwRQYLKwYBBAGBhy4KCAEwNjA0BggrBgEFBQcCARYoaHR0cDovL2Nw
-cy5jYW1lcmZpcm1hLmNvbS9jcHMvcmFjZXIuaHRtbDANBgkqhkiG9w0BAQUFAAOC
-AQEAVPqOALDxl2F8rgu67OcqomMXR3aPIyFE4mFeKOzVpQFsRRzkls3c1ZDTGYlV
-h9XnL4AIBJ/U1ukRkGuIZHIYUWiNADWd0HImPb5Hzgip0R9dNXP2SrSo4d2iB7gq
-R86X1t3bjdf152PuCm/tE6slmR13VqKmjSd1sYxTNAKePu3IYDZgGLnNFd3qN2Qb
-PWq69Z/1ql+7L7a15TXcBNQXsfQEOLGx5i9ZeNDVmpSHJ6swHO3Gql2n/qNuNHgb
-w7+QZfZHary2ArgMCU2SmpCmpybktruKwGbelQHYC2oJavTHoLd5GeHI4GivPIE9
-cxhzf8XjZXECKL54a/4o9ISBcA==
------END CERTIFICATE-----'"
-`
-	kFirstTwoLinesIssuerID = "6z9CPfvSI57njPXWYOU61nQPaO9b2blTtyMZoCaRT4g="
-	kFirstTwoLinesSubject  = "SERIALNUMBER=A82743287,CN=RACER,O=AC Camerfirma SA,L=Madrid (see current address at www.camerfirma.com/address),C=ES"
+	// curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport -s | csvtool head 2 -
+	kFirstTwoLines = `Subject,Issuer,SHA256,Full CRL Issued By This CA,PEM,JSON Array of Partitioned CRLs
+CN=3CX CA RSA R1; O=3CX; C=CY,CN=SSL.com SSL Enterprise Intermediate CA RSA R1; O=SSL Corp; C=US,4E93BCADD5D4E95331AE362DF9C6066CCA7F942A8FDE4D3EE011DE34074F5840,http://crls.ssl.com/3CX-TLS-I-RSA-R1.crl,"-----BEGIN CERTIFICATE-----
+MIIGwDCCBKigAwIBAgIQY1mr5Pm6UFZUALZmGlylzzANBgkqhkiG9w0BAQsFADB6M
+QswCQYDVQQGEwJVUzEOMAwGA1UECAwFVGV4YXMxEDAOBgNVBAcMB0hvdXN0b24xE
+TAPBgNVBAoMCFNTTCBDb3JwMTYwNAYDVQQDDC1TU0wuY29tIFNTTCBFbnRlcnBya
+XNlIEludGVybWVkaWF0ZSBDQSBSU0EgUjEwHhcNMjIwMTEyMTc0NDI3WhcNMzIwM
+TEwMTc0NDI2WjAzMQswCQYDVQQGEwJDWTEMMAoGA1UECgwDM0NYMRYwFAYDVQQDD
+A0zQ1ggQ0EgUlNBIFIxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAx
+sN5yZm/oVj1TzgLqumLxFElpxLEhxYcOSDNnqN13GmCYX/4Mmc6liTCJiNyV2sbV
+TFz5+GsQuAtRvVyCyk1OhtjqpgpdSwbHnecrsBl1rifDAW0Xi0TQQKF8aVHwWKwI
+3y00xQWyb4advoNy6n6f6s3HAXTc4FZ+5Bg7Kkk3KFvPouHXkB3Rdw+Q3qRqbxns
+N+22oyjaNQ7GnLau9gJPJT2Qzeuu2dv3FxTl6nMO9AlhuzlHZ7J+gMo/WfkeygQ9
+MBmq4+NnaaSyvl8HRLODhg1y+A7ZLItCztipdkLh3XmUgeWIfCbPbXLySeIEsJ/z
+V+pPuFz0yAxvDbifpF7kw4PbHFxfwrtgS7BPFI+LtbHsQwYBfgtJJwbI42wLino5
+MLdpMXa2riNwdXJUKP3DdRBaUxFrh8cXvjSQtnnLDk6z9e4/8/Mpo6E0DtNblP9c
+eh8/SCguGIT8ceAsfTcKH86cqlJ1wdijEJt1+lCAyfDAofhbavtjG9vXGn/HMbn8
+vx2aoB54qJnBSz/4i63bYM6FHX2xW6g2cHAN6750GT4fBihu3Ha4lTDL3A1H/NiK
+BXSydrz6kib3Zl+EY2qS6vJM4V2+3m9OdH0HmvRs29FRsHMdDsAPvg1H6v9s5iYw
+LyJw3GZCdTJe1aWT38vbsgvoHv0PddrAEQnI93D4BcCAwEAAaOCAYcwggGDMBIGA
+1UdEwEB/wQIMAYBAf8CAQAwHwYDVR0jBBgwFoAU0D3qopgHXUSFzwP7yr80Cp8Qx
+GgwYwYIKwYBBQUHAQEEVzBVMFMGCCsGAQUFBzAChkdodHRwOi8vY2VydC5zc2wuY
+29tL1NTTC5jb20tRW50ZXJwcmlzZS1JbnRlcm1lZGlhdGUtU1NMLVJTQS00MDk2L
+VIxLmNlcjA/BgNVHSAEODA2MDQGBFUdIAAwLDAqBggrBgEFBQcCARYeaHR0cHM6L
+y93d3cuc3NsLmNvbS9yZXBvc2l0b3J5MB0GA1UdJQQWMBQGCCsGAQUFBwMCBggrB
+gEFBQcDATBYBgNVHR8EUTBPME2gS6BJhkdodHRwOi8vY3Jscy5zc2wuY29tL1NTT
+C5jb20tRW50ZXJwcmlzZS1JbnRlcm1lZGlhdGUtU1NMLVJTQS00MDk2LVIxLmNyb
+DAdBgNVHQ4EFgQUt41doon0xyPta92Z4xFgOx6zOS0wDgYDVR0PAQH/BAQDAgGGM
+A0GCSqGSIb3DQEBCwUAA4ICAQBJEIxHvZ4pWomrrCtLguHm4qkQTDkSxUuKswuC3
+4fqrZl8D4Ue5KcTpPZK4nvHYcCnw8hq6PfhywIn5XPlfyjE99TxeRHf2WOoymFMU
+WaSkB2tlD+cp7IcwVAopnF+xr4iFatPdCjFbKkPN4PkM9QVNoIiZhPKR/s3P7xLw
+WsmY0P+rB/dcN26/8GEjIDHNuLUQqjLHsM0ZPWrDIa8W4xvNRUS364H/dByAu16I
+dvQRfeXA+cIhVbWaeqvAjkHr3VuXzqwxbIIkQ3dYEH87Y6Z2DcPIXbTFq1e2UcBF
+QXIUrTbSaDKwW+SNbitpl6QcY1raV6p6CeF0uToH1mOUGswW8EKc2P8GH/jZLVuE
+CZwdrnGICvjFYwrhHOzTWFRY6ZA8Str4pTvpRUMGnsFY/+k3EnliUQoZmTrcKrzo
+T55m0ZEhWohQwFCR+E/qDxvSjSIYJFDGyP+CMDjE05msxVKNwPsT82RG9xnfsyTp
+KRzRXgUY7qH8+ZMbhQ5Y1/Z2ruG62DW+hFni1rJGfiQ+LFdXxF41vPzChWG1RT0U
+0W+sY1OEEikx6oq+3fiXdN2XulRljW0buHucUyc134KF9pawf0cfhTKSYNH22Tvq
+MOUHtflPzjKxsuOAZ5O8ZDBSHr1rCC2GDUsltyq+XHdnrdSTD5t96YuZYQ5x5/a/
+7eAIg==
+-----END CERTIFICATE-----",`
+
+	kFirstTwoLinesIssuerID = "bekp6gfql9A5khD9QJvDEc0869PoPQ1WjjhIU0GCZQI="
+
+	kFirstTwoLinesSubject = "CN=3CX CA RSA R1,O=3CX,C=CY"
 
 	kFirstTwoLinesNoPem = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
 "AC Camerfirma, S.A.","AC Camerfirma","RACER","AC Camerfirma","AC Camerfirma SA","","RACER","AC Camerfirma SA","01","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2003 Dec 04","2023 Dec 04","http://crl.camerfirma.com/racer.crl","RSA 2047 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","",""`
-
-	kEmptyAKI = `"CA Owner","Parent Name","Certificate Name","Certificate Issuer Common Name","Certificate Issuer Organization","Certificate Issuer Organizational Unit","Certificate Subject Common Name","Certificate Subject Organization","Certificate Serial Number","SHA-1 Fingerprint","SHA-256 Fingerprint","Subject + SPKI SHA256","Technically Constrained","Valid From [GMT]","Valid To [GMT]","CRL URL(s)","Public Key Algorithm","Signature Hash Algorithm","Key Usage","Extended Key Usage","CP/CPS Same As Parent","Certificate Policy (CP)","Certification Practice Statement (CPS)","Audits Same As Parent","Standard Audit","BR Audit","Auditor","Standard Audit Statement Dt","Management Assertions By","Comments","PEM"
-"Test Corporation","Test Corporation","test","Test Corporation","Test Corporation CA","","test","Test Corporation CA","71:8a:bd:2f:20:13:18:ea:a2:73:67:b0:3d:b5:3f:6b:24:3c:f6:f5","F82701F8E04770F3448C19070F9B2158B16621A0","F1712177935DBA40BDBD99C5F753319CF6293549B7284741E43916AD3BFBDD75","80C14510C26519770718D4086A713C32DBC2209FF30B2AAA36523CC310424096","false","2016 Nov 27","2019 Feb 05","http://crl.example.com/test.crl","RSA 2048 bits","SHA1WithRSA","Digital Signature, Certificate Sign, CRL Sign","(not present)","TRUE","","","TRUE","","","","","","","'-----BEGIN CERTIFICATE-----
-MIICyTCCAbGgAwIBAgIURxOdvmKY1LMeejuRTiuHeGBhZHwwDQYJKoZIhvcNAQEL
-BQAwDTELMAkGA1UEAwwCY2EwIhgPMjAxNjExMjcwMDAwMDBaGA8yMDE5MDIwNTAw
-MDAwMFowDTELMAkGA1UEAwwCY2EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
-AoIBAQC6iFGoRI4W1kH9braIBjYQPTwT2erkNUq07PVoV2wke8HHJajg2B+9sZwG
-m24ahvJr4q9adWtqZHEIeqVap0WH9xzVJJwCfs1D/B5p0DggKZOrIMNJ5Nu5TMJr
-bA7tFYIP8X6taRqx0wI6iypB7qdw4A8Njf1mCyuwJJKkfbmIYXmQsVeQPdI7xeC4
-SB+oN9OIQ+8nFthVt2Zaqn4CkC86exCABiTMHGyXrZZhW7filhLAdTGjDJHdtMr3
-/K0dJdMJ77kXDqdo4bN7LyJvaeO0ipVhHe4m1iWdq5EITjbLHCQELL8Wiy/l8Y+Z
-FzG4s/5JI/pyUcQx1QOs2hgKNe2NAgMBAAGjHTAbMAwGA1UdEwQFMAMBAf8wCwYD
-VR0PBAQDAgEGMA0GCSqGSIb3DQEBCwUAA4IBAQBXd3Rnz2WW+aczo/SPlYSst4Bp
-hWx6S3ncLB4RznGMCTndfJCkpOdkDvDi9swIN4xO19XlUJFX5FiJ9vbjrxgz1hV9
-/FsqApPRAMuA6cWMOFWtIu/qgurcCMpgcPyO6MKGR1YH1C2fpVIDIDc/ID7sIpLt
-m208pK6P9J61ka0QqjQkQZ1aDulBj+6Ic5GYwyJXAWyE3OoUJPteGM12yfT/7lOC
-ObxJaqJrOYQEmI2ZZQ67MjDgfvivopIFQKOJvlBJKHujDSz3ZFykwx7CwnvN74sJ
-07snm4Vz6lAKESVa4H65oExOqL1kEMQQKyNmOKEAMOmHM+L4toh17ax4q2xP
------END CERTIFICATE-----'"`
 )
 
 func loadSampleIssuers(content string) (*MozIssuers, error) {
@@ -152,7 +138,7 @@ data a, data b`
 
 	_, err := loadSampleIssuers(missingPem)
 
-	if err.Error() != "Not a valid PEM at line 2" {
+	if err == nil || err.Error() != "Not a valid PEM at line 2" {
 		t.Error(err)
 	}
 
@@ -161,7 +147,7 @@ Bob, blank`
 
 	_, err = loadSampleIssuers(emptyPem)
 
-	if err.Error() != "Not a valid PEM at line 2" {
+	if err == nil || err.Error() != "Not a valid PEM at line 2" {
 		t.Error(err)
 	}
 }
@@ -174,27 +160,11 @@ func Test_GetIssuers(t *testing.T) {
 
 	issuers := mi.GetIssuers()
 	if len(issuers) != 1 {
-		t.Error("Expecting one issuer")
+		t.Fatal("Expecting one issuer")
 	}
 
 	if issuers[0].ID() != kFirstTwoLinesIssuerID {
 		t.Errorf("Unexpected issuer SPKI, got: [%s]", issuers[0].ID())
-	}
-}
-
-func Test_GetIssuersEmptyAKI(t *testing.T) {
-	mi, err := loadSampleIssuers(kEmptyAKI)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	issuers := mi.GetIssuers()
-	if len(issuers) != 1 {
-		t.Error("Expecting one issuer")
-	}
-
-	if issuers[0].ID() != "VCIlmPM9NkgFQtrs4Oa5TeFcDu6MWRTKSNdePEhOgD8=" {
-		t.Errorf("Empty AKI shouldn't matter, but got %s", issuers[0].ID())
 	}
 }
 
@@ -236,7 +206,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 	}
 
 	cert, err = mi.GetCertificateForIssuer(types.NewIssuerFromString(""))
-	if err != nil && err.Error() != "Unknown issuer: " {
+	if err == nil || err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
 	if cert != nil {
@@ -252,7 +222,7 @@ func Test_GetCertificateForIssuer(t *testing.T) {
 	}
 
 	if cert.Subject.String() != kFirstTwoLinesSubject {
-		t.Error("Unexpected certificate subject")
+		t.Errorf("Unexpected certificate subject %s", cert.Subject.String())
 	}
 }
 
@@ -271,7 +241,7 @@ func Test_GetSubjectForIssuer(t *testing.T) {
 	}
 
 	subject, err = mi.GetSubjectForIssuer(types.NewIssuerFromString(""))
-	if err != nil && err.Error() != "Unknown issuer: " {
+	if err == nil || err.Error() != "Unknown issuer: " {
 		t.Fatal(err)
 	}
 	if subject != "" {
@@ -316,7 +286,7 @@ func Test_SaveIssuersList(t *testing.T) {
 	}
 
 	if len(list) != 1 {
-		t.Errorf("Unexepcted issuers list length: %+v", list)
+		t.Errorf("Unexpected issuers list length: %+v", list)
 	}
 }
 
@@ -330,8 +300,8 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
-	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem)
-	mi.InsertIssuerFromCertAndPem(notEnrolledCert, notEnrolledCertPem)
+	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem, nil)
+	mi.InsertIssuerFromCertAndPem(notEnrolledCert, notEnrolledCertPem, nil)
 	mi.Enroll(enrolledIssuer)
 
 	tmpfile, err := ioutil.TempFile("", "Test_SaveLoadIssuersList")
@@ -370,7 +340,7 @@ func Test_IsIssuerEnrolled(t *testing.T) {
 	issuer := types.NewIssuer(cert)
 
 	mi := NewMozillaIssuers()
-	mi.InsertIssuerFromCertAndPem(cert, certPem)
+	mi.InsertIssuerFromCertAndPem(cert, certPem, nil)
 
 	if mi.IsIssuerEnrolled(issuer) {
 		t.Error("Should not yet be enrolled")
@@ -398,7 +368,7 @@ func Test_NewTestIssuerFromSubjectString(t *testing.T) {
 
 func Test_LoadFromURL(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, kFirstTwoLines)
+		fmt.Fprint(w, kFirstTwoLines)
 	}))
 	defer ts.Close()
 
@@ -433,7 +403,7 @@ func Test_LoadFromURL(t *testing.T) {
 
 func Test_LoadFromURLToDefaultLocation(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, kFirstTwoLines)
+		fmt.Fprint(w, kFirstTwoLines)
 	}))
 	defer ts.Close()
 
@@ -593,17 +563,78 @@ func Test_LoadInvalidWithNoLocal(t *testing.T) {
 	}
 }
 
-func Test_DatasetAge(t *testing.T) {
-	mi, err := loadSampleIssuers(kEmptyAKI)
+func Test_PartitionedCRLFormat(t *testing.T) {
+	// The sample file in kFirstTwoLines has a full crl defined, so all the
+	// counts below are 1 more than the number of partitioned crls.
+	mi, err := loadSampleIssuers(kFirstTwoLines + "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("Should handle missing list")
 	}
 
-	if mi.DatasetAge().Microseconds() == 0 {
-		t.Error("Expected a nonzero dataset age, got zero.")
+	mi, err = loadSampleIssuers(kFirstTwoLines + "[]")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 1 {
+		t.Fatal("Should handle unquoted empty list")
 	}
 
-	if mi.DatasetAge().Truncate(time.Second) != 0 {
-		t.Errorf("expected less than one second of age, got %v", mi.DatasetAge())
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 1 {
+		t.Fatal("Should handle quoted empty list")
 	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 1 {
+		t.Fatal("Should handle quoted empty list")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[http://example.org]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 2 {
+		t.Fatal("Should handle length 1 list")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[http://example.org,]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 2 {
+		t.Fatalf("Should handle trailing comma")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[http://example.org,   http://example.com]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 3 {
+		t.Fatal("Should handle length 2 list")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"\n[http://example.org,\nhttp://example.com\n,]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 3 {
+		t.Fatalf("Should handle new lines")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + `"[
+	http://example.org/crl0,
+	http://example.org/crl1,
+	http://example.org/crl2,
+	http://example.org/crl3,
+	http://example.org/crl4,
+	http://example.org/crl5,
+	http://example.org/crl6,
+	http://example.org/crl7,
+	http://example.org/crl8,
+	http://example.org/crl9
+	]"`)
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 11 {
+		t.Fatal("Should handle long list")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[ldap://example.org]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 1 {
+		t.Fatalf("Should ignore CRL with unknown URL scheme")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[https://example.org]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 2 {
+		t.Fatalf("Should handle https scheme")
+	}
+
+	mi, err = loadSampleIssuers(kFirstTwoLines + "\"[https://example.org\\crl]\"")
+	if err != nil || len(mi.CrlMap[kFirstTwoLinesIssuerID]) != 1 {
+		t.Fatalf("Should ignored malformed url")
+	}
+
 }
