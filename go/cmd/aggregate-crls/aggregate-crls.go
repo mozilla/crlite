@@ -528,12 +528,40 @@ func main() {
 		auditor:       auditor,
 	}
 
-	mergedCrls := ae.identifyCrlsByIssuer(ctx)
-	if mergedCrls == nil {
+	discoveredCrls := ae.identifyCrlsByIssuer(ctx)
+	if discoveredCrls == nil {
+		// implies there are no known certs, so there's nothing to do.
 		return
 	}
 
-	crlPaths, count := ae.downloadCRLs(ctx, mergedCrls)
+	// List any discovered CRLs that are not in CCADB
+	for issuer, crls := range discoveredCrls {
+		dbCrlsForIssuer, exists := mozIssuers.CrlMap[issuer]
+		for crl, _ := range crls {
+			if !exists || !dbCrlsForIssuer[crl] {
+				glog.Infof("CRL not in CCADB: %s", crl)
+			}
+		}
+	}
+
+	// Add relevant CRLs from CCADB to the discoveredCrls list.
+	// discoveredCrls has an entry (possibly empty) for every issuer
+	// that we found certs from in CT.
+	for issuer, crls := range mozIssuers.CrlMap {
+		crlsForIssuer, exists := discoveredCrls[issuer]
+		for crl, _ := range crls {
+			if !exists {
+				glog.Infof("Ignoring CRL from CCADB, no known certs: %s", crl)
+				continue
+			}
+			if !crlsForIssuer[crl] {
+				glog.Infof("CRL not discovered in CT: %s", crl)
+				crlsForIssuer[crl] = true
+			}
+		}
+	}
+
+	crlPaths, count := ae.downloadCRLs(ctx, discoveredCrls)
 
 	if ctx.Err() != nil {
 		return

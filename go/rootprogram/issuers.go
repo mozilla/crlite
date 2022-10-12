@@ -50,6 +50,7 @@ type EnrolledIssuer struct {
 
 type MozIssuers struct {
 	issuerMap map[string]IssuerData
+	CrlMap    types.IssuerCrlMap
 	mutex     *sync.Mutex
 	DiskPath  string
 	ReportUrl string
@@ -59,6 +60,7 @@ type MozIssuers struct {
 func NewMozillaIssuers() *MozIssuers {
 	return &MozIssuers{
 		issuerMap: make(map[string]IssuerData, 0),
+		CrlMap:    make(types.IssuerCrlMap, 0),
 		mutex:     &sync.Mutex{},
 		DiskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
 		ReportUrl: kMozCCADBReport,
@@ -218,7 +220,7 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 		if err != nil {
 			return err
 		}
-		issuer := mi.InsertIssuerFromCertAndPem(cert, ei.Pem)
+		issuer := mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil)
 		if ei.Enrolled {
 			mi.Enroll(issuer)
 		}
@@ -298,13 +300,58 @@ func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum in
 	return cert, nil
 }
 
-func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string) types.Issuer {
+func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]string, error) {
+	crls := []string{}
+	fullCrlStr := aRow[aColMap["Full CRL Issued By This CA"]]
+	fullCrlStr = strings.TrimSpace(fullCrlStr)
+	if fullCrlStr != "" {
+		fullCrlUrl, err := url.Parse(fullCrlStr)
+		if err != nil {
+			glog.Warningf("decodeCrlsFromRow: Line %d: Could not parse %q as URL: %v", aLineNum, fullCrlStr, err)
+		} else if fullCrlUrl.Scheme != "http" && fullCrlUrl.Scheme != "https" {
+			glog.Warningf("decodeCrlsFromRow: Line %d: Unknown URL scheme in %q", aLineNum, fullCrlUrl.String())
+		} else {
+			crls = append(crls, fullCrlUrl.String())
+		}
+	}
+
+	partCrlJson := aRow[aColMap["JSON Array of Partitioned CRLs"]]
+	partCrlJson = strings.Trim(strings.TrimSpace(partCrlJson), "[]")
+	partCrls := strings.Split(partCrlJson, ",")
+	for _, crl := range partCrls {
+		crl = strings.TrimSpace(crl)
+		if crl == "" {
+			continue
+		}
+		crlUrl, err := url.Parse(crl)
+		if err != nil {
+			glog.Warningf("decodeCrlsFromRow: Line %d: Could not parse %q as URL: %v", aLineNum, crl, err)
+		} else if crlUrl.Scheme != "http" && crlUrl.Scheme != "https" {
+			glog.Warningf("decodeCrlsFromRow: Line %d: Unknown URL scheme in %q", aLineNum, crlUrl.String())
+		} else {
+			crls = append(crls, crlUrl.String())
+		}
+	}
+
+	return crls, nil
+}
+
+func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string, crls []string) types.Issuer {
 	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
 		subjectDN: aCert.Subject.String(),
 		pemInfo:   aPem,
 	}
+
+	crlSet, exists := mi.CrlMap[issuer.ID()]
+	if !exists {
+		crlSet = make(map[string]bool, 0)
+	}
+	for _, crl := range crls {
+		crlSet[crl] = true
+	}
+	mi.CrlMap[issuer.ID()] = crlSet
 
 	v, exists := mi.issuerMap[issuer.ID()]
 	if exists {
@@ -318,6 +365,7 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 		certs:    []issuerCert{ic},
 		enrolled: false,
 	}
+
 	return issuer
 }
 
@@ -349,7 +397,14 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 	}
 
 	lineNum := 1
-	for row, err := reader.Read(); err == nil; row, err = reader.Read() {
+	for {
+		row, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
 		lineNum += 1
 
 		cert, err := decodeCertificateFromRow(columnMap, row, lineNum)
@@ -357,7 +412,12 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 			return err
 		}
 
-		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"))
+		crls, err := decodeCrlsFromRow(columnMap, row, lineNum)
+		if err != nil {
+			return err
+		}
+
+		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"), crls)
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
 	}
 
