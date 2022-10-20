@@ -156,6 +156,30 @@ func (mi *MozIssuers) GetIssuers() []types.Issuer {
 	return issuers
 }
 
+func normalizePem(input string) string {
+	// Some consumers of the file produced by `SaveIssuersList` mistakenly
+	// assume that the PEM encoding of a certificate is unique. This causes
+	// some problems as the CCADB report often includes a certificate with
+	// an unusual PEM presentation one day and a different presentation
+	// another. (Usually a 65 character line that is later reflowed to
+	// width 64.) As a work-around, we'll normalize to the PEM format
+	// produced by the go standard library modulo the trailing newline.  We
+	// omit the trailing newline to minimize differences with the entries
+	// in the CCADB report at the time of writing.
+	//
+	var pemBuf strings.Builder
+	derBytes, rest := pem.Decode([]byte(input))
+	if len(rest) != 0 {
+		glog.Warningf("Ignored %d bytes of trailing data while normalizing this PEM: %s", len(rest), input)
+	}
+	pem.Encode(&pemBuf, derBytes)
+
+	output := pemBuf.String()
+	output = strings.TrimRight(output, "\n")
+
+	return output
+}
+
 func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
@@ -173,7 +197,7 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 				Whitelist:  false,
 				SubjectDN:  base64.URLEncoding.EncodeToString([]byte(cert.subjectDN)),
 				Subject:    cert.subjectDN,
-				Pem:        cert.pemInfo,
+				Pem:        normalizePem(cert.pemInfo),
 				Enrolled:   val.enrolled,
 			})
 			certCount++
