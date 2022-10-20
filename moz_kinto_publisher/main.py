@@ -281,7 +281,11 @@ class Intermediate:
         self.whitelist = kwargs["whitelist"]
 
         if "pem" in kwargs:
-            self.crlite_enrolled = kwargs["enrolled"]
+            # The crlite_enrolled field is no longer used by CRLite. Set it to
+            # False for local intermediates so that eventually the remote
+            # intermediates will be stop being updated due to enrollment
+            # changes.
+            self.crlite_enrolled = False
             self.set_pem(kwargs["pem"])
 
         if "attachment" in kwargs:
@@ -372,17 +376,6 @@ class Intermediate:
         rw_client.delete_record(
             collection=settings.KINTO_INTERMEDIATES_COLLECTION,
             id=self.kinto_id,
-        )
-
-    def unenroll_from_crlite_in_kinto(self, *, rw_client=None):
-        if self.kinto_id is None:
-            raise IntermediateRecordError(
-                "Cannot unenroll a record not at Kinto: {}".format(self)
-            )
-        rw_client.patch_record(
-            collection=settings.KINTO_INTERMEDIATES_COLLECTION,
-            id=self.kinto_id,
-            changes=BasicPatch({"crlite_enrolled": False}),
         )
 
     def update_kinto(self, *, remote_record=None, rw_client=None):
@@ -504,21 +497,13 @@ def load_remote_intermediates(*, kinto_client):
     return remote_intermediates, remote_error_records
 
 
-def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
-
+def publish_intermediates(*, args, rw_client):
     run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
     if not run_identifiers:
         log.warning("No run identifiers found")
         return
 
-    # We only enroll intermediates in CRLite when we publish a new full filter.
-    # But we can still update intermediates for preloading when new_filter_run_id is None.
-    if new_filter_run_id:
-        run_id = new_filter_run_id
-        allow_crlite_enrollment = True
-    else:
-        run_id = run_identifiers[-1]
-        allow_crlite_enrollment = False
+    run_id = run_identifiers[-1]
 
     run_id_path = args.download_path / Path(run_id)
     run_id_path.mkdir(parents=True, exist_ok=True)
@@ -540,11 +525,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
 
     remote_only = set(remote_intermediates.keys()) - set(local_intermediates.keys())
 
-    remote_enrolled = set()
-    for unique_id, record in remote_intermediates.items():
-        if record.crlite_enrolled:
-            remote_enrolled.add(unique_id)
-
     to_upload = set(local_intermediates.keys()) - set(remote_intermediates.keys())
 
     to_update = set()
@@ -561,7 +541,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
             log.warning(f"Failed to track expiration for {i}: {e}")
 
     log.info(f"Remote intermediates: {len(remote_intermediates)}")
-    log.info(f"- Enrolled: {len(remote_enrolled)}")
     log.info(f"- Expired: {len(remote_expired)}")
     log.info(f"- In error: {len(remote_error_records)}")
     log.info(f"To add: {len(to_upload)}")
@@ -597,9 +576,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
     # New records
     for unique_id in to_upload:
         record = local_intermediates[unique_id]
-        if not allow_crlite_enrollment:
-            log.info(f"Skipping enrollment of: {record}")
-            record.crlite_enrolled = False
         log.info(f"Adding new record: {record}")
         try:
             record.add_to_kinto(rw_client=rw_client)
@@ -610,14 +586,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
     for unique_id in to_update:
         local_int = local_intermediates[unique_id]
         remote_int = remote_intermediates[unique_id]
-        if not allow_crlite_enrollment and local_int.crlite_enrolled:
-            if not remote_int.crlite_enrolled:
-                log.info(f"Skipping enrollment of: {local_int}")
-                local_int.crlite_enrolled = False
-        # Enrollment might be the only change, and might be
-        # disallowed. So we might not have an update at all.
-        if local_int.equals(remote_record=remote_int):
-            continue
         log.info(f"Updating record: {remote_int} to {local_int}")
         try:
             local_int.update_kinto(
@@ -637,15 +605,6 @@ def publish_intermediates(*, args, rw_client, new_filter_run_id=None):
         raise KintoException(
             f"There are {len(verified_error_records)} broken intermediates. Re-run to fix."
         )
-
-    num_verified_enrolled = sum(
-        1 for v in verified_intermediates.values() if v.crlite_enrolled
-    )
-    log.info(
-        "{} intermediates locally, {} enrolled at Kinto of {} total.".format(
-            len(local_intermediates), num_verified_enrolled, len(verified_intermediates)
-        )
-    )
 
     # Every local intermediate should be in the remote list
     for unique_id, local_int in local_intermediates.items():
@@ -1350,14 +1309,12 @@ def main():
         publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        new_filter_run_id = publish_crlite(args=args, rw_client=rw_client)
+        publish_crlite(args=args, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
         publish_intermediates(
             args=args,
-            rw_client=rw_client,
-            new_filter_run_id=new_filter_run_id,
-        )
+            rw_client=rw_client)
     except KintoException as ke:
         log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
