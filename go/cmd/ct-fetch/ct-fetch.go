@@ -393,9 +393,12 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			precert = true
 		}
 
-		if err != nil {
-			glog.Errorf("[%s] Problem decoding certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
+		if cert == nil {
+			glog.Errorf("[%s] Fatal parsing error: index: %d error: %v", ep.LogMeta.URL, ep.LogEntry.Index, err)
 			continue
+		}
+		if err != nil {
+			glog.Warningf("[%s] Nonfatal parsing error: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 		}
 
 		// Skip expired certificates unless configured otherwise
