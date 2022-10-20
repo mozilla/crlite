@@ -307,7 +307,7 @@ class Intermediate:
     def unique_id(self):
         return (
             f"{base64.b85encode(self.pubKeyHash).decode('utf-8')}"
-            + f"-{self.subject}-{self.pemHash}"
+            + f"-{self.subject}-{self.derHash}"
         )
 
     def _get_attributes(self, *, complete=False):
@@ -336,7 +336,7 @@ class Intermediate:
 
     def equals(self, *, remote_record=None):
         sameAttributes = self._get_attributes() == remote_record._get_attributes()
-        sameAttachment = remote_record.pemHash == self.pemHash
+        sameAttachment = remote_record.derHash == self.derHash
         return sameAttributes and sameAttachment
 
     def set_pem(self, pem_data):
