@@ -498,23 +498,31 @@ def load_remote_intermediates(*, kinto_client):
 
 
 def publish_intermediates(*, args, rw_client):
-    run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
-    if not run_identifiers:
-        log.warning("No run identifiers found")
-        return
-
-    run_id = run_identifiers[-1]
+    if args.enrolled_json:
+        # when using a local copy of enrolled.json we don't need to determine
+        # the most recent run identifier.
+        run_id = "local"
+    else:
+        run_identifiers = workflow.get_run_identifiers(args.filter_bucket)
+        if not run_identifiers:
+            log.warning("No run identifiers found")
+            return
+        run_id = run_identifiers[-1]
 
     run_id_path = args.download_path / Path(run_id)
     run_id_path.mkdir(parents=True, exist_ok=True)
-    intermediates_path = run_id_path / Path("enrolled.json")
 
-    workflow.download_and_retry_from_google_cloud(
-        args.filter_bucket,
-        f"{run_id}/enrolled.json",
-        intermediates_path,
-        timeout=timedelta(minutes=5),
-    )
+    if args.enrolled_json:
+        intermediates_path = Path(args.enrolled_json)
+    else:
+        intermediates_path = run_id_path / Path("enrolled.json")
+
+        workflow.download_and_retry_from_google_cloud(
+            args.filter_bucket,
+            f"{run_id}/enrolled.json",
+            intermediates_path,
+            timeout=timedelta(minutes=5),
+        )
 
     local_intermediates = load_local_intermediates(
         intermediates_path=intermediates_path
@@ -540,11 +548,13 @@ def publish_intermediates(*, args, rw_client):
         except Exception as e:
             log.warning(f"Failed to track expiration for {i}: {e}")
 
+    log.info(f"Local intermediates: {len(local_intermediates)}")
     log.info(f"Remote intermediates: {len(remote_intermediates)}")
     log.info(f"- Expired: {len(remote_expired)}")
     log.info(f"- In error: {len(remote_error_records)}")
     log.info(f"To add: {len(to_upload)}")
     log.info(f"To update: {len(to_update)}")
+    log.info(f"To delete: {len(remote_only)}")
 
     if args.noop:
         log.info("Noop flag set, exiting before any intermediate updates")
@@ -1271,6 +1281,7 @@ def main():
 
     parser.add_argument("--filter-bucket", default="crlite_filters")
     parser.add_argument("--verbose", "-v", help="Be more verbose", action="store_true")
+    parser.add_argument("--enrolled-json", help="Path to local copy of enrolled.json")
 
     args = parser.parse_args()
 
@@ -1286,8 +1297,12 @@ def main():
     if "KINTO_AUTH_PASSWORD" not in dir(settings):
         raise Exception("KINTO_AUTH_PASSWORD must be defined in settings.py")
 
-    auth = requests.auth.HTTPBasicAuth(
-        settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD
+    auth = (
+        None
+        if args.noop
+        else requests.auth.HTTPBasicAuth(
+            settings.KINTO_AUTH_USER, settings.KINTO_AUTH_PASSWORD
+        )
     )
     log.info(
         "Using username/password authentication. Username={}".format(
@@ -1312,9 +1327,7 @@ def main():
         publish_crlite(args=args, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
-        publish_intermediates(
-            args=args,
-            rw_client=rw_client)
+        publish_intermediates(args=args, rw_client=rw_client)
     except KintoException as ke:
         log.error("An exception at Kinto occurred: {}".format(ke))
         raise ke
