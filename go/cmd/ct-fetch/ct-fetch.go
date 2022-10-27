@@ -598,7 +598,8 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error
 	proof, err := lw.Client.GetSTHConsistency(ctx, oldSize, newSize)
 	if err != nil {
 		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.Name(), err)
-		return err
+		lw.sleep(ctx) // Assume this is a temporary outage and wait
+		return nil
 	}
 
 	// Annotate the proof with the leaves that influence each term.
@@ -655,7 +656,8 @@ Loop:
 		minTimestamp, maxTimestamp, err := lw.downloadCTRangeToChannel(ctx, verifier, entryChan)
 		if err != nil {
 			glog.Errorf("[%s] downloadCTRangeToChannel exited with an error: %s.", lw.Name(), err)
-			return err
+			lw.sleep(ctx) // Assume this is a temporary outage and wait
+			return nil
 		}
 		err = verifier.CheckClaim()
 		if err != nil {
@@ -677,7 +679,7 @@ Loop:
 
 	glog.Infof("[%s] Verified entries %d-%d", lw.Name(), verifiers[0].Subtree.First, verifiers[len(verifiers)-1].Subtree.Last)
 
-	return err
+	return nil
 }
 
 func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimestamp uint64) error {
