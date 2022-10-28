@@ -487,7 +487,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 	} else if logObj.LastUpdateTime.IsZero() {
 		// First contact with log
 		task = Init
-	} else if logObj.MaxEntry < sth.TreeSize-batchSize {
+	} else if logObj.MaxEntry+batchSize < sth.TreeSize {
 		// There are many new entries to download.
 		task = Update
 	} else if logObj.MinEntry > 0 {
@@ -535,7 +535,11 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error
 
 	switch lw.WorkOrder {
 	case Init:
-		firstIndex = lw.STH.TreeSize - lw.JobSize
+		if lw.STH.TreeSize < lw.JobSize {
+			firstIndex = 0
+		} else {
+			firstIndex = lw.STH.TreeSize - lw.JobSize
+		}
 		lastIndex = lw.STH.TreeSize - 1
 		glog.Infof("[%s] Running Init job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Update:
@@ -549,6 +553,8 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error
 		if lw.LogState.MinEntry%lw.JobSize != 0 {
 			firstIndex = lw.LogState.MinEntry - (lw.LogState.MinEntry % lw.JobSize)
 		} else {
+			// Backfill implies MinEntry > 0, so MinEntry is a non-zero multiple of
+			// JobSize.
 			firstIndex = lw.LogState.MinEntry - lw.JobSize
 		}
 		lastIndex = lw.LogState.MinEntry - 1
@@ -556,10 +562,6 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error
 	case Sleep:
 		lw.sleep(ctx)
 		return nil
-	}
-
-	if firstIndex < 0 {
-		firstIndex = 0
 	}
 
 	if lastIndex > lw.STH.TreeSize-1 {
