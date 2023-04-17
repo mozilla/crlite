@@ -1,10 +1,10 @@
 from decouple import config
 
 KINTO_RW_SERVER_URL = config(
-    "KINTO_RW_SERVER_URL", default="https://settings-writer.stage.mozaws.net/v1/"
+    "KINTO_RW_SERVER_URL", default="https://remote-settings.allizom.org/v1/"
 )
 KINTO_RO_SERVER_URL = config(
-    "KINTO_RO_SERVER_URL", default="https://settings-cdn.stage.mozaws.net/v1/"
+    "KINTO_RO_SERVER_URL", default="https://firefox.settings.services.allizom.org/v1/"
 )
 KINTO_AUTH_USER = config("KINTO_AUTH_USER", default="")
 KINTO_AUTH_PASSWORD = config("KINTO_AUTH_PASSWORD", default="")
