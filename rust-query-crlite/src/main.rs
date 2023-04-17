@@ -36,8 +36,8 @@ use x509_parser::prelude::*;
 const ICA_LIST_URL: &str =
     "https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport";
 
-const STAGE_ATTACH_URL: &str = "https://firefox-settings-attachments-cdn.stage.mozaws.net/";
-const STAGE_URL: &str = "https://settings-cdn.stage.mozaws.net/v1/buckets/security-state-staging/collections/cert-revocations/records";
+const STAGE_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.allizom.org/";
+const STAGE_URL: &str = "https://firefox.settings.services.allizom.org/v1/buckets/security-state-staging/collections/cert-revocations/records";
 
 const PROD_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.mozilla.net/";
 const PROD_URL: &str = "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/cert-revocations/records";

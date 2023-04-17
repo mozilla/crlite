@@ -17,7 +17,7 @@ from kinto_http.patch_type import BasicPatch
 from kinto_http.exceptions import KintoException
 
 KINTO_RW_SERVER_URL = config(
-    "KINTO_RW_SERVER_URL", default="https://settings-writer.stage.mozaws.net/v1/"
+    "KINTO_RW_SERVER_URL", default="https://remote-settings.allizom.org/v1/"
 )
 KINTO_AUTH_USER = config("KINTO_AUTH_USER", default="")
 KINTO_AUTH_PASSWORD = config("KINTO_AUTH_PASSWORD", default="")
