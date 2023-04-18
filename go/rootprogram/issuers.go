@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	kMozCCADBReport = "https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport"
+	kMozCCADBReport = "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport"
 )
 
 type issuerCert struct {

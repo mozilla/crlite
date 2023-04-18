@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	// curl https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport -s | csvtool head 2 -
+	// curl https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport -s | csvtool head 2 -
 	kFirstTwoLines = `Subject,Issuer,SHA256,Full CRL Issued By This CA,PEM,JSON Array of Partitioned CRLs
 CN=3CX CA RSA R1; O=3CX; C=CY,CN=SSL.com SSL Enterprise Intermediate CA RSA R1; O=SSL Corp; C=US,4E93BCADD5D4E95331AE362DF9C6066CCA7F942A8FDE4D3EE011DE34074F5840,http://crls.ssl.com/3CX-TLS-I-RSA-R1.crl,"-----BEGIN CERTIFICATE-----
 MIIGwDCCBKigAwIBAgIQY1mr5Pm6UFZUALZmGlylzzANBgkqhkiG9w0BAQsFADB6M
