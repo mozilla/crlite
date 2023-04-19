@@ -8,9 +8,7 @@ RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 
-
-# rust-cascade with the builder feature needs rust >= 1.61.
-FROM rust:1.61-bullseye as rust-builder
+FROM rust:latest as rust-builder
 RUN mkdir /build
 
 ADD rust-create-cascade /build/rust-create-cascade/
