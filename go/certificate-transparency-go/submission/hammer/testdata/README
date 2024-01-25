@@ -1,2 +1,0 @@
-precert.der contains DER-encoded pre-certificate signed by testing CA
-intermediate.der contains DER-encoded intermediate testing CA cert

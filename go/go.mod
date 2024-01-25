@@ -23,5 +23,3 @@ require (
 )
 
 go 1.13
-
-replace github.com/google/certificate-transparency-go v1.1.0 => ./certificate-transparency-go/
