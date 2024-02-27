@@ -10,5 +10,5 @@ hex = "0.4"
 log = "0.4"
 rand="0.7"
 rayon = "1.5"
-rust_cascade = { version = "1.4.0" , features = ["builder"] }
+rust_cascade = { version = "1.5.0" , features = ["builder"] }
 stderrlog = "0.5"
