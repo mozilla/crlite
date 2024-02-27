@@ -49,9 +49,7 @@ var (
 )
 
 type AggregateEngine struct {
-	loadStorageDB storage.CertDatabase
-	saveStorage   storage.StorageBackend
-	remoteCache   storage.RemoteCache
+	saveStorage storage.StorageBackend
 
 	issuers *rootprogram.MozIssuers
 	auditor *CrlAuditor
@@ -67,49 +65,6 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 	filename = strings.TrimSuffix(filename, ".crl")
 	filename = fmt.Sprintf("%s-%s.crl", filename, hex.EncodeToString(hash[:8]))
 	return filename
-}
-
-func (ae *AggregateEngine) findCrlWorker(ctx context.Context, wg *sync.WaitGroup,
-	issuerChan <-chan types.Issuer, resultChan chan<- types.IssuerCrlMap) {
-	defer wg.Done()
-
-	issuerCrls := make(types.IssuerCrlMap)
-
-	for issuer := range issuerChan {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			meta := ae.loadStorageDB.GetIssuerMetadata(issuer)
-
-			crls, prs := issuerCrls[issuer.ID()]
-			if !prs {
-				crls = make(map[string]bool)
-			}
-
-			crlSet := meta.CRLs()
-
-			if len(crlSet) == 0 {
-				if ae.issuers.IsIssuerInProgram(issuer) {
-					issuerSubj, err := ae.issuers.GetSubjectForIssuer(issuer)
-					if err != nil {
-						glog.Warningf("No known CRLs and couldn't get subject for issuer=%s that is in the root program: %s",
-							issuer.ID(), err)
-					} else {
-						glog.Infof("No known CRLs for issuer=%s (%s) in the root program. Not enrolling into CRLite.",
-							issuer.ID(), issuerSubj)
-					}
-				}
-			}
-
-			for _, url := range crlSet {
-				crls[url] = true
-			}
-			issuerCrls[issuer.ID()] = crls
-		}
-	}
-
-	resultChan <- issuerCrls
 }
 
 type CrlVerifier struct {
@@ -348,69 +303,6 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 	}
 }
 
-func (ae *AggregateEngine) identifyCrlsByIssuer(ctx context.Context) types.IssuerCrlMap {
-	var wg sync.WaitGroup
-
-	glog.Infof("Listing issuers and their expiration dates...")
-	issuerList, err := ae.loadStorageDB.GetIssuerAndDatesFromCache()
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	issuerChan := make(chan types.Issuer, len(issuerList))
-
-	var count int64
-	for _, issuerObj := range issuerList {
-		if !ae.issuers.IsIssuerInProgram(issuerObj.Issuer) {
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			glog.Infof("Quit received")
-			break
-		case issuerChan <- issuerObj.Issuer:
-			count = count + 1
-		default:
-			glog.Fatalf("Channel overflow. Aborting at %s", issuerObj.Issuer.ID())
-		}
-	}
-
-	// Signal that was the last work
-	close(issuerChan)
-
-	resultChan := make(chan types.IssuerCrlMap, *ctconfig.NumThreads)
-
-	// Start the workers
-	for t := 0; t < *ctconfig.NumThreads; t++ {
-		wg.Add(1)
-		go ae.findCrlWorker(ctx, &wg, issuerChan, resultChan)
-	}
-
-	// Set up a notifier for the workers closing
-	doneChan := make(chan bool)
-	go func(wait *sync.WaitGroup) {
-		wait.Wait()
-		doneChan <- true
-	}(&wg)
-
-	select {
-	case <-ctx.Done():
-		glog.Infof("Signal caught, stopping threads at next opportunity.")
-		return nil
-	case <-doneChan:
-		close(resultChan)
-	}
-
-	// Take all worker results and merge them into one JSON structure
-	mergedCrls := make(types.IssuerCrlMap)
-	for mapPart := range resultChan {
-		mergedCrls.Merge(mapPart)
-	}
-
-	return mergedCrls
-}
-
 func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlUrlPaths, int64) {
 	var wg sync.WaitGroup
 
@@ -474,7 +366,6 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 func main() {
 	ctconfig.Init()
 	ctx, cancel := context.WithCancel(context.Background())
-	storageDB, remoteCache := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	checkPathArg(*revokedpath, "revokedpath", ctconfig)
@@ -521,47 +412,20 @@ func main() {
 	auditor := NewCrlAuditor(mozIssuers)
 
 	ae := AggregateEngine{
-		loadStorageDB: storageDB,
-		saveStorage:   saveBackend,
-		remoteCache:   remoteCache,
-		issuers:       mozIssuers,
-		auditor:       auditor,
+		saveStorage: saveBackend,
+		issuers:     mozIssuers,
+		auditor:     auditor,
 	}
 
-	discoveredCrls := ae.identifyCrlsByIssuer(ctx)
-	if discoveredCrls == nil {
-		// implies there are no known certs, so there's nothing to do.
-		return
-	}
-
-	// List any discovered CRLs that are not in CCADB
-	for issuer, crls := range discoveredCrls {
-		dbCrlsForIssuer, exists := mozIssuers.CrlMap[issuer]
-		for crl, _ := range crls {
-			if !exists || !dbCrlsForIssuer[crl] {
-				glog.Infof("CRL not in CCADB: %s", crl)
-			}
-		}
-	}
-
-	// Add relevant CRLs from CCADB to the discoveredCrls list.
-	// discoveredCrls has an entry (possibly empty) for every issuer
-	// that we found certs from in CT.
+	issuerCrlMap := make(types.IssuerCrlMap)
 	for issuer, crls := range mozIssuers.CrlMap {
-		crlsForIssuer, exists := discoveredCrls[issuer]
+		issuerCrlMap[issuer] = make(map[string]bool)
 		for crl, _ := range crls {
-			if !exists {
-				glog.Infof("Ignoring CRL from CCADB, no known certs: %s", crl)
-				continue
-			}
-			if !crlsForIssuer[crl] {
-				glog.Infof("CRL not discovered in CT: %s", crl)
-				crlsForIssuer[crl] = true
-			}
+			issuerCrlMap[issuer][crl] = true
 		}
 	}
 
-	crlPaths, count := ae.downloadCRLs(ctx, discoveredCrls)
+	crlPaths, count := ae.downloadCRLs(ctx, issuerCrlMap)
 
 	if ctx.Err() != nil {
 		return

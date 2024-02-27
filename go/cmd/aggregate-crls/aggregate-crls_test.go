@@ -59,7 +59,7 @@ func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 	caTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().Unix()),
 		Subject: pkix.Name{
-			CommonName: "Honest Achmed's Used Certificates and CRLs",
+			CommonName: "Only the Finest Certificates and CRLs",
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
@@ -151,14 +151,11 @@ func Test_verifyCRL(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
-	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
 
 	ae := AggregateEngine{
-		loadStorageDB: storageDB,
-		saveStorage:   storage.NewMockBackend(),
-		remoteCache:   storage.NewMockRemoteCache(),
-		issuers:       issuersObj,
-		auditor:       auditor,
+		saveStorage: storage.NewMockBackend(),
+		issuers:     issuersObj,
+		auditor:     auditor,
 	}
 
 	todayThisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -261,16 +258,13 @@ func Test_crlFetchWorker(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
-		loadStorageDB: storageDB,
-		saveStorage:   storage.NewMockBackend(),
-		remoteCache:   storage.NewMockRemoteCache(),
-		issuers:       issuersObj,
-		auditor:       auditor,
+		saveStorage: storage.NewMockBackend(),
+		issuers:     issuersObj,
+		auditor:     auditor,
 	}
 
 	urlChan := make(chan types.IssuerCrlUrls, 16)
@@ -367,16 +361,13 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	*crlpath = tmpDir
 	defer os.RemoveAll(tmpDir)
 
-	storageDB, _ := storage.NewCertDatabase(storage.NewMockRemoteCache())
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
-		loadStorageDB: storageDB,
-		saveStorage:   storage.NewMockBackend(),
-		remoteCache:   storage.NewMockRemoteCache(),
-		issuers:       issuersObj,
-		auditor:       auditor,
+		saveStorage: storage.NewMockBackend(),
+		issuers:     issuersObj,
+		auditor:     auditor,
 	}
 
 	ca, caPrivKey := makeCA(t)
