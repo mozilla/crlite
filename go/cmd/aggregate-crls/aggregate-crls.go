@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/certificate-transparency-go/x509/pkix"
@@ -290,7 +289,6 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		if anyCrlFailed == false {
 			ae.issuers.Enroll(tuple.Issuer)
 
-			glog.Infof("[%s] Saving %d revoked serials", tuple.Issuer.ID(), serialCount)
 			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
@@ -395,7 +393,7 @@ func main() {
 		return
 	}
 
-	metrics.SetGauge([]string{"IssuersAgeSeconds"}, float32(mozIssuers.DatasetAge().Seconds()))
+	glog.Infof("Issuer file age: %s", mozIssuers.DatasetAge().Round(time.Second))
 
 	// Exit signal, used by signals from the OS
 	sigChan := make(chan os.Signal, 1)
