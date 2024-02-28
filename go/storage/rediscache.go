@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/go-redis/redis"
 	"github.com/golang/glog"
 
@@ -58,7 +57,6 @@ func (rc *RedisCache) MemoryPolicyCorrect() error {
 }
 
 func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
-	defer metrics.MeasureSince([]string{"SetInsert"}, time.Now())
 	ir := rc.client.SAdd(key, entry)
 	added, err := ir.Result()
 	if err != nil && strings.HasPrefix(err.Error(), "OOM") {
@@ -68,27 +66,23 @@ func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 }
 
 func (rc *RedisCache) SetRemove(key string, entry string) (bool, error) {
-	defer metrics.MeasureSince([]string{"SetRemove"}, time.Now())
 	ir := rc.client.SRem(key, entry)
 	removed, err := ir.Result()
 	return removed > 0, err
 }
 
 func (rc *RedisCache) SetContains(key string, entry string) (bool, error) {
-	defer metrics.MeasureSince([]string{"SetContains"}, time.Now())
 	br := rc.client.SIsMember(key, entry)
 	return br.Result()
 }
 
 func (rc *RedisCache) SetList(key string) ([]string, error) {
-	defer metrics.MeasureSince([]string{"List"}, time.Now())
 	slicer := rc.client.SMembers(key)
 	return slicer.Result()
 }
 
 func (rc *RedisCache) SetToChan(key string, c chan<- string) error {
 	defer close(c)
-	defer metrics.MeasureSince([]string{"SetToChan"}, time.Now())
 	scanres := rc.client.SScan(key, 0, "", 0)
 	err := scanres.Err()
 	if err != nil {
@@ -110,14 +104,12 @@ func (rc *RedisCache) SetCardinality(key string) (int, error) {
 }
 
 func (rc *RedisCache) Exists(key string) (bool, error) {
-	defer metrics.MeasureSince([]string{"Exists"}, time.Now())
 	ir := rc.client.Exists(key)
 	count, err := ir.Result()
 	return count == 1, err
 }
 
 func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
-	defer metrics.MeasureSince([]string{"ExpireAt"}, time.Now())
 	br := rc.client.ExpireAt(key, aExpTime)
 	return br.Err()
 }
@@ -155,7 +147,6 @@ func (rc *RedisCache) QueueLength(key string) (int64, error) {
 
 func (rc *RedisCache) KeysToChan(pattern string, c chan<- string) error {
 	defer close(c)
-	defer metrics.MeasureSince([]string{"KeysToChan"}, time.Now())
 	scanres := rc.client.Scan(0, pattern, 0)
 	err := scanres.Err()
 	if err != nil {
