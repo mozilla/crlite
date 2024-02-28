@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+
+from google.cloud import storage
+from google.api_core.retry import Retry
+from pathlib import Path
+from datetime import datetime
+
+import argparse
+import os
+import sys
+import glog as log
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--noop", help="Don't upload", action="store_true")
+parser.add_argument(
+    "results_path",
+    help="Path to folder to upload containing the mlbf folder",
+    nargs=1,
+    type=Path,
+)
+parser.add_argument(
+    "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
+)
+
+
+@Retry(deadline=60)
+def uploadBlob(bucket, remoteFilePath, localFilePath):
+    blob = bucket.blob(str(remoteFilePath))
+    blob.upload_from_filename(str(localFilePath))
+
+
+def uploadFiles(files, localFolder, remoteFolder, bucket, *, args):
+    log.info(f"Uploading {len(files)} files from {localFolder} to {remoteFolder}")
+    for item in files:
+        localFilePath = localFolder.joinpath(item)
+        remoteFilePath = remoteFolder.joinpath(item)
+
+        if localFilePath.is_symlink():
+            continue
+
+        log.debug(
+            f"Uploading {remoteFilePath} (size={localFilePath.stat().st_size}) "
+            + f"from {localFilePath}"
+        )
+
+        if args.noop:
+            continue
+
+        uploadBlob(bucket, remoteFilePath, localFilePath)
+
+
+def main():
+    args = parser.parse_args()
+
+    if not args.results_path or len(args.results_path) != 1:
+        parser.print_usage()
+        sys.exit(0)
+
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(args.filter_bucket)
+
+    runIdPath = args.results_path[0].resolve()
+
+    for path, dirs, files in os.walk(runIdPath):
+        localFolder = Path(path)
+        remoteFolder = localFolder.relative_to(runIdPath.parent)
+        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+
+
+if __name__ == "__main__":
+    main()
