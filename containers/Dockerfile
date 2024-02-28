@@ -20,7 +20,7 @@ WORKDIR /build/rust-query-crlite
 RUN cargo build --release --target-dir /build
 
 
-FROM python:3.8-bullseye
+FROM python:3.12.2-slim-bookworm
 RUN apt update \
     && apt install -y ca-certificates \
     && apt -y upgrade \
