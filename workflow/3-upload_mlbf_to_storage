@@ -3,12 +3,12 @@
 from google.cloud import storage
 from google.api_core.retry import Retry
 from pathlib import Path
-from datetime import datetime
 
 import argparse
+import datetime
+import glog as log
 import os
 import sys
-import glog as log
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--noop", help="Don't upload", action="store_true")
@@ -70,19 +70,19 @@ def main():
 
     ensureFileOrAbort(runIdPath, Path("mlbf/filter"))
 
-    for path, dirs, files in os.walk(runIdPath):
+    for path, dirs, files in os.walk(runIdPath / "mlbf"):
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(runIdPath.parent)
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
-
-    for path, dirs, files in os.walk(runIdPath / "mlbf"):
-        remoteFolder = Path("latest")
-        uploadFiles(files, Path(path), remoteFolder, bucket, args=args)
+        # Add a copy to /latest
+        uploadFiles(files, localFolder, Path("latest"), bucket, args=args)
 
     sentinel = bucket.blob(str(Path(runIdPath.name) / "completed"))
     log.info(f"Saving 'completed' marker to {sentinel.name}")
     if not args.noop:
-        sentinel.upload_from_string(f"Upload completed at {datetime.utcnow()}")
+        sentinel.upload_from_string(
+            f"Upload completed at {datetime.datetime.now(datetime.UTC)}"
+        )
 
 
 if __name__ == "__main__":

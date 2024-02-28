@@ -43,13 +43,20 @@ ls -latS ${ID}/revoked | head
 echo "crlite-fullrun: disk usage"
 du -hc ${ID}
 
-${workflow}/1-generate_mlbf ${ID} \
+if [ "x${DoNotUpload}x" == "xx" ] ; then
+  echo "archiving crls"
+  tar -czf ${ID}/crls.tar.gz -C ${CRLS} .
+  echo "uploading source materials"
+  ${workflow}/1-upload_data_to_storage ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
+fi
+
+${workflow}/2-generate_mlbf ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
-  echo "archiving crls"
-  tar -cvzf ${ID}/crls.tar.gz -C ${CRLS} .
-  ${workflow}/2-upload_artifacts_to_storage ${ID} \
+  echo "uploading mlbf"
+  ${workflow}/3-upload_mlbf_to_storage ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
 fi
 
