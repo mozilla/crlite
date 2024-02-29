@@ -20,16 +20,6 @@ repos:
     - id: flake8
 - repo: local
   hooks:
-    - id: go-unit-tests
-      name: Go unit tests
-      language: script
-      entry: hooks/go-unit-tests.sh
-      files: '\.go$'
-    - id: go-no-replacement
-      name: Avoid committing a go module replacement
-      entry: ./hooks/go-no-replacement.sh
-      language: script
-      files: go.mod
     - id: pytest
       name: Python Tests
       language: system
