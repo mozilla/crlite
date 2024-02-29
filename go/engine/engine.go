@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/hashicorp/go-metrics"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/storage"
 	"github.com/mozilla/crlite/go/telemetry"

@@ -25,12 +25,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/hashicorp/go-metrics"
 	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"

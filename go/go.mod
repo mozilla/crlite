@@ -1,25 +1,30 @@
 module github.com/mozilla/crlite/go
 
 require (
-	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878
-	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
-	github.com/go-redis/redis v6.15.5+incompatible
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/golang/protobuf v1.3.2 // indirect
-	github.com/google/certificate-transparency-go v1.1.0
-	github.com/gopherjs/gopherjs v0.0.0-20190915194858-d3ddacdb130f // indirect
-	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
-	github.com/hashicorp/go-uuid v1.0.1 // indirect
-	github.com/hashicorp/golang-lru v0.5.3 // indirect
+	github.com/bluele/gcache v0.0.2
+	github.com/go-redis/redis v6.15.9+incompatible
+	github.com/golang/glog v1.2.0
+	github.com/google/certificate-transparency-go v1.1.7
+	github.com/hashicorp/go-metrics v0.5.3
 	github.com/jpillora/backoff v1.0.0
-	github.com/onsi/ginkgo v1.10.2 // indirect
-	github.com/onsi/gomega v1.7.0 // indirect
-	github.com/smartystreets/assertions v1.0.1 // indirect
-	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
-	golang.org/x/net v0.0.0-20191007182048-72f939374954 // indirect
-	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
-	gopkg.in/ini.v1 v1.48.0
-	gopkg.in/yaml.v2 v2.2.4 // indirect
+	gopkg.in/ini.v1 v1.67.0
 )
 
-go 1.13
+require (
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/go-logr/logr v1.4.1 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/hashicorp/golang-lru v1.0.2 // indirect
+	github.com/onsi/ginkgo v1.16.5 // indirect
+	github.com/onsi/gomega v1.31.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/stretchr/testify v1.8.4 // indirect
+	golang.org/x/crypto v0.20.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
+	google.golang.org/protobuf v1.32.0 // indirect
+	k8s.io/klog/v2 v2.120.1 // indirect
+)
+
+go 1.19

@@ -1,4 +1,4 @@
-FROM golang:1.18.1-bullseye as go-builder
+FROM golang:1.22.0-bookworm as go-builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
