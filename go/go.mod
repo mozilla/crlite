@@ -16,7 +16,7 @@ require (
 	github.com/onsi/gomega v1.7.0 // indirect
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
-	golang.org/x/net v0.0.0-20191007182048-72f939374954 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/ini.v1 v1.48.0
 	gopkg.in/yaml.v2 v2.2.4 // indirect
