@@ -43,20 +43,16 @@ def main():
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
-            all_runs = workflow.get_run_identifiers(args.filter_bucket)
-            if all_runs:
-                latest = all_runs.pop()
-                dest = Path(tempfile.mkdtemp()) / Path(latest)
-                dest.mkdir()
-                prev_revset = dest / Path("prev_revset.bin")
+            dest = Path(tempfile.mkdtemp())
+            prev_revset = dest / Path("prev_revset.bin")
 
-                workflow.download_from_google_cloud(
-                    args.filter_bucket,
-                    f"{latest}/mlbf/revset.bin",
-                    prev_revset,
-                )
+            workflow.download_from_google_cloud(
+                args.filter_bucket,
+                "latest/revset.bin",
+                prev_revset,
+            )
 
-                cmdline = cmdline + ["--prev-revset", prev_revset]
+            cmdline = cmdline + ["--prev-revset", prev_revset]
         except exceptions.NotFound as e:
             log.error(f"Could not download existing filter: {e}")
         except Exception as e:
