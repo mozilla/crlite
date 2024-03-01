@@ -159,6 +159,8 @@ fn include<T>(
             builder
                 .include(key)
                 .expect("Capacity error. Did the file contents change?");
+            // Ensure that we do not attempt to include this issuer+serial again.
+            revoked_serial_set.remove(serial);
         }
     }
 }
