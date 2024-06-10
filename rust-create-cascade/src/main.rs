@@ -25,6 +25,7 @@ extern crate log;
 extern crate rand;
 extern crate rayon;
 extern crate rust_cascade;
+extern crate statsd;
 extern crate stderrlog;
 
 use clap::Parser;
@@ -37,6 +38,7 @@ use std::fs::File;
 use std::io::prelude::{BufRead, Write};
 use std::io::{BufReader, Lines};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -284,7 +286,13 @@ fn exclude_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Pat
 
 /// `create_cascade` runs through the full filter generation process and writes a cascade to
 /// `out_file`.
-fn create_cascade(out_file: &Path, revoked_dir: &Path, known_dir: &Path, hash_alg: HashAlgorithm) {
+fn create_cascade(
+    out_file: &Path,
+    revoked_dir: &Path,
+    known_dir: &Path,
+    hash_alg: HashAlgorithm,
+    statsd_client: Option<&statsd::Client>,
+) {
     info!("Counting serials");
     let (revoked, not_revoked) = count_all(revoked_dir, known_dir);
 
@@ -336,6 +344,12 @@ fn create_cascade(out_file: &Path, revoked_dir: &Path, known_dir: &Path, hash_al
     filter_writer
         .write_all(&cascade_bytes)
         .expect("can't write file");
+
+    if let Some(client) = statsd_client {
+        client.gauge("generate.revoked", revoked as f64);
+        client.gauge("generate.not_revoked", not_revoked as f64);
+        client.gauge("generate.filter_size", cascade_bytes.len() as f64);
+    }
 }
 
 /// `write_revset_and_stash` writes a revset and a stash to disk.
@@ -371,6 +385,7 @@ fn write_revset_and_stash(
     prev_revset_file: &Path,
     revoked_dir: &Path,
     known_dir: &Path,
+    statsd_client: Option<&statsd::Client>,
 ) {
     let mut prev_keys: HashSet<Vec<u8>> = HashSet::new();
     if prev_revset_file.exists() {
@@ -383,7 +398,7 @@ fn write_revset_and_stash(
     }
 
     let mut revset = HashSet::new();
-    let mut stash = vec![];
+    let mut stash_bytes = vec![];
 
     for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
         if let (issuer, Some(revoked_file), known_file) = pair {
@@ -408,28 +423,34 @@ fn write_revset_and_stash(
             }
 
             if !additions.is_empty() {
-                stash.extend((additions.len() as u32).to_le_bytes());
-                stash.push(issuer.len() as u8);
-                stash.extend_from_slice(issuer);
+                stash_bytes.extend((additions.len() as u32).to_le_bytes());
+                stash_bytes.push(issuer.len() as u8);
+                stash_bytes.extend_from_slice(issuer);
                 for serial in additions {
-                    stash.push(serial.len() as u8);
-                    stash.extend_from_slice(serial.as_ref());
+                    stash_bytes.push(serial.len() as u8);
+                    stash_bytes.extend_from_slice(serial.as_ref());
                 }
             }
         }
     }
 
-    info!("Revset is {} bytes", revset.len());
+    let revset_bytes = bincode::serialize(&revset).unwrap();
+    info!("Revset is {} bytes", revset_bytes.len());
     let mut revset_writer = File::create(revset_file).expect("cannot open list file");
     revset_writer
-        .write_all(&bincode::serialize(&revset).unwrap())
+        .write_all(&revset_bytes)
         .expect("can't write revset file");
 
-    info!("Stash is {} bytes", stash.len());
+    info!("Stash is {} bytes", stash_bytes.len());
     let mut stash_writer = File::create(stash_file).expect("cannot open stash file");
     stash_writer
-        .write_all(&stash)
+        .write_all(&stash_bytes)
         .expect("can't write stash file");
+
+    if let Some(client) = statsd_client {
+        client.gauge("generate.revset_size", revset_bytes.len() as f64);
+        client.gauge("generate.stash_size", stash_bytes.len() as f64);
+    }
 }
 
 #[derive(Parser)]
@@ -442,6 +463,8 @@ struct Cli {
     prev_revset: PathBuf,
     #[clap(long, parse(from_os_str), default_value = ".")]
     outdir: PathBuf,
+    #[clap(long)]
+    statsd_host: Option<String>,
     #[clap(long)]
     murmurhash3: bool,
     #[clap(long)]
@@ -479,7 +502,7 @@ fn main() {
         err = true;
     }
 
-    if std::fs::create_dir_all(&out_dir).is_err() {
+    if std::fs::create_dir_all(out_dir).is_err() {
         error!("Could not create out directory: {}", out_dir.display());
         err = true;
     } else if !args.clobber {
@@ -514,8 +537,31 @@ fn main() {
         false => HashAlgorithm::Sha256,
     };
 
+    let statsd_client = match args.statsd_host {
+        Some(ref statsd_host) if statsd_host.contains(":") => {
+            // host specified with port
+            statsd::Client::new(statsd_host, "crlite").ok()
+        }
+        Some(ref statsd_host) => {
+            // use default port
+            statsd::Client::new(format!("{}:{}", statsd_host, 8125), "crlite").ok()
+        }
+        None => None,
+    };
+
+    if args.statsd_host.is_some() && statsd_client.is_none() {
+        info!("Could not connect to statsd {}", args.statsd_host.unwrap());
+    }
+
     info!("Generating cascade");
-    create_cascade(filter_file, revoked_dir, known_dir, hash_alg);
+    let timer_start = Instant::now();
+    create_cascade(
+        filter_file,
+        revoked_dir,
+        known_dir,
+        hash_alg,
+        statsd_client.as_ref(),
+    );
 
     info!("Generating stash file");
     write_revset_and_stash(
@@ -524,7 +570,13 @@ fn main() {
         prev_revset_file,
         revoked_dir,
         known_dir,
+        statsd_client.as_ref(),
     );
+    let timer_finish = Instant::now() - timer_start;
+    info!("Finished in {} seconds", timer_finish.as_secs());
+    if let Some(client) = statsd_client {
+        client.gauge("generate.time", timer_finish.as_secs() as f64);
+    }
 
     info!("Done");
 }

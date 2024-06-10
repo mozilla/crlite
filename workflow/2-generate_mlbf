@@ -17,7 +17,9 @@ parser.add_argument("--nodiff", help="Avoid building a diff")
 parser.add_argument(
     "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
 )
-
+parser.add_argument(
+    "--statsd-host", help="StatsD host", required=False
+)
 
 def main():
     args = parser.parse_args()
@@ -40,6 +42,10 @@ def main():
         os.path.join(runIdPath, "mlbf"),
         "--clobber",
     ]
+
+    if args.statsd_host:
+        cmdline += ["--statsd-host", args.statsd_host]
+
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
