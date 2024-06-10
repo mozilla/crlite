@@ -52,7 +52,8 @@ if [ "x${DoNotUpload}x" == "xx" ] ; then
 fi
 
 ${workflow}/2-generate_mlbf ${ID} \
-              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging}
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
+              --statsd-host ${statsdHost}
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
   echo "uploading mlbf"
