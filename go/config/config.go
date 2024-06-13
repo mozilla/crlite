@@ -188,7 +188,7 @@ func (c *CTConfig) Init() {
 	confString(c.RedisTimeout, section, "redisTimeout", "5s")
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 	confString(c.StatsDHost, section, "statsdHost", "")
-	confInt(c.StatsDPort, section, "statsdPort", 0)
+	confInt(c.StatsDPort, section, "statsdPort", 8125)
 	confString(c.HealthAddr, section, "healthAddr", ":8080")
 
 	// Finally, CLI flags override

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/hashicorp/go-metrics"
 	"github.com/mozilla/crlite/go/config"
 	"github.com/mozilla/crlite/go/storage"
 	"github.com/mozilla/crlite/go/telemetry"
@@ -42,7 +42,7 @@ func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsConf := metrics.DefaultConfig(utilName)
 	metricsConf.EnableRuntimeMetrics = false
 
-	if *ctconfig.StatsDPort > 1 && len(*ctconfig.StatsDHost) > 0 {
+	if len(*ctconfig.StatsDHost) > 0 {
 		metricsSink, err := metrics.NewStatsdSink(fmt.Sprintf("%s:%d", *ctconfig.StatsDHost, *ctconfig.StatsDPort))
 		if err != nil {
 			glog.Fatal(err)
