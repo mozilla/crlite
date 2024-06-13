@@ -25,12 +25,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
+	"github.com/hashicorp/go-metrics"
 	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"
@@ -259,6 +259,7 @@ type LogWorker struct {
 	LogState  *types.CTLogState
 	WorkOrder LogWorkerTask
 	JobSize   uint64
+	MetricKey string
 }
 
 func (lw LogWorker) Name() string {
@@ -308,12 +309,14 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 
 		worker, err := ld.NewLogWorker(ctx, &logMeta)
 		if err != nil {
+			metrics.IncrCounter([]string{"sync", "error"}, 1)
 			return err
 		}
 
 		err = worker.Run(ctx, ld.entryChan)
 		if err != nil {
 			glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
+			metrics.IncrCounter([]string{"sync", "error"}, 1)
 			return err
 		}
 
@@ -334,6 +337,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 }
 
 func (ld *LogSyncEngine) RegisterUpdate() {
+	metrics.IncrCounter([]string{"sync", "progress"}, 1)
 	ld.lastUpdateMutex.Lock()
 	defer ld.lastUpdateMutex.Unlock()
 	ld.lastUpdateTime = time.Now()
@@ -383,8 +387,6 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		var err error
 		precert := false
 
-		parseTime := time.Now()
-
 		switch ep.LogEntry.Leaf.TimestampedEntry.EntryType {
 		case ct.X509LogEntryType:
 			cert = ep.LogEntry.X509Cert
@@ -403,7 +405,6 @@ func (ld *LogSyncEngine) insertCTWorker() {
 
 		// Skip expired certificates unless configured otherwise
 		if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
-			metrics.IncrCounter([]string{"certIsFilteredOut", "expired"}, 1)
 			continue
 		}
 
@@ -418,16 +419,11 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 			continue
 		}
-		metrics.MeasureSince([]string{"insertCTWorker", "ParseCertificates"}, parseTime)
 
-		storeTime := time.Now()
 		err = ld.database.Store(cert, issuingCert, ep.LogMeta.URL, ep.LogEntry.Index)
 		if err != nil {
 			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 		}
-		metrics.MeasureSince([]string{"insertCTWorker", "Store"}, storeTime)
-
-		metrics.IncrCounter([]string{"insertCTWorker", "Inserted"}, 1)
 	}
 }
 
@@ -507,6 +503,9 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 		task = Sleep
 	}
 
+	metricKey := ctLogMeta.MetricKey()
+	metrics.SetGauge([]string{metricKey, "coverage"}, float32(logObj.MaxEntry-logObj.MinEntry+1)/float32(sth.TreeSize))
+
 	return &LogWorker{
 		Database:  ld.database,
 		Client:    ctLog,
@@ -515,6 +514,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 		STH:       sth,
 		WorkOrder: task,
 		JobSize:   batchSize,
+		MetricKey: metricKey,
 	}, nil
 }
 
@@ -726,7 +726,6 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
-	defer metrics.MeasureSince([]string{"LogWorker", "saveState"}, time.Now())
 	saveErr := lw.Database.SaveLogState(lw.LogState)
 	if saveErr != nil {
 		return fmt.Errorf("Database error: %s", saveErr)
@@ -739,7 +738,6 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
 	var minTimestamp uint64
 	var maxTimestamp uint64
-	var cycleTime time.Time
 
 	b := &backoff.Backoff{
 		Jitter: true,
@@ -750,8 +748,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 	index := verifier.Subtree.First
 	last := verifier.Subtree.Last
 	for index <= last {
-		cycleTime = time.Now()
-
 		// TODO(jms) Add an option to get entries from disk.
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
 		if err != nil {
@@ -760,35 +756,29 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 				d := b.Duration()
 				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, d, err)
 
-				metrics.IncrCounter([]string{"LogWorker", "429 Too Many Requests"}, 1)
-				metrics.AddSample([]string{"LogWorker", "429 Too Many Requests", "Backoff"},
-					float32(d))
-
 				time.Sleep(d)
 				continue
 			}
 
 			glog.Warningf("Failed to get entries: %v", err)
-			metrics.IncrCounter([]string{"LogWorker", "GetRawEntries", "error"}, 1)
 			return minTimestamp, maxTimestamp, err
 		}
-		metrics.MeasureSince([]string{"LogWorker", "GetRawEntries"}, cycleTime)
 		b.Reset()
 
 		for _, entry := range resp.Entries {
-			cycleTime = time.Now()
-
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
 			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
 				glog.Warningf("Erroneous certificate: log=%s index=%d err=%v",
 					lw.Name(), index, err)
 
-				metrics.IncrCounter([]string{"LogWorker", "downloadCTRangeToChannel", "error"}, 1)
+				// This is a serious error that prevents us from ingesting a log, so
+				// we ping the `ct-fetch.parse.error` metric to generate an alert and
+				// also the `ct-fetch.<log key>.parse.error` metric to identify the log.
+				metrics.IncrCounter([]string{"parse", "error"}, 1)
+				metrics.IncrCounter([]string{lw.MetricKey, "parse", "error"}, 1)
 				index++
 				continue
 			}
-
-			metrics.MeasureSince([]string{"LogWorker", "LogEntryFromLeaf"}, cycleTime)
 
 			// We might block while waiting for space in entryChan.
 			// If we catch a signal here the verification will fail and the subtree
@@ -798,7 +788,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 				glog.Infof("[%s] Cancelled", lw.Name())
 				return minTimestamp, maxTimestamp, nil
 			case entryChan <- CtLogEntry{logEntry, lw.LogMeta}:
-				metrics.MeasureSince([]string{"LogWorker", "SubmittedToChannel"}, time.Now())
 			}
 
 			// Update the metadata that we will pass to mergeSubtree.
@@ -811,7 +800,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 			}
 			verifier.Consume(entry.LeafInput)
 
-			metrics.MeasureSince([]string{"LogWorker", "ProcessedEntry"}, cycleTime)
 			index++
 		}
 	}

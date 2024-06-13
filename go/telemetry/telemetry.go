@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/glog"
+	"github.com/hashicorp/go-metrics"
 )
 
 // InmemSignal is used to listen for a given signal, and when received,

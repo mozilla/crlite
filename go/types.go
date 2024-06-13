@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/google/certificate-transparency-go/x509"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,14 @@ type CTLogMetadata struct {
 	LogID          string `json:"logID"`
 	MMD            int    `json:"mmd"`
 	URL            string `json:"url"`
+}
+
+func (o *CTLogMetadata) MetricKey() string {
+	metricKey := o.URL
+	metricKey = strings.TrimPrefix(metricKey, "https://")
+	metricKey = strings.TrimSuffix(metricKey, "/")
+	metricKey = strings.ReplaceAll(metricKey, "/", ".")
+	return metricKey
 }
 
 /* The CTLogState struct contains information necessary to describe a filter's
