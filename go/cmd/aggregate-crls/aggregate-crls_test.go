@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/asn1"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -89,6 +90,7 @@ func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 
 func makeCRL(t *testing.T, ca *x509.Certificate, caPrivKey interface{}, thisUpdate time.Time, nextUpdate time.Time) []byte {
 	t.Helper()
+
 	revokedCerts := []pkix.RevokedCertificate{}
 
 	crlBytes, err := ca.CreateCRL(rand.Reader, caPrivKey, revokedCerts, thisUpdate, nextUpdate)
@@ -97,6 +99,125 @@ func makeCRL(t *testing.T, ca *x509.Certificate, caPrivKey interface{}, thisUpda
 	}
 
 	return crlBytes
+}
+
+func makeRevokedList(t *testing.T, r []pkix.RevokedCertificate) *types.TBSCertificateListWithRawSerials {
+	ca, caPrivKey := makeCA(t)
+
+	thisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	nextUpdate := time.Date(2020, time.February, 1, 0, 0, 0, 0, time.UTC)
+
+	crlBytes, err := ca.CreateCRL(rand.Reader, caPrivKey, r, thisUpdate, nextUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crl, err := x509.ParseCRL(crlBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revokedList, err := types.DecodeRawTBSCertList(crl.TBSCertList.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return revokedList
+}
+
+func Test_keyCompromiseReasonCode(t *testing.T) {
+	t.Helper()
+
+	var keyCompromise []byte
+	keyCompromise, err := asn1.Marshal(asn1.Enumerated(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revokedList := makeRevokedList(t,
+		[]pkix.RevokedCertificate{
+			pkix.RevokedCertificate{
+				SerialNumber:   big.NewInt(int64(123456789)),
+				RevocationTime: time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC),
+				Extensions: []pkix.Extension{
+					pkix.Extension{
+						Id:    []int{2, 5, 29, 21},
+						Value: keyCompromise,
+					},
+				},
+			},
+		})
+
+	received, err := revokedList.RevokedCertificates[0].Reason()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if received != asn1.Enumerated(1) {
+		t.Error("expected keyCompromise reason code")
+	}
+}
+
+func Test_unspecifiedReasonCode(t *testing.T) {
+	t.Helper()
+
+	revokedList := makeRevokedList(t,
+		[]pkix.RevokedCertificate{
+			pkix.RevokedCertificate{
+				SerialNumber:   big.NewInt(int64(123456789)),
+				RevocationTime: time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC),
+			}})
+
+	received, err := revokedList.RevokedCertificates[0].Reason()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if received != asn1.Enumerated(0) {
+		t.Error("expected unspecified reason code")
+	}
+}
+
+func Test_repeatedReasonCode(t *testing.T) {
+	t.Helper()
+
+	var keyCompromise []byte
+	keyCompromise, err := asn1.Marshal(asn1.Enumerated(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var certificateHold []byte
+	certificateHold, err = asn1.Marshal(asn1.Enumerated(6))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revokedList := makeRevokedList(t,
+		[]pkix.RevokedCertificate{
+			pkix.RevokedCertificate{
+				SerialNumber:   big.NewInt(int64(123456789)),
+				RevocationTime: time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC),
+				Extensions: []pkix.Extension{
+					pkix.Extension{
+						Id:    []int{2, 5, 29, 21},
+						Value: keyCompromise,
+					},
+					pkix.Extension{
+						Id:    []int{0, 0, 0, 0},
+						Value: []byte{},
+					},
+					pkix.Extension{
+						Id:    []int{2, 5, 29, 21},
+						Value: certificateHold,
+					},
+				},
+			}})
+
+	_, err = revokedList.RevokedCertificates[0].Reason()
+	if err == nil {
+		t.Fatal("expected error")
+	}
 }
 
 func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
