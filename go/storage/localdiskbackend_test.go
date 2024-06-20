@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -56,10 +55,44 @@ func Test_KnownCertificateList(t *testing.T) {
 		t.Error(err)
 	}
 
-	expected, err := hex.DecodeString("30310A30320A30330A")
+	expected := []byte("01\n02\n03\n")
+
+	if !bytes.Equal(expected, fileBytes) {
+		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
+	}
+}
+
+func Test_RevokedCertificateList(t *testing.T) {
+	h := makeLocalDiskHarness(t)
+	defer h.cleanup()
+
+	issuer := types.NewIssuerFromString("issuerAKI")
+	serials := []types.SerialAndReason{
+		types.SerialAndReason{
+			types.NewSerialFromHex("01"),
+			0,
+		},
+		types.SerialAndReason{
+			types.NewSerialFromHex("02"),
+			255,
+		},
+		types.SerialAndReason{
+			types.NewSerialFromHex("03"),
+			1,
+		},
+	}
+
+	err := h.db.StoreRevokedCertificateList(context.TODO(), issuer, serials)
 	if err != nil {
 		t.Error(err)
 	}
+
+	fileBytes, err := ioutil.ReadFile(filepath.Join(h.root, issuer.ID()))
+	if err != nil {
+		t.Error(err)
+	}
+
+	expected := []byte("0001\nff02\n0103\n")
 
 	if !bytes.Equal(expected, fileBytes) {
 		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
