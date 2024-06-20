@@ -142,6 +142,12 @@ func (s *Serial) UnmarshalJSON(data []byte) error {
 	return err
 }
 
+// A serial number with a revocation reason code
+type SerialAndReason struct {
+	Serial Serial
+	Reason uint8
+}
+
 type IssuerCrlMap map[string]map[string]bool
 
 func (self IssuerCrlMap) Merge(other IssuerCrlMap) {
@@ -212,6 +218,22 @@ func (c RevokedCertificateWithRawSerial) Reason() (asn1.Enumerated, error) {
 		}
 	}
 	return reasonCode, nil
+}
+
+func (c RevokedCertificateWithRawSerial) SerialAndReason() (SerialAndReason, error) {
+	reason, err := c.Reason()
+	if err != nil {
+		return SerialAndReason{}, err
+	}
+
+	if reason < 0 || reason > 255 {
+		return SerialAndReason{}, fmt.Errorf("Invalid reason code")
+	}
+
+	return SerialAndReason{
+		NewSerialFromBytes(c.SerialNumber.Bytes),
+		uint8(reason),
+	}, nil
 }
 
 func DecodeRawTBSCertList(data []byte) (*TBSCertificateListWithRawSerials, error) {

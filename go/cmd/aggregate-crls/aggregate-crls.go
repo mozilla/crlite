@@ -213,15 +213,18 @@ func (ae *AggregateEngine) verifyCRL(aIssuer types.Issuer, dlTracer *downloader.
 	return crl, nil
 }
 
-func processCRL(aCRL *pkix.CertificateList) ([]types.Serial, error) {
+func processCRL(aCRL *pkix.CertificateList) ([]types.SerialAndReason, error) {
 	revokedList, err := types.DecodeRawTBSCertList(aCRL.TBSCertList.Raw)
 	if err != nil {
-		return []types.Serial{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
+		return []types.SerialAndReason{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
 	}
 
-	serials := make([]types.Serial, 0, 1024*16)
+	serials := make([]types.SerialAndReason, 0, 1024*16)
 	for _, ent := range revokedList.RevokedCertificates {
-		serial := types.NewSerialFromBytes(ent.SerialNumber.Bytes)
+		serial, err := ent.SerialAndReason()
+		if err != nil {
+			return []types.SerialAndReason{}, fmt.Errorf("CRL list couldn't be decoded: %s", err)
+		}
 		serials = append(serials, serial)
 	}
 
@@ -241,7 +244,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		}
 
 		serialCount := 0
-		serials := make([]types.Serial, 0, 128*1024)
+		serials := make([]types.SerialAndReason, 0, 128*1024)
 
 		for _, crlUrlPath := range tuple.CrlUrlPaths {
 			select {
@@ -289,7 +292,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		if anyCrlFailed == false {
 			ae.issuers.Enroll(tuple.Issuer)
 
-			if err := ae.saveStorage.StoreKnownCertificateList(ctx, tuple.Issuer, serials); err != nil {
+			if err := ae.saveStorage.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 
