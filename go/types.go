@@ -18,6 +18,10 @@ const (
 	kExpirationFormatWithHour = "2006-01-02-15"
 )
 
+var (
+	kOidExtensionReasonCode = []int{2, 5, 29, 21}
+)
+
 /* The CTLogMetadata struct contains the information that we receive
  * `ct-logs` Remote Settings collection. */
 type CTLogMetadata struct {
@@ -179,10 +183,35 @@ type TBSCertificateListWithRawSerials struct {
 	RevokedCertificates []RevokedCertificateWithRawSerial `asn1:"optional"`
 }
 
+type Extension struct {
+	Id       asn1.ObjectIdentifier
+	Critical bool `asn1:"optional"`
+	Value    []byte
+}
+
 type RevokedCertificateWithRawSerial struct {
 	Raw            asn1.RawContent
 	SerialNumber   asn1.RawValue
 	RevocationTime time.Time
+	Extensions     []Extension `asn1:"optional"`
+}
+
+func (c RevokedCertificateWithRawSerial) Reason() (asn1.Enumerated, error) {
+	seen := false
+	reasonCode := asn1.Enumerated(0)
+	for _, ext := range c.Extensions {
+		if ext.Id.Equal(kOidExtensionReasonCode) {
+			if seen {
+				return reasonCode, fmt.Errorf("Repeated CRLReason extension")
+			}
+			_, err := asn1.Unmarshal(ext.Value, &reasonCode)
+			if err != nil {
+				return reasonCode, err
+			}
+			seen = true
+		}
+	}
+	return reasonCode, nil
 }
 
 func DecodeRawTBSCertList(data []byte) (*TBSCertificateListWithRawSerials, error) {
