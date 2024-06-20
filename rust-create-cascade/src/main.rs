@@ -2,10 +2,12 @@
 //!
 //! Builds a filter cascade from the output of crlite's `aggregate-known` and `aggregate-crls` programs.
 //!
-//! The aggregator programs create two directories `/known/` and `/revoked/`. The files in these
-//! directories list certificate serial numbers, one per line, in ascii hex encoding. Each file
-//! lists serial numbers for a single issuer. The file name is the url-safe base64 encoding of the
-//! SHA256 hash of the DER encoded SubjectPublicKeyInfo field from this issuer's certificate.
+//! The aggregator program creates two directories `/known/` and `/revoked/` containing
+//! issuer-specific files. Each file name is (the url-safe base64 encoding of) the SHA256 hash of
+//! the DER encoded SubjectPublicKeyInfo field from the issuer's certificate. Each file contains
+//! line delimited ascii hex encoded data. In the known directory, each line is a certificate
+//! serial number. In the revoked directory, each line is a serial number prefixed by a one byte
+//! revocation reason code.
 //!
 //! A filter cascade encodes a subset R of a set U.
 //! Here we take U to be the set
@@ -32,7 +34,7 @@ use clap::Parser;
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rust_cascade::{Cascade, CascadeBuilder, ExcludeSet, HashAlgorithm};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::prelude::{BufRead, Write};
@@ -42,6 +44,49 @@ use std::time::Instant;
 
 use rand::rngs::OsRng;
 use rand::RngCore;
+
+#[derive(Debug, Default)]
+struct ReasonCodeHistogram {
+    unspecified: usize, // "unused" in rfc5280
+    key_compromise: usize,
+    ca_compromise: usize,
+    affiliation_changed: usize,
+    superseded: usize,
+    cessation_of_operation: usize,
+    certificate_hold: usize,
+    privilege_withdrawn: usize,
+    aa_compromise: usize,
+}
+
+impl ReasonCodeHistogram {
+    fn add(&mut self, reason: u8) {
+        let bin = match reason {
+            1 => &mut self.key_compromise,
+            2 => &mut self.ca_compromise,
+            3 => &mut self.affiliation_changed,
+            4 => &mut self.superseded,
+            5 => &mut self.cessation_of_operation,
+            6 => &mut self.certificate_hold,
+            7 => &mut self.privilege_withdrawn,
+            8 => &mut self.aa_compromise,
+            _ => &mut self.unspecified,
+        };
+        *bin += 1;
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        self.unspecified += other.unspecified;
+        self.key_compromise += other.key_compromise;
+        self.ca_compromise += other.ca_compromise;
+        self.affiliation_changed += other.affiliation_changed;
+        self.superseded += other.superseded;
+        self.cessation_of_operation += other.cessation_of_operation;
+        self.certificate_hold += other.certificate_hold;
+        self.privilege_withdrawn += other.privilege_withdrawn;
+        self.aa_compromise += other.aa_compromise;
+        self
+    }
+}
 
 fn read_file_by_lines(path: &Path) -> Lines<BufReader<File>> {
     BufReader::new(File::open(path).unwrap()).lines()
@@ -114,30 +159,38 @@ fn list_issuer_file_pairs(
 /// willing to accept duplicates. Note that filter size is primarily determined by the number of
 /// included elements, so duplicate excluded elements have little impact.
 ///
-fn count<T>(revoked_serials: Option<Lines<T>>, known_serials: &mut Lines<T>) -> (usize, usize)
+/// This function also returns the number of revoked serials broken out by reason code.
+///
+fn count<T>(
+    revoked_serials: Option<Lines<T>>,
+    known_serials: &mut Lines<T>,
+) -> (usize, usize, ReasonCodeHistogram)
 where
     T: std::io::BufRead,
 {
     let mut ok_count: usize = 0;
-    let mut revoked_serial_set = HashSet::new();
+    let mut revoked_serial_set = HashMap::new();
     let mut known_revoked_serial_set = HashSet::new();
+    let mut reasons = ReasonCodeHistogram::default();
 
     if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(serial)) = revoked_serials.next() {
-            revoked_serial_set.insert(serial);
+        while let Some(Ok(mut line)) = revoked_serials.next() {
+            let reason = u8::from_str_radix(&line[..2], 16).expect("invalid hex encoding");
+            revoked_serial_set.insert(line.split_off(2), reason);
         }
     }
 
     while let Some(Ok(serial)) = known_serials.next() {
-        if revoked_serial_set.contains(&serial) {
+        if let Some(reason) = revoked_serial_set.get(serial.as_str()) {
             known_revoked_serial_set.insert(serial);
+            reasons.add(*reason);
         } else {
             ok_count += 1;
         }
     }
 
     let revoked_count = known_revoked_serial_set.len();
-    (revoked_count, ok_count)
+    (revoked_count, ok_count, reasons)
 }
 
 /// `include` finds revoked serials that are known and includes them in the filter cascade.
@@ -151,8 +204,8 @@ fn include<T>(
 {
     let mut revoked_serial_set = HashSet::new();
 
-    while let Some(Ok(serial)) = revoked_serials.next() {
-        revoked_serial_set.insert(serial);
+    while let Some(Ok(mut line)) = revoked_serials.next() {
+        revoked_serial_set.insert(line.split_off(2));
     }
 
     while let Some(Ok(ref serial)) = known_serials.next() {
@@ -183,8 +236,8 @@ where
     let mut revoked_serial_set = HashSet::new();
 
     if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(serial)) = revoked_serials.next() {
-            revoked_serial_set.insert(serial);
+        while let Some(Ok(mut line)) = revoked_serials.next() {
+            revoked_serial_set.insert(line.split_off(2));
         }
     }
 
@@ -209,8 +262,8 @@ fn check<T>(
     let mut revoked_serial_set = HashSet::new();
 
     if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(serial)) = revoked_serials.next() {
-            revoked_serial_set.insert(serial);
+        while let Some(Ok(mut line)) = revoked_serials.next() {
+            revoked_serial_set.insert(line.split_off(2));
         }
     }
 
@@ -224,7 +277,7 @@ fn check<T>(
 
 /// `count_all` performs a parallel iteration over file pairs, applies
 /// `count` to each pair, and sums up the results.
-fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize) {
+fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize, ReasonCodeHistogram) {
     list_issuer_file_pairs(revoked_dir, known_dir)
         .par_iter()
         .map(|pair| {
@@ -233,7 +286,10 @@ fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize) {
             let mut known_serials = read_file_by_lines(known_file);
             count(revoked_serials, &mut known_serials)
         })
-        .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        .reduce(
+            || (0, 0, ReasonCodeHistogram::default()),
+            |a, b| (a.0 + b.0, a.1 + b.1, a.2.merge(b.2)),
+        )
 }
 
 /// `check_all` performs a parallel iteration over file pairs, and applies
@@ -294,12 +350,13 @@ fn create_cascade(
     statsd_client: Option<&statsd::Client>,
 ) {
     info!("Counting serials");
-    let (revoked, not_revoked) = count_all(revoked_dir, known_dir);
+    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir);
 
     info!(
         "Found {} 'revoked' and {} 'not revoked' serial numbers",
         revoked, not_revoked
     );
+    info!("Revocation reason codes: {:?}", reasons);
 
     let salt_len = match hash_alg {
         HashAlgorithm::MurmurHash3 => 0,
@@ -346,9 +403,39 @@ fn create_cascade(
         .expect("can't write file");
 
     if let Some(client) = statsd_client {
-        client.gauge("generate.revoked", revoked as f64);
-        client.gauge("generate.not_revoked", not_revoked as f64);
         client.gauge("generate.filter_size", cascade_bytes.len() as f64);
+        client.gauge("generate.not_revoked", not_revoked as f64);
+        client.gauge("generate.revoked", revoked as f64);
+        client.gauge("generate.revoked.unspecified", reasons.unspecified as f64);
+        client.gauge(
+            "generate.revoked.key_compromise",
+            reasons.key_compromise as f64,
+        );
+        client.gauge(
+            "generate.revoked.ca_compromise",
+            reasons.ca_compromise as f64,
+        );
+        client.gauge(
+            "generate.revoked.affiliation_changed",
+            reasons.affiliation_changed as f64,
+        );
+        client.gauge("generate.revoked.superseded", reasons.superseded as f64);
+        client.gauge(
+            "generate.revoked.cessation_of_operation",
+            reasons.cessation_of_operation as f64,
+        );
+        client.gauge(
+            "generate.revoked.certificate_hold",
+            reasons.certificate_hold as f64,
+        );
+        client.gauge(
+            "generate.revoked.privilege_withdrawn",
+            reasons.privilege_withdrawn as f64,
+        );
+        client.gauge(
+            "generate.revoked.aa_compromise",
+            reasons.aa_compromise as f64,
+        );
     }
 }
 
@@ -406,8 +493,8 @@ fn write_revset_and_stash(
             let mut additions = vec![];
 
             let mut revoked_serials = read_file_by_lines(revoked_file);
-            while let Some(Ok(serial)) = revoked_serials.next() {
-                revoked_serial_set.insert(serial);
+            while let Some(Ok(mut line)) = revoked_serials.next() {
+                revoked_serial_set.insert(line.split_off(2));
             }
 
             let mut known_serials = read_file_by_lines(known_file);
@@ -538,7 +625,7 @@ fn main() {
     };
 
     let statsd_client = match args.statsd_host {
-        Some(ref statsd_host) if statsd_host.contains(":") => {
+        Some(ref statsd_host) if statsd_host.contains(':') => {
             // host specified with port
             statsd::Client::new(statsd_host, "crlite").ok()
         }
