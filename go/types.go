@@ -217,6 +217,11 @@ func (c RevokedCertificateWithRawSerial) Reason() (asn1.Enumerated, error) {
 			seen = true
 		}
 	}
+
+	if reasonCode < 0 || reasonCode > 255 {
+		return reasonCode, fmt.Errorf("Invalid reason code")
+	}
+
 	return reasonCode, nil
 }
 
@@ -224,10 +229,6 @@ func (c RevokedCertificateWithRawSerial) SerialAndReason() (SerialAndReason, err
 	reason, err := c.Reason()
 	if err != nil {
 		return SerialAndReason{}, err
-	}
-
-	if reason < 0 || reason > 255 {
-		return SerialAndReason{}, fmt.Errorf("Invalid reason code")
 	}
 
 	return SerialAndReason{
