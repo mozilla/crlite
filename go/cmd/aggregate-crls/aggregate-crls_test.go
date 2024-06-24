@@ -178,6 +178,43 @@ func Test_unspecifiedReasonCode(t *testing.T) {
 	}
 }
 
+func Test_invalidReasonCode(t *testing.T) {
+	t.Helper()
+
+	var negativeReason []byte
+	negativeReason, err := asn1.Marshal(asn1.Enumerated(-1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var largeReason []byte
+	largeReason, err = asn1.Marshal(asn1.Enumerated(256))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	template := []pkix.RevokedCertificate{
+		pkix.RevokedCertificate{
+			SerialNumber:   big.NewInt(int64(123456789)),
+			RevocationTime: time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC),
+			Extensions: []pkix.Extension{
+				pkix.Extension{
+					Id: []int{2, 5, 29, 21},
+				},
+			},
+		}}
+
+	for _, reason := range [][]byte{negativeReason, largeReason} {
+		template[0].Extensions[0].Value = reason
+		revokedList := makeRevokedList(t, template)
+
+		_, err = revokedList.RevokedCertificates[0].Reason()
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	}
+}
+
 func Test_repeatedReasonCode(t *testing.T) {
 	t.Helper()
 
