@@ -190,6 +190,8 @@ where
     }
 
     let revoked_count = known_revoked_serial_set.len();
+    let encoding_size = revoked_count as f64 * ((revoked_count as f64 + ok_count as f64).log2() - (revoked_count as f64).log2());
+    info!("per-issuer: {encoding_size}");
     (revoked_count, ok_count, reasons)
 }
 
@@ -351,6 +353,9 @@ fn create_cascade(
 ) {
     info!("Counting serials");
     let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir);
+
+    let encoding_size = revoked as f64 * ((revoked as f64 + not_revoked as f64).log2() - (revoked as f64).log2());
+    info!("total: {encoding_size}");
 
     info!(
         "Found {} 'revoked' and {} 'not revoked' serial numbers",
