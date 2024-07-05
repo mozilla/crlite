@@ -45,6 +45,9 @@ use std::time::Instant;
 use rand::rngs::OsRng;
 use rand::RngCore;
 
+type Serial = String;
+type Reason = u8;
+
 #[derive(Debug, Default)]
 struct ReasonCodeHistogram {
     unspecified: usize, // "unused" in rfc5280
@@ -59,7 +62,7 @@ struct ReasonCodeHistogram {
 }
 
 impl ReasonCodeHistogram {
-    fn add(&mut self, reason: u8) {
+    fn add(&mut self, reason: Reason) {
         let bin = match reason {
             1 => &mut self.key_compromise,
             2 => &mut self.ca_compromise,
@@ -88,8 +91,60 @@ impl ReasonCodeHistogram {
     }
 }
 
-fn read_file_by_lines(path: &Path) -> Lines<BufReader<File>> {
-    BufReader::new(File::open(path).unwrap()).lines()
+struct RevokedSerialAndReasonIterator {
+    lines: Lines<BufReader<File>>,
+}
+
+impl RevokedSerialAndReasonIterator {
+    fn new(path: &Path) -> Self {
+        Self {
+            lines: BufReader::new(File::open(path).unwrap()).lines(),
+        }
+    }
+}
+
+impl Iterator for RevokedSerialAndReasonIterator {
+    type Item = (Serial, Reason);
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.lines.next().transpose().expect("IO error");
+        if let Some(mut line) = next {
+            let reason = u8::from_str_radix(&line[..2], 16).expect("invalid hex encoding");
+            let serial = line.split_off(2);
+            return Some((serial, reason));
+        }
+        None
+    }
+}
+
+impl Into<HashSet<Serial>> for RevokedSerialAndReasonIterator {
+    fn into(self) -> HashSet<Serial> {
+        self.map(|(serial, _)| serial).collect()
+    }
+}
+
+impl Into<HashMap<Serial, Reason>> for RevokedSerialAndReasonIterator {
+    fn into(self) -> HashMap<Serial, Reason> {
+        self.collect()
+    }
+}
+
+struct KnownSerialIterator {
+    lines: Lines<BufReader<File>>,
+}
+
+impl KnownSerialIterator {
+    fn new(path: &Path) -> Self {
+        Self {
+            lines: BufReader::new(File::open(path).unwrap()).lines(),
+        }
+    }
+}
+
+impl Iterator for KnownSerialIterator {
+    type Item = String;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.lines.next().transpose().expect("io error")
+    }
 }
 
 fn decode_issuer(s: &OsStr) -> Vec<u8> {
@@ -98,7 +153,7 @@ fn decode_issuer(s: &OsStr) -> Vec<u8> {
         .expect("found invalid file name: not url-safe base64.")
 }
 
-fn decode_serial(s: &str) -> Vec<u8> {
+fn decode_serial(s: &Serial) -> Vec<u8> {
     hex::decode(s.as_bytes()).expect("found invalid serial number: not ascii hex.")
 }
 
@@ -146,14 +201,14 @@ fn list_issuer_file_pairs(
     pairs
 }
 
-/// `count` obtains an upper bound on the number of distinct serial numbers in `revoked_serials` and
+/// `count` obtains an upper bound on the number of distinct serial numbers in `revoked_serials_and_reasons` and
 /// `known_serials`.
 ///
-/// The first return value is *exactly* the number of distinct serial numbers in `revoked_serials`
+/// The first return value is *exactly* the number of distinct serial numbers in `revoked_serials_and_reasons`
 /// which appear in `known_serials`.
 ///
 /// The second value is the number of serial numbers in `known_serials` *with multiplicity* that do
-/// not appear in `revoked_serials`.
+/// not appear in `revoked_serials_and_reasons`.
 ///
 /// The reasoning here is that `known_serials` might be too large to fit in memory, so we're
 /// willing to accept duplicates. Note that filter size is primarily determined by the number of
@@ -161,27 +216,20 @@ fn list_issuer_file_pairs(
 ///
 /// This function also returns the number of revoked serials broken out by reason code.
 ///
-fn count<T>(
-    revoked_serials: Option<Lines<T>>,
-    known_serials: &mut Lines<T>,
-) -> (usize, usize, ReasonCodeHistogram)
-where
-    T: std::io::BufRead,
-{
+fn count(
+    revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+    mut known_serials: KnownSerialIterator,
+) -> (usize, usize, ReasonCodeHistogram) {
     let mut ok_count: usize = 0;
-    let mut revoked_serial_set = HashMap::new();
     let mut known_revoked_serial_set = HashSet::new();
     let mut reasons = ReasonCodeHistogram::default();
 
-    if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(mut line)) = revoked_serials.next() {
-            let reason = u8::from_str_radix(&line[..2], 16).expect("invalid hex encoding");
-            revoked_serial_set.insert(line.split_off(2), reason);
-        }
-    }
+    let revoked_serial_to_reason_map: HashMap<Serial, Reason> = revoked_serials_and_reasons
+        .map(|iter| iter.into())
+        .unwrap_or_default();
 
-    while let Some(Ok(serial)) = known_serials.next() {
-        if let Some(reason) = revoked_serial_set.get(serial.as_str()) {
+    while let Some(serial) = known_serials.next() {
+        if let Some(reason) = revoked_serial_to_reason_map.get(serial.as_str()) {
             known_revoked_serial_set.insert(serial);
             reasons.add(*reason);
         } else {
@@ -194,21 +242,15 @@ where
 }
 
 /// `include` finds revoked serials that are known and includes them in the filter cascade.
-fn include<T>(
+fn include(
     builder: &mut CascadeBuilder,
     issuer: &[u8],
-    revoked_serials: &mut Lines<T>,
-    known_serials: &mut Lines<T>,
-) where
-    T: std::io::BufRead,
-{
-    let mut revoked_serial_set = HashSet::new();
+    revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
+    mut known_serials: KnownSerialIterator,
+) {
+    let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
 
-    while let Some(Ok(mut line)) = revoked_serials.next() {
-        revoked_serial_set.insert(line.split_off(2));
-    }
-
-    while let Some(Ok(ref serial)) = known_serials.next() {
+    while let Some(ref serial) = known_serials.next() {
         if revoked_serial_set.contains(serial) {
             let key = crlite_key(issuer, &decode_serial(serial));
             builder
@@ -223,51 +265,37 @@ fn include<T>(
 /// `exclude` finds known serials that are not revoked excludes them from the filter cascade.
 /// It returns an `ExcludeSet` which must be emptied into the builder using
 /// `CascadeBuilder::collect_exclude_set` before `CascadeBuilder::finalize` is called.
-fn exclude<T>(
+fn exclude(
     builder: &CascadeBuilder,
     issuer: &[u8],
-    revoked_serials: Option<Lines<T>>,
-    known_serials: &mut Lines<T>,
-) -> ExcludeSet
-where
-    T: std::io::BufRead,
-{
+    revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+    known_serials: KnownSerialIterator,
+) -> ExcludeSet {
     let mut exclude_set = ExcludeSet::default();
-    let mut revoked_serial_set = HashSet::new();
+    let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
+        .map(|iter| iter.into())
+        .unwrap_or_default();
 
-    if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(mut line)) = revoked_serials.next() {
-            revoked_serial_set.insert(line.split_off(2));
-        }
-    }
-
-    while let Some(Ok(ref serial)) = known_serials.next() {
-        if !revoked_serial_set.contains(serial) {
-            let key = crlite_key(issuer, &decode_serial(serial));
-            builder.exclude_threaded(&mut exclude_set, key);
-        }
+    let mut non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
+    while let Some(ref serial) = non_revoked_serials.next() {
+        let key = crlite_key(issuer, &decode_serial(serial));
+        builder.exclude_threaded(&mut exclude_set, key);
     }
     exclude_set
 }
 
 /// `check` verifies that a cascade labels items correctly.
-fn check<T>(
+fn check(
     cascade: &Cascade,
     issuer: &[u8],
-    revoked_serials: Option<Lines<T>>,
-    known_serials: &mut Lines<T>,
-) where
-    T: std::io::BufRead,
-{
-    let mut revoked_serial_set = HashSet::new();
+    revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+    mut known_serials: KnownSerialIterator,
+) {
+    let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
+        .map(|iter| iter.into())
+        .unwrap_or_default();
 
-    if let Some(mut revoked_serials) = revoked_serials {
-        while let Some(Ok(mut line)) = revoked_serials.next() {
-            revoked_serial_set.insert(line.split_off(2));
-        }
-    }
-
-    while let Some(Ok(ref serial)) = known_serials.next() {
+    while let Some(ref serial) = known_serials.next() {
         assert_eq!(
             cascade.has(crlite_key(issuer, &decode_serial(serial))),
             revoked_serial_set.contains(serial)
@@ -282,9 +310,11 @@ fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize, ReasonCodeH
         .par_iter()
         .map(|pair| {
             let (_, revoked_file, known_file) = pair;
-            let revoked_serials = revoked_file.as_ref().map(|x| read_file_by_lines(x));
-            let mut known_serials = read_file_by_lines(known_file);
-            count(revoked_serials, &mut known_serials)
+            let revoked_serials_and_reasons = revoked_file
+                .as_ref()
+                .map(|x| RevokedSerialAndReasonIterator::new(x));
+            let known_serials = KnownSerialIterator::new(known_file);
+            count(revoked_serials_and_reasons, known_serials)
         })
         .reduce(
             || (0, 0, ReasonCodeHistogram::default()),
@@ -299,9 +329,11 @@ fn check_all(cascade: &Cascade, revoked_dir: &Path, known_dir: &Path) {
         .par_iter()
         .for_each(|pair| {
             let (issuer, revoked_file, known_file) = pair;
-            let revoked_serials = revoked_file.as_ref().map(|x| read_file_by_lines(x));
-            let mut known_serials = read_file_by_lines(known_file);
-            check(cascade, issuer, revoked_serials, &mut known_serials);
+            let revoked_serials_and_reasons = revoked_file
+                .as_ref()
+                .map(|x| RevokedSerialAndReasonIterator::new(x));
+            let known_serials = KnownSerialIterator::new(known_file);
+            check(cascade, issuer, revoked_serials_and_reasons, known_serials);
         });
 }
 
@@ -315,8 +347,8 @@ fn include_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Pat
             include(
                 builder,
                 issuer,
-                &mut read_file_by_lines(revoked_file),
-                &mut read_file_by_lines(known_file),
+                RevokedSerialAndReasonIterator::new(revoked_file),
+                KnownSerialIterator::new(known_file),
             );
         }
     }
@@ -329,9 +361,11 @@ fn exclude_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Pat
         .par_iter()
         .map(|pair| {
             let (issuer, revoked_file, known_file) = pair;
-            let revoked_serials = revoked_file.as_ref().map(|x| read_file_by_lines(x));
-            let mut known_serials = read_file_by_lines(known_file);
-            exclude(builder, issuer, revoked_serials, &mut known_serials)
+            let revoked_serials_and_reasons = revoked_file
+                .as_ref()
+                .map(|x| RevokedSerialAndReasonIterator::new(x));
+            let known_serials = KnownSerialIterator::new(known_file);
+            exclude(builder, issuer, revoked_serials_and_reasons, known_serials)
         })
         .collect();
 
@@ -489,24 +523,18 @@ fn write_revset_and_stash(
 
     for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
         if let (issuer, Some(revoked_file), known_file) = pair {
-            let mut revoked_serial_set = HashSet::new();
             let mut additions = vec![];
-
-            let mut revoked_serials = read_file_by_lines(revoked_file);
-            while let Some(Ok(mut line)) = revoked_serials.next() {
-                revoked_serial_set.insert(line.split_off(2));
-            }
-
-            let mut known_serials = read_file_by_lines(known_file);
-            while let Some(Ok(ref serial)) = known_serials.next() {
-                if revoked_serial_set.contains(serial) {
-                    let serial_bytes = decode_serial(serial);
-                    let key = crlite_key(issuer, &serial_bytes);
-                    if !prev_keys.contains(&key) {
-                        additions.push(serial_bytes);
-                    }
-                    revset.insert(key);
+            let revoked_serial_set: HashSet<Serial> =
+                RevokedSerialAndReasonIterator::new(revoked_file).into();
+            let mut known_revoked_serials =
+                KnownSerialIterator::new(known_file).filter(|x| revoked_serial_set.contains(x));
+            while let Some(ref serial) = known_revoked_serials.next() {
+                let serial_bytes = decode_serial(serial);
+                let key = crlite_key(issuer, &serial_bytes);
+                if !prev_keys.contains(&key) {
+                    additions.push(serial_bytes);
                 }
+                revset.insert(key);
             }
 
             if !additions.is_empty() {
