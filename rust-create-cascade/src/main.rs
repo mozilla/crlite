@@ -29,6 +29,7 @@ extern crate rayon;
 extern crate rust_cascade;
 extern crate statsd;
 extern crate stderrlog;
+extern crate tempfile;
 
 use clap::Parser;
 use log::*;
@@ -60,17 +61,18 @@ const REASON_PRIVILEGE_WITHDRAWN: u8 = 9;
 const REASON_AA_COMPROMISE: u8 = 10;
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
 enum Reason {
-    Unspecified,
-    KeyCompromise,
-    CACompromise,
-    AffilitationChanged,
-    Superseded,
-    CessationOfOperation,
-    CertificateHold,
-    RemoveFromCRL,
-    PrivilegeWithdrawn,
-    AACompromise,
+    Unspecified = REASON_UNSPECIFIED,
+    KeyCompromise = REASON_KEY_COMPROMISE,
+    CACompromise = REASON_CA_COMPROMISE,
+    AffilitationChanged = REASON_AFFILIATION_CHANGED,
+    Superseded = REASON_SUPERSEDED,
+    CessationOfOperation = REASON_CESSATION_OF_OPERATION,
+    CertificateHold = REASON_CERTIFICATE_HOLD,
+    RemoveFromCRL = REASON_REMOVE_FROM_CRL,
+    PrivilegeWithdrawn = REASON_PRIVILEGE_WITHDRAWN,
+    AACompromise = REASON_AA_COMPROMISE,
 }
 
 impl From<u8> for Reason {
@@ -599,7 +601,7 @@ fn write_revset_and_stash(
         warn!("Previous revset not found. Stash file will be large.");
     }
 
-    let mut revset = HashSet::new();
+    let mut revset: HashSet<Vec<u8>> = HashSet::new();
     let mut stash_bytes = vec![];
 
     for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
@@ -786,4 +788,292 @@ fn main() {
     }
 
     info!("Done");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        check_all, count_all, create_cascade, crlite_key, decode_serial, write_revset_and_stash,
+        Reason, ReasonSet,
+    };
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    use rust_cascade::{Cascade, HashAlgorithm};
+    use std::collections::HashSet;
+    use std::convert::TryInto;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use tempfile::{tempdir, TempDir};
+
+    struct TestEnv {
+        dir: TempDir,
+    }
+    impl TestEnv {
+        fn new() -> Self {
+            let dir = tempdir().expect("could not create temp dir");
+            std::fs::create_dir(dir.path().join("known")).expect("could not create known dir");
+            std::fs::create_dir(dir.path().join("revoked")).expect("could not create revoked dir");
+            Self { dir }
+        }
+
+        fn known_dir(&self) -> PathBuf {
+            self.dir.path().join("known")
+        }
+
+        fn revoked_dir(&self) -> PathBuf {
+            self.dir.path().join("revoked")
+        }
+
+        fn add_issuer(&self) -> String {
+            let mut issuer_bytes = vec![0u8; 32];
+            OsRng.fill_bytes(&mut issuer_bytes);
+
+            let issuer_str = base64::encode_config(issuer_bytes, base64::URL_SAFE);
+            std::fs::File::create(self.known_dir().join(&issuer_str))
+                .expect("could not create issuer file");
+            std::fs::File::create(self.revoked_dir().join(&issuer_str))
+                .expect("could not create issuer file");
+            issuer_str
+        }
+
+        fn add_serial(&self, issuer: &str) -> String {
+            let mut serial_bytes = vec![0u8; 20];
+            OsRng.fill_bytes(&mut serial_bytes);
+
+            let mut known_file = std::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(self.known_dir().join(issuer))
+                .expect("could not open known file");
+
+            let serial_str = hex::encode(serial_bytes);
+            writeln!(known_file, "{}", serial_str).expect("write failed");
+
+            serial_str
+        }
+
+        fn add_revoked_serial(&self, issuer: &str, reason: Reason) -> String {
+            let mut serial_bytes = vec![0u8; 20];
+            OsRng.fill_bytes(&mut serial_bytes);
+
+            let mut known_file = std::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(self.known_dir().join(issuer))
+                .expect("could not open known file");
+
+            let mut revoked_file = std::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(self.revoked_dir().join(issuer))
+                .expect("could not open revoked file");
+
+            let serial_str = hex::encode(serial_bytes);
+            let reason_str = hex::encode(&[reason as u8]);
+            writeln!(known_file, "{}", serial_str).expect("write failed");
+            writeln!(revoked_file, "{}{}", reason_str, serial_str).expect("write failed");
+
+            serial_str
+        }
+    }
+
+    #[test]
+    fn test_count_all() {
+        let env = TestEnv::new();
+        let issuer = env.add_issuer();
+        for _ in 1..=86 {
+            env.add_serial(&issuer);
+        }
+        for _ in 1..=75 {
+            env.add_revoked_serial(&issuer, Reason::Unspecified);
+        }
+        for _ in 1..=30 {
+            env.add_revoked_serial(&issuer, Reason::KeyCompromise);
+        }
+        for _ in 1..=9 {
+            env.add_revoked_serial(&issuer, Reason::PrivilegeWithdrawn);
+        }
+
+        let (revoked, known, dist) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+        assert_eq!(known, 86);
+        assert_eq!(revoked, 75 + 30 + 9);
+        assert_eq!(dist.unspecified, 75);
+        assert_eq!(dist.key_compromise, 30);
+        assert_eq!(dist.ca_compromise, 0);
+        assert_eq!(dist.affiliation_changed, 0);
+        assert_eq!(dist.superseded, 0);
+        assert_eq!(dist.cessation_of_operation, 0);
+        assert_eq!(dist.certificate_hold, 0);
+        assert_eq!(dist.remove_from_crl, 0);
+        assert_eq!(dist.privilege_withdrawn, 9);
+        assert_eq!(dist.aa_compromise, 0);
+
+        let (revoked, known, dist) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Specified);
+        assert_eq!(known, 86 + 75);
+        assert_eq!(revoked, 30 + 9);
+        assert_eq!(dist.unspecified, 0);
+        assert_eq!(dist.key_compromise, 30);
+        assert_eq!(dist.ca_compromise, 0);
+        assert_eq!(dist.affiliation_changed, 0);
+        assert_eq!(dist.superseded, 0);
+        assert_eq!(dist.cessation_of_operation, 0);
+        assert_eq!(dist.certificate_hold, 0);
+        assert_eq!(dist.remove_from_crl, 0);
+        assert_eq!(dist.privilege_withdrawn, 9);
+        assert_eq!(dist.aa_compromise, 0);
+
+        let (revoked, known, dist) = count_all(
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::KeyCompromise,
+        );
+        assert_eq!(known, 86 + 75 + 9);
+        assert_eq!(revoked, 30);
+        assert_eq!(dist.unspecified, 0);
+        assert_eq!(dist.key_compromise, 30);
+        assert_eq!(dist.ca_compromise, 0);
+        assert_eq!(dist.affiliation_changed, 0);
+        assert_eq!(dist.superseded, 0);
+        assert_eq!(dist.cessation_of_operation, 0);
+        assert_eq!(dist.certificate_hold, 0);
+        assert_eq!(dist.remove_from_crl, 0);
+        assert_eq!(dist.privilege_withdrawn, 0);
+        assert_eq!(dist.aa_compromise, 0);
+    }
+
+    #[test]
+    fn test_revset_and_stash() {
+        let env = TestEnv::new();
+
+        let issuer = env.add_issuer();
+        for _ in 1..=1000 {
+            env.add_serial(&issuer);
+        }
+        env.add_revoked_serial(&issuer, Reason::KeyCompromise);
+
+        let filter_file = env.dir.path().join("filter");
+        let stash_file = env.dir.path().join("filter.stash");
+        let revset_file = env.dir.path().join("revset.bin");
+        let prev_revset_file = env.dir.path().join("old-revset.bin");
+
+        create_cascade(
+            &filter_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            HashAlgorithm::Sha256,
+            ReasonSet::All,
+            None,
+        );
+
+        write_revset_and_stash(
+            &revset_file,
+            &stash_file,
+            &prev_revset_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::All,
+            None,
+        );
+
+        std::fs::rename(&revset_file, &prev_revset_file).expect("could not move revset file");
+        let first_revset_bytes = std::fs::read(&prev_revset_file).expect("could not read revset");
+        let first_revset: HashSet<Vec<u8>> =
+            bincode::deserialize(&first_revset_bytes).expect("could not parse revset");
+
+        // Add a revoked serial after writing the first revset and stash
+        let serial = env.add_revoked_serial(&issuer, Reason::Unspecified);
+
+        write_revset_and_stash(
+            &revset_file,
+            &stash_file,
+            &prev_revset_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::All,
+            None,
+        );
+
+        let second_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
+        let second_revset: HashSet<Vec<u8>> =
+            bincode::deserialize(&second_revset_bytes).expect("could not parse revset");
+
+        let serial_bytes = decode_serial(&serial);
+        let issuer_bytes = base64::decode_config(issuer, base64::URL_SAFE)
+            .expect("found invalid file name: not url-safe base64.");
+        let key = crlite_key(&issuer_bytes, &serial_bytes);
+
+        // The newly revoked serial should be in the second revset
+        assert!(!first_revset.contains(&key));
+        assert!(second_revset.contains(&key));
+
+        // The stash should contain the newly revoked serial.
+        let stash = std::fs::read(&stash_file).expect("could not read stash file");
+        assert_eq!(u32::from_le_bytes(stash[0..4].try_into().unwrap()), 1);
+        assert_eq!(stash[4] as usize, issuer_bytes.len());
+        assert_eq!(stash[5..5 + issuer_bytes.len()], issuer_bytes);
+        assert_eq!(stash[5 + issuer_bytes.len()] as usize, serial_bytes.len());
+        assert_eq!(stash[5 + issuer_bytes.len() + 1..], serial_bytes);
+
+        // Write the revset again using ReasonSet::Specified, so the newly revoked serial
+        // will not be treated as revoked.
+        write_revset_and_stash(
+            &revset_file,
+            &stash_file,
+            &prev_revset_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::Specified,
+            None,
+        );
+
+        let third_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
+        let third_revset: HashSet<Vec<u8>> =
+            bincode::deserialize(&third_revset_bytes).expect("could not parse revset");
+
+        // The newly revoked serial should not be in the third revset as it has
+        // an unspecified reason code
+        assert!(!third_revset.contains(&key));
+
+        // The stash should be empty
+        let stash = std::fs::read(&stash_file).expect("could not read stash file");
+        assert_eq!(stash.len(), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_check_all_with_wrong_reason_set() {
+        let env = TestEnv::new();
+
+        let issuer = env.add_issuer();
+        env.add_serial(&issuer);
+        env.add_revoked_serial(&issuer, Reason::KeyCompromise);
+        env.add_revoked_serial(&issuer, Reason::Unspecified);
+
+        let filter_file = env.dir.path().join("filter");
+
+        // Use ReasonSet::Specified while creating the filter
+        create_cascade(
+            &filter_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            HashAlgorithm::Sha256,
+            ReasonSet::Specified,
+            None,
+        );
+
+        let filter_bytes = std::fs::read(&filter_file).expect("could not read filter file");
+        let cascade = Cascade::from_bytes(filter_bytes)
+            .expect("cannot deserialize cascade")
+            .expect("cascade should be some");
+
+        // Checking with ReasonSet::All will panic
+        check_all(
+            &cascade,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::All,
+        );
+    }
 }
