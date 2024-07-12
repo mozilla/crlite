@@ -46,7 +46,59 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 type Serial = String;
-type Reason = u8;
+
+const REASON_UNSPECIFIED: u8 = 0;
+const REASON_KEY_COMPROMISE: u8 = 1;
+const REASON_CA_COMPROMISE: u8 = 2;
+const REASON_AFFILIATION_CHANGED: u8 = 3;
+const REASON_SUPERSEDED: u8 = 4;
+const REASON_CESSATION_OF_OPERATION: u8 = 5;
+const REASON_CERTIFICATE_HOLD: u8 = 6;
+//              -- value 7 is not used
+const REASON_REMOVE_FROM_CRL: u8 = 8;
+const REASON_PRIVILEGE_WITHDRAWN: u8 = 9;
+const REASON_AA_COMPROMISE: u8 = 10;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Reason {
+    Unspecified,
+    KeyCompromise,
+    CACompromise,
+    AffilitationChanged,
+    Superseded,
+    CessationOfOperation,
+    CertificateHold,
+    RemoveFromCRL,
+    PrivilegeWithdrawn,
+    AACompromise,
+}
+
+impl From<u8> for Reason {
+    fn from(reason_code: u8) -> Reason {
+        match reason_code {
+            REASON_UNSPECIFIED => Reason::Unspecified,
+            REASON_KEY_COMPROMISE => Reason::KeyCompromise,
+            REASON_CA_COMPROMISE => Reason::CACompromise,
+            REASON_AFFILIATION_CHANGED => Reason::AffilitationChanged,
+            REASON_SUPERSEDED => Reason::Superseded,
+            REASON_CESSATION_OF_OPERATION => Reason::CessationOfOperation,
+            REASON_CERTIFICATE_HOLD => Reason::CertificateHold,
+            REASON_REMOVE_FROM_CRL => Reason::RemoveFromCRL,
+            REASON_PRIVILEGE_WITHDRAWN => Reason::PrivilegeWithdrawn,
+            REASON_AA_COMPROMISE => Reason::AACompromise,
+            _ => {
+                warn!("Treating unrecognized reason code ({reason_code}) as unspecified");
+                Reason::Unspecified
+            }
+        }
+    }
+}
+
+fn decode_reason(hex_reason: &str) -> Reason {
+    u8::from_str_radix(hex_reason, 16)
+        .expect("invalid hex encoding")
+        .into()
+}
 
 #[derive(Debug, Default)]
 struct ReasonCodeHistogram {
@@ -57,6 +109,7 @@ struct ReasonCodeHistogram {
     superseded: usize,
     cessation_of_operation: usize,
     certificate_hold: usize,
+    remove_from_crl: usize,
     privilege_withdrawn: usize,
     aa_compromise: usize,
 }
@@ -64,15 +117,16 @@ struct ReasonCodeHistogram {
 impl ReasonCodeHistogram {
     fn add(&mut self, reason: Reason) {
         let bin = match reason {
-            1 => &mut self.key_compromise,
-            2 => &mut self.ca_compromise,
-            3 => &mut self.affiliation_changed,
-            4 => &mut self.superseded,
-            5 => &mut self.cessation_of_operation,
-            6 => &mut self.certificate_hold,
-            7 => &mut self.privilege_withdrawn,
-            8 => &mut self.aa_compromise,
-            _ => &mut self.unspecified,
+            Reason::Unspecified => &mut self.unspecified,
+            Reason::KeyCompromise => &mut self.key_compromise,
+            Reason::CACompromise => &mut self.ca_compromise,
+            Reason::AffilitationChanged => &mut self.affiliation_changed,
+            Reason::Superseded => &mut self.superseded,
+            Reason::CessationOfOperation => &mut self.cessation_of_operation,
+            Reason::CertificateHold => &mut self.certificate_hold,
+            Reason::RemoveFromCRL => &mut self.remove_from_crl,
+            Reason::PrivilegeWithdrawn => &mut self.privilege_withdrawn,
+            Reason::AACompromise => &mut self.aa_compromise,
         };
         *bin += 1;
     }
@@ -85,20 +139,38 @@ impl ReasonCodeHistogram {
         self.superseded += other.superseded;
         self.cessation_of_operation += other.cessation_of_operation;
         self.certificate_hold += other.certificate_hold;
+        self.remove_from_crl += other.remove_from_crl;
         self.privilege_withdrawn += other.privilege_withdrawn;
         self.aa_compromise += other.aa_compromise;
         self
     }
 }
 
+#[derive(clap::ValueEnum, Copy, Clone)]
+enum ReasonSet {
+    All,
+    Specified,
+    KeyCompromise,
+}
+
 struct RevokedSerialAndReasonIterator {
     lines: Lines<BufReader<File>>,
+    reason_set: ReasonSet,
 }
 
 impl RevokedSerialAndReasonIterator {
-    fn new(path: &Path) -> Self {
+    fn new(path: &Path, reason_set: ReasonSet) -> Self {
         Self {
             lines: BufReader::new(File::open(path).unwrap()).lines(),
+            reason_set,
+        }
+    }
+
+    fn skip_reason(&self, reason: &Reason) -> bool {
+        match self.reason_set {
+            ReasonSet::All => false,
+            ReasonSet::Specified => *reason == Reason::Unspecified,
+            ReasonSet::KeyCompromise => *reason != Reason::KeyCompromise,
         }
     }
 }
@@ -108,23 +180,27 @@ impl Iterator for RevokedSerialAndReasonIterator {
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.lines.next().transpose().expect("IO error");
         if let Some(mut line) = next {
-            let reason = u8::from_str_radix(&line[..2], 16).expect("invalid hex encoding");
+            let reason = decode_reason(&line[..2]);
+            if self.skip_reason(&reason) {
+                return self.next();
+            }
             let serial = line.split_off(2);
-            return Some((serial, reason));
+            Some((serial, reason))
+        } else {
+            None
         }
-        None
     }
 }
 
-impl Into<HashSet<Serial>> for RevokedSerialAndReasonIterator {
-    fn into(self) -> HashSet<Serial> {
-        self.map(|(serial, _)| serial).collect()
+impl From<RevokedSerialAndReasonIterator> for HashSet<Serial> {
+    fn from(iter: RevokedSerialAndReasonIterator) -> HashSet<Serial> {
+        iter.map(|(serial, _)| serial).collect()
     }
 }
 
-impl Into<HashMap<Serial, Reason>> for RevokedSerialAndReasonIterator {
-    fn into(self) -> HashMap<Serial, Reason> {
-        self.collect()
+impl From<RevokedSerialAndReasonIterator> for HashMap<Serial, Reason> {
+    fn from(iter: RevokedSerialAndReasonIterator) -> HashMap<Serial, Reason> {
+        iter.collect()
     }
 }
 
@@ -218,7 +294,7 @@ fn list_issuer_file_pairs(
 ///
 fn count(
     revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-    mut known_serials: KnownSerialIterator,
+    known_serials: KnownSerialIterator,
 ) -> (usize, usize, ReasonCodeHistogram) {
     let mut ok_count: usize = 0;
     let mut known_revoked_serial_set = HashSet::new();
@@ -228,7 +304,7 @@ fn count(
         .map(|iter| iter.into())
         .unwrap_or_default();
 
-    while let Some(serial) = known_serials.next() {
+    for serial in known_serials {
         if let Some(reason) = revoked_serial_to_reason_map.get(serial.as_str()) {
             known_revoked_serial_set.insert(serial);
             reasons.add(*reason);
@@ -246,18 +322,18 @@ fn include(
     builder: &mut CascadeBuilder,
     issuer: &[u8],
     revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
-    mut known_serials: KnownSerialIterator,
+    known_serials: KnownSerialIterator,
 ) {
     let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
 
-    while let Some(ref serial) = known_serials.next() {
-        if revoked_serial_set.contains(serial) {
-            let key = crlite_key(issuer, &decode_serial(serial));
+    for serial in known_serials {
+        if revoked_serial_set.contains(&serial) {
+            let key = crlite_key(issuer, &decode_serial(&serial));
             builder
                 .include(key)
                 .expect("Capacity error. Did the file contents change?");
             // Ensure that we do not attempt to include this issuer+serial again.
-            revoked_serial_set.remove(serial);
+            revoked_serial_set.remove(&serial);
         }
     }
 }
@@ -276,9 +352,9 @@ fn exclude(
         .map(|iter| iter.into())
         .unwrap_or_default();
 
-    let mut non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
-    while let Some(ref serial) = non_revoked_serials.next() {
-        let key = crlite_key(issuer, &decode_serial(serial));
+    let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
+    for serial in non_revoked_serials {
+        let key = crlite_key(issuer, &decode_serial(&serial));
         builder.exclude_threaded(&mut exclude_set, key);
     }
     exclude_set
@@ -289,30 +365,34 @@ fn check(
     cascade: &Cascade,
     issuer: &[u8],
     revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-    mut known_serials: KnownSerialIterator,
+    known_serials: KnownSerialIterator,
 ) {
     let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
         .map(|iter| iter.into())
         .unwrap_or_default();
 
-    while let Some(ref serial) = known_serials.next() {
+    for serial in known_serials {
         assert_eq!(
-            cascade.has(crlite_key(issuer, &decode_serial(serial))),
-            revoked_serial_set.contains(serial)
+            cascade.has(crlite_key(issuer, &decode_serial(&serial))),
+            revoked_serial_set.contains(&serial)
         );
     }
 }
 
 /// `count_all` performs a parallel iteration over file pairs, applies
 /// `count` to each pair, and sums up the results.
-fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize, ReasonCodeHistogram) {
+fn count_all(
+    revoked_dir: &Path,
+    known_dir: &Path,
+    reason_set: ReasonSet,
+) -> (usize, usize, ReasonCodeHistogram) {
     list_issuer_file_pairs(revoked_dir, known_dir)
         .par_iter()
         .map(|pair| {
             let (_, revoked_file, known_file) = pair;
             let revoked_serials_and_reasons = revoked_file
                 .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x));
+                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
             let known_serials = KnownSerialIterator::new(known_file);
             count(revoked_serials_and_reasons, known_serials)
         })
@@ -324,14 +404,14 @@ fn count_all(revoked_dir: &Path, known_dir: &Path) -> (usize, usize, ReasonCodeH
 
 /// `check_all` performs a parallel iteration over file pairs, and applies
 /// `check` to each pair.
-fn check_all(cascade: &Cascade, revoked_dir: &Path, known_dir: &Path) {
+fn check_all(cascade: &Cascade, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet) {
     list_issuer_file_pairs(revoked_dir, known_dir)
         .par_iter()
         .for_each(|pair| {
             let (issuer, revoked_file, known_file) = pair;
             let revoked_serials_and_reasons = revoked_file
                 .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x));
+                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
             let known_serials = KnownSerialIterator::new(known_file);
             check(cascade, issuer, revoked_serials_and_reasons, known_serials);
         });
@@ -339,7 +419,12 @@ fn check_all(cascade: &Cascade, revoked_dir: &Path, known_dir: &Path) {
 
 /// `include_all` performs a serial iteration over file pairs, and applies
 /// `include` to each pair.
-fn include_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Path) {
+fn include_all(
+    builder: &mut CascadeBuilder,
+    revoked_dir: &Path,
+    known_dir: &Path,
+    reason_set: ReasonSet,
+) {
     // Include file pairs with a revoked component. Must be done serially, as
     // CascadeBuilder::include takes &mut self.
     for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
@@ -347,7 +432,7 @@ fn include_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Pat
             include(
                 builder,
                 issuer,
-                RevokedSerialAndReasonIterator::new(revoked_file),
+                RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
                 KnownSerialIterator::new(known_file),
             );
         }
@@ -356,14 +441,19 @@ fn include_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Pat
 
 /// `exclude_all` performs a parallel iteration over file pairs, and applies
 /// `exclude` to each pair and empties the returned `ExcludeSet`s into the builder.
-fn exclude_all(builder: &mut CascadeBuilder, revoked_dir: &Path, known_dir: &Path) {
+fn exclude_all(
+    builder: &mut CascadeBuilder,
+    revoked_dir: &Path,
+    known_dir: &Path,
+    reason_set: ReasonSet,
+) {
     let mut exclude_sets: Vec<ExcludeSet> = list_issuer_file_pairs(revoked_dir, known_dir)
         .par_iter()
         .map(|pair| {
             let (issuer, revoked_file, known_file) = pair;
             let revoked_serials_and_reasons = revoked_file
                 .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x));
+                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
             let known_serials = KnownSerialIterator::new(known_file);
             exclude(builder, issuer, revoked_serials_and_reasons, known_serials)
         })
@@ -381,10 +471,11 @@ fn create_cascade(
     revoked_dir: &Path,
     known_dir: &Path,
     hash_alg: HashAlgorithm,
+    reason_set: ReasonSet,
     statsd_client: Option<&statsd::Client>,
 ) {
     info!("Counting serials");
-    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir);
+    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir, reason_set);
 
     info!(
         "Found {} 'revoked' and {} 'not revoked' serial numbers",
@@ -406,10 +497,10 @@ fn create_cascade(
     let mut builder = CascadeBuilder::new(hash_alg, salt, revoked, not_revoked);
 
     info!("Processing revoked serials");
-    include_all(&mut builder, revoked_dir, known_dir);
+    include_all(&mut builder, revoked_dir, known_dir, reason_set);
 
     info!("Processing non-revoked serials");
-    exclude_all(&mut builder, revoked_dir, known_dir);
+    exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
 
     info!("Eliminating false positives");
     let cascade = builder.finalize().expect("build error");
@@ -424,7 +515,7 @@ fn create_cascade(
         info!("\n{}", cascade);
 
         info!("Verifying cascade");
-        check_all(&cascade, revoked_dir, known_dir);
+        check_all(&cascade, revoked_dir, known_dir, reason_set);
     } else {
         warn!("Produced empty cascade. Exiting.");
         return;
@@ -437,39 +528,28 @@ fn create_cascade(
         .expect("can't write file");
 
     if let Some(client) = statsd_client {
-        client.gauge("generate.filter_size", cascade_bytes.len() as f64);
-        client.gauge("generate.not_revoked", not_revoked as f64);
-        client.gauge("generate.revoked", revoked as f64);
-        client.gauge("generate.revoked.unspecified", reasons.unspecified as f64);
+        client.gauge("filter_size", cascade_bytes.len() as f64);
+        client.gauge("not_revoked", not_revoked as f64);
+        client.gauge("revoked", revoked as f64);
+        client.gauge("revoked.unspecified", reasons.unspecified as f64);
+        client.gauge("revoked.key_compromise", reasons.key_compromise as f64);
+        client.gauge("revoked.ca_compromise", reasons.ca_compromise as f64);
         client.gauge(
-            "generate.revoked.key_compromise",
-            reasons.key_compromise as f64,
-        );
-        client.gauge(
-            "generate.revoked.ca_compromise",
-            reasons.ca_compromise as f64,
-        );
-        client.gauge(
-            "generate.revoked.affiliation_changed",
+            "revoked.affiliation_changed",
             reasons.affiliation_changed as f64,
         );
-        client.gauge("generate.revoked.superseded", reasons.superseded as f64);
+        client.gauge("revoked.superseded", reasons.superseded as f64);
         client.gauge(
-            "generate.revoked.cessation_of_operation",
+            "revoked.cessation_of_operation",
             reasons.cessation_of_operation as f64,
         );
+        client.gauge("revoked.certificate_hold", reasons.certificate_hold as f64);
+        client.gauge("revoked.remove_from_crl", reasons.remove_from_crl as f64);
         client.gauge(
-            "generate.revoked.certificate_hold",
-            reasons.certificate_hold as f64,
-        );
-        client.gauge(
-            "generate.revoked.privilege_withdrawn",
+            "revoked.privilege_withdrawn",
             reasons.privilege_withdrawn as f64,
         );
-        client.gauge(
-            "generate.revoked.aa_compromise",
-            reasons.aa_compromise as f64,
-        );
+        client.gauge("revoked.aa_compromise", reasons.aa_compromise as f64);
     }
 }
 
@@ -506,6 +586,7 @@ fn write_revset_and_stash(
     prev_revset_file: &Path,
     revoked_dir: &Path,
     known_dir: &Path,
+    reason_set: ReasonSet,
     statsd_client: Option<&statsd::Client>,
 ) {
     let mut prev_keys: HashSet<Vec<u8>> = HashSet::new();
@@ -525,11 +606,11 @@ fn write_revset_and_stash(
         if let (issuer, Some(revoked_file), known_file) = pair {
             let mut additions = vec![];
             let revoked_serial_set: HashSet<Serial> =
-                RevokedSerialAndReasonIterator::new(revoked_file).into();
-            let mut known_revoked_serials =
+                RevokedSerialAndReasonIterator::new(revoked_file, reason_set).into();
+            let known_revoked_serials =
                 KnownSerialIterator::new(known_file).filter(|x| revoked_serial_set.contains(x));
-            while let Some(ref serial) = known_revoked_serials.next() {
-                let serial_bytes = decode_serial(serial);
+            for serial in known_revoked_serials {
+                let serial_bytes = decode_serial(&serial);
                 let key = crlite_key(issuer, &serial_bytes);
                 if !prev_keys.contains(&key) {
                     additions.push(serial_bytes);
@@ -563,8 +644,8 @@ fn write_revset_and_stash(
         .expect("can't write stash file");
 
     if let Some(client) = statsd_client {
-        client.gauge("generate.revset_size", revset_bytes.len() as f64);
-        client.gauge("generate.stash_size", stash_bytes.len() as f64);
+        client.gauge("revset_size", revset_bytes.len() as f64);
+        client.gauge("stash_size", stash_bytes.len() as f64);
     }
 }
 
@@ -578,6 +659,8 @@ struct Cli {
     prev_revset: PathBuf,
     #[clap(long, parse(from_os_str), default_value = ".")]
     outdir: PathBuf,
+    #[clap(long, value_enum, default_value = "all")]
+    reason_set: ReasonSet,
     #[clap(long)]
     statsd_host: Option<String>,
     #[clap(long)]
@@ -602,6 +685,7 @@ fn main() {
     let known_dir = &args.known;
     let revoked_dir = &args.revoked;
     let prev_revset_file = &args.prev_revset;
+    let reason_set = args.reason_set;
 
     let out_dir = &args.outdir;
     let filter_file = &out_dir.join("filter");
@@ -652,14 +736,20 @@ fn main() {
         false => HashAlgorithm::Sha256,
     };
 
+    let statsd_prefix = match reason_set {
+        ReasonSet::All => "crlite.generate",
+        ReasonSet::Specified => "crlite.generate.specified_reasons_only",
+        ReasonSet::KeyCompromise => "crlite.generate.key_compromise_only",
+    };
+
     let statsd_client = match args.statsd_host {
         Some(ref statsd_host) if statsd_host.contains(':') => {
             // host specified with port
-            statsd::Client::new(statsd_host, "crlite").ok()
+            statsd::Client::new(statsd_host, statsd_prefix).ok()
         }
         Some(ref statsd_host) => {
             // use default port
-            statsd::Client::new(format!("{}:{}", statsd_host, 8125), "crlite").ok()
+            statsd::Client::new(format!("{}:{}", statsd_host, 8125), statsd_prefix).ok()
         }
         None => None,
     };
@@ -675,6 +765,7 @@ fn main() {
         revoked_dir,
         known_dir,
         hash_alg,
+        reason_set,
         statsd_client.as_ref(),
     );
 
@@ -685,12 +776,13 @@ fn main() {
         prev_revset_file,
         revoked_dir,
         known_dir,
+        reason_set,
         statsd_client.as_ref(),
     );
     let timer_finish = Instant::now() - timer_start;
     info!("Finished in {} seconds", timer_finish.as_secs());
     if let Some(client) = statsd_client {
-        client.gauge("generate.time", timer_finish.as_secs() as f64);
+        client.gauge("time", timer_finish.as_secs() as f64);
     }
 
     info!("Done");
