@@ -53,7 +53,18 @@ fi
 
 ${workflow}/2-generate_mlbf ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-              --statsd-host ${statsdHost}
+              --statsd-host ${statsdHost} \
+              --reason-set all
+
+${workflow}/2-generate_mlbf ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
+              --statsd-host ${statsdHost} \
+              --reason-set specified
+
+${workflow}/2-generate_mlbf ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
+              --statsd-host ${statsdHost} \
+              --reason-set key-compromise
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then
   echo "uploading mlbf"
