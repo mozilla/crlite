@@ -17,9 +17,13 @@ parser.add_argument("--nodiff", help="Avoid building a diff")
 parser.add_argument(
     "--filter-bucket", help="Google Cloud Storage filter bucket name", required=True
 )
+parser.add_argument("--statsd-host", help="StatsD host", required=False)
 parser.add_argument(
-    "--statsd-host", help="StatsD host", required=False
+    "--reason-set",
+    help="Reason set [values: all, specified, key-compromise]",
+    required=False,
 )
+
 
 def main():
     args = parser.parse_args()
@@ -38,14 +42,21 @@ def main():
         os.path.join(runIdPath, "known"),
         "--revoked",
         os.path.join(runIdPath, "revoked"),
-        "--outdir",
-        os.path.join(runIdPath, "mlbf"),
         "--clobber",
     ]
 
     if args.statsd_host:
         cmdline += ["--statsd-host", args.statsd_host]
 
+    if not args.reason_set or args.reason_set == "all":
+        cmdline += ["--outdir", os.path.join(runIdPath, "mlbf")]
+    else:
+        cmdline += [
+            "--outdir",
+            os.path.join(runIdPath, f"mlbf-{args.reason_set}"),
+            "--reason-set",
+            args.reason_set,
+        ]
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:

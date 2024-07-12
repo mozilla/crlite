@@ -77,6 +77,16 @@ def main():
         # Add a copy to /latest
         uploadFiles(files, localFolder, Path("latest"), bucket, args=args)
 
+    for path, dirs, files in os.walk(runIdPath / "mlbf-specified"):
+        localFolder = Path(path)
+        remoteFolder = localFolder.relative_to(runIdPath.parent)
+        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+
+    for path, dirs, files in os.walk(runIdPath / "mlbf-key-compromise"):
+        localFolder = Path(path)
+        remoteFolder = localFolder.relative_to(runIdPath.parent)
+        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+
     sentinel = bucket.blob(str(Path(runIdPath.name) / "completed"))
     log.info(f"Saving 'completed' marker to {sentinel.name}")
     if not args.noop:
