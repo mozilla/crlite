@@ -36,7 +36,7 @@ use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rust_cascade::{Cascade, CascadeBuilder, ExcludeSet, HashAlgorithm};
 use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::prelude::{BufRead, Write};
 use std::io::{BufReader, Lines};
@@ -223,13 +223,12 @@ impl Iterator for KnownSerialIterator {
     }
 }
 
-fn decode_issuer(s: &OsStr) -> Vec<u8> {
-    let issuer_str = s.to_str().expect("found invalid file name: not unicode.");
-    base64::decode_config(issuer_str, base64::URL_SAFE)
-        .expect("found invalid file name: not url-safe base64.")
+fn decode_issuer(s: &str) -> Vec<u8> {
+    base64::decode_config(s, base64::URL_SAFE)
+        .expect("found invalid issuer id: not url-safe base64.")
 }
 
-fn decode_serial(s: &Serial) -> Vec<u8> {
+fn decode_serial(s: &str) -> Vec<u8> {
     hex::decode(s.as_bytes()).expect("found invalid serial number: not ascii hex.")
 }
 
@@ -266,7 +265,7 @@ fn list_issuer_file_pairs(
     for issuer in known_issuers {
         let k_file = known_dir.join(&issuer);
         let r_file = revoked_dir.join(&issuer);
-        let issuer_bytes = decode_issuer(&issuer);
+        let issuer_bytes = decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
         if r_file.exists() {
             pairs.push((issuer_bytes, Some(r_file), k_file));
         } else {
@@ -791,8 +790,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_all, count_all, create_cascade, crlite_key, decode_serial, write_revset_and_stash,
-        Reason, ReasonSet,
+        check_all, count_all, create_cascade, crlite_key, decode_issuer, decode_serial,
+        write_revset_and_stash, Reason, ReasonSet,
     };
     use rand::rngs::OsRng;
     use rand::RngCore;
@@ -998,8 +997,7 @@ mod tests {
             bincode::deserialize(&second_revset_bytes).expect("could not parse revset");
 
         let serial_bytes = decode_serial(&serial);
-        let issuer_bytes = base64::decode_config(issuer, base64::URL_SAFE)
-            .expect("found invalid file name: not url-safe base64.");
+        let issuer_bytes = decode_issuer(&issuer);
         let key = crlite_key(&issuer_bytes, &serial_bytes);
 
         // The newly revoked serial should be in the second revset
