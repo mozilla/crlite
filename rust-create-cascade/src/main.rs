@@ -180,17 +180,15 @@ impl RevokedSerialAndReasonIterator {
 impl Iterator for RevokedSerialAndReasonIterator {
     type Item = (Serial, Reason);
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.lines.next().transpose().expect("IO error");
-        if let Some(mut line) = next {
+        while let Some(mut line) = self.lines.next().transpose().expect("IO error") {
             let reason = decode_reason(&line[..2]);
             if self.skip_reason(&reason) {
-                return self.next();
+                continue;
             }
             let serial = line.split_off(2);
-            Some((serial, reason))
-        } else {
-            None
+            return Some((serial, reason));
         }
+        None
     }
 }
 
