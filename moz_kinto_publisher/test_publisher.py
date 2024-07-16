@@ -12,7 +12,7 @@ def timestamp_from_run_id(run_id):
     return datetime.strptime(time_string, "%Y%m%d-%H").replace(tzinfo=timezone.utc)
 
 
-def make_record(run_id, *, parent):
+def make_record(run_id, *, parent, channel):
     timestamp = timestamp_from_run_id(run_id)
     record_type = "diff" if parent else "full"
     record_time = timestamp.isoformat(timespec="seconds")
@@ -34,6 +34,7 @@ def make_record(run_id, *, parent):
         "incremental": parent is not None,
         "id": random_id,
         "last_modified": 1,
+        "channel": channel,
     }
     if parent:
         record["parent"] = hashlib.sha256(parent.encode("utf-8")).hexdigest()
@@ -88,64 +89,102 @@ class TestLoadIntermediates(unittest.TestCase):
 class TestPublishDecisions(unittest.TestCase):
     def test_consistency_okay(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-0", parent="20491230-3"),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-2", parent="20491231-1"),
-            make_record("20491231-3", parent="20491231-2"),
-            make_record("20500101-0", parent="20491231-3"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent="20491231-1", channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
+            make_record("20500101-0", parent="20491231-3", channel="all"),
         ]
-        main.crlite_verify_record_consistency(existing_records=existing_records)
+        main.crlite_verify_record_consistency(
+            existing_records=existing_records, channel="all"
+        )
+
+    def test_consistency_okay(self):
+        existing_records = [
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent="20491231-1", channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
+            make_record("20500101-0", parent="20491231-3", channel="all"),
+        ]
+        main.crlite_verify_record_consistency(
+            existing_records=existing_records, channel="all"
+        )
+
+    def test_consistency_multiple_channels(self):
+        existing_records = [
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent=None, channel="specified"),
+            make_record("20491231-3", parent="20491231-2", channel="specified"),
+            make_record("20500101-0", parent="20491231-3", channel="specified"),
+        ]
+        main.crlite_verify_record_consistency(
+            existing_records=existing_records, channel="specified"
+        )
 
     def test_consistency_multiple_filters(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-0", parent="20491230-3"),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-2", parent=None),
-            make_record("20491231-3", parent="20491231-2"),
-            make_record("20500101-0", parent="20491231-3"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent=None, channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
+            make_record("20500101-0", parent="20491231-3", channel="all"),
         ]
         with self.assertRaises(main.ConsistencyException):
-            main.crlite_verify_record_consistency(existing_records=existing_records)
+            main.crlite_verify_record_consistency(
+                existing_records=existing_records, channel="all"
+            )
 
     def test_consistency_not_sequential(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-0", parent="20491230-3"),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-3", parent="20491231-1"),
-            make_record("20500101-0", parent="20491231-3"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-3", parent="20491231-1", channel="all"),
+            make_record("20500101-0", parent="20491231-3", channel="all"),
         ]
         with self.assertRaises(main.ConsistencyException):
-            main.crlite_verify_record_consistency(existing_records=existing_records)
+            main.crlite_verify_record_consistency(
+                existing_records=existing_records, channel="all"
+            )
 
     def test_consistency_out_of_order(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-0", parent="20491230-3"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
         ]
         with self.assertRaises(main.ConsistencyException):
-            main.crlite_verify_record_consistency(existing_records=existing_records)
+            main.crlite_verify_record_consistency(
+                existing_records=existing_records, channel="all"
+            )
 
     def test_consistency_unknown_parent(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-0", parent="20491230-2"),
-            make_record("20491231-1", parent="20491231-0"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-2", channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
         ]
         with self.assertRaises(main.ConsistencyException):
-            main.crlite_verify_record_consistency(existing_records=existing_records)
+            main.crlite_verify_record_consistency(
+                existing_records=existing_records, channel="all"
+            )
 
     def test_consistency_nonlinear(self):
         existing_records = [
-            make_record("20491230-3", parent=None),
-            make_record("20491231-0", parent="20491230-3"),
-            make_record("20491231-1", parent="20491230-3"),
+            make_record("20491230-3", parent=None, channel="all"),
+            make_record("20491231-0", parent="20491230-3", channel="all"),
+            make_record("20491231-1", parent="20491230-3", channel="all"),
         ]
         with self.assertRaises(main.ConsistencyException):
-            main.crlite_verify_record_consistency(existing_records=existing_records)
+            main.crlite_verify_record_consistency(
+                existing_records=existing_records, channel="all"
+            )
 
     def test_run_id_consistency_not_sequential(self):
         with self.assertRaises(main.ConsistencyException):
@@ -192,38 +231,38 @@ class TestPublishDecisions(unittest.TestCase):
         existing_records = []
         db = MockRunDB(["20500101-1"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": True, "upload": ["20500101-1"]})
 
     def test_no_overlap(self):
         existing_records = [
-            make_record("20491231-2", parent=None),
-            make_record("20491231-3", parent="20491231-2"),
+            make_record("20491231-2", parent=None, channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
         ]
         db = MockRunDB(["20500101-0"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": True, "upload": ["20500101-0"]})
 
     def test_continue_with_single_stash(self):
         existing_records = [
-            make_record("20491231-2", parent=None),
-            make_record("20491231-3", parent="20491231-2"),
+            make_record("20491231-2", parent=None, channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
         ]
         db = MockRunDB(["20491231-2", "20491231-3", "20500101-0"])
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": False, "upload": ["20500101-0"]})
 
     def test_continue_with_four_stashes(self):
         existing_records = [
-            make_record("20491231-0", parent=None),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-2", parent="20491231-1"),
-            make_record("20491231-3", parent="20491231-2"),
+            make_record("20491231-0", parent=None, channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent="20491231-1", channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
         ]
         db = MockRunDB(
             [
@@ -238,7 +277,7 @@ class TestPublishDecisions(unittest.TestCase):
             ]
         )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(
             result,
@@ -250,7 +289,7 @@ class TestPublishDecisions(unittest.TestCase):
 
     def test_up_to_date_single_entry(self):
         existing_records = [
-            make_record("20491231-3", parent=None),
+            make_record("20491231-3", parent=None, channel="all"),
         ]
         db = MockRunDB(
             [
@@ -264,16 +303,16 @@ class TestPublishDecisions(unittest.TestCase):
             ]
         )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": False, "upload": []})
 
     def test_up_to_date(self):
         existing_records = [
-            make_record("20491231-0", parent=None),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-2", parent="20491231-1"),
-            make_record("20491231-3", parent="20491231-2"),
+            make_record("20491231-0", parent=None, channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent="20491231-1", channel="all"),
+            make_record("20491231-3", parent="20491231-2", channel="all"),
         ]
         db = MockRunDB(
             [
@@ -287,15 +326,15 @@ class TestPublishDecisions(unittest.TestCase):
             ]
         )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": False, "upload": []})
 
     def test_rundb_data_loss(self):
         existing_records = [
-            make_record("20491231-0", parent=None),
-            make_record("20491231-1", parent="20491231-0"),
-            make_record("20491231-2", parent="20491231-1"),
+            make_record("20491231-0", parent=None, channel="all"),
+            make_record("20491231-1", parent="20491231-0", channel="all"),
+            make_record("20491231-2", parent="20491231-1", channel="all"),
         ]
         db = MockRunDB(
             [
@@ -304,7 +343,7 @@ class TestPublishDecisions(unittest.TestCase):
             ]
         )
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": True, "upload": ["20491231-2"]})
 
@@ -314,12 +353,12 @@ class TestPublishDecisions(unittest.TestCase):
             date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
             for j in [0, 1, 2, 3]:
                 ids += [f"{date}-{j}"]
-        existing_records = [make_record(ids[0], parent=None)]
+        existing_records = [make_record(ids[0], parent=None, channel="all")]
         for i in range(1, len(ids)):
-            existing_records += [make_record(ids[i], parent=ids[i - 1])]
+            existing_records += [make_record(ids[i], parent=ids[i - 1], channel="all")]
         db = MockRunDB(ids)
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": True, "upload": [ids[-1]]})
 
@@ -329,11 +368,11 @@ class TestPublishDecisions(unittest.TestCase):
             date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
             for j in [0, 1, 2, 3]:
                 ids += [f"{date}-{j}"]
-        existing_records = [make_record(ids[0], parent=None)]
+        existing_records = [make_record(ids[0], parent=None, channel="all")]
         for i in range(1, len(ids)):
-            existing_records += [make_record(ids[i], parent=ids[i - 1])]
+            existing_records += [make_record(ids[i], parent=ids[i - 1], channel="all")]
         db = MockRunDB(ids)
         result = main.crlite_determine_publish(
-            existing_records=existing_records, run_db=db
+            existing_records=existing_records, run_db=db, channel="all"
         )
         self.assertEqual(result, {"clear_all": False, "upload": []})
