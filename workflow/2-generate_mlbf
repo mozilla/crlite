@@ -20,7 +20,7 @@ parser.add_argument(
 parser.add_argument("--statsd-host", help="StatsD host", required=False)
 parser.add_argument(
     "--reason-set",
-    help="Reason set [values: all, specified, key-compromise]",
+    help="Reason set [values: all, specified, priority]",
     required=False,
 )
 
