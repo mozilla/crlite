@@ -82,7 +82,7 @@ def main():
         remoteFolder = localFolder.relative_to(runIdPath.parent)
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
 
-    for path, dirs, files in os.walk(runIdPath / "mlbf-key-compromise"):
+    for path, dirs, files in os.walk(runIdPath / "mlbf-priority"):
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(runIdPath.parent)
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)

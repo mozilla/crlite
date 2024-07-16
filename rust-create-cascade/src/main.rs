@@ -152,7 +152,7 @@ impl ReasonCodeHistogram {
 enum ReasonSet {
     All,
     Specified,
-    KeyCompromise,
+    Priority,
 }
 
 struct RevokedSerialAndReasonIterator {
@@ -172,7 +172,9 @@ impl RevokedSerialAndReasonIterator {
         match self.reason_set {
             ReasonSet::All => false,
             ReasonSet::Specified => *reason == Reason::Unspecified,
-            ReasonSet::KeyCompromise => *reason != Reason::KeyCompromise,
+            ReasonSet::Priority => {
+                !matches!(*reason, Reason::KeyCompromise | Reason::CessationOfOperation | Reason::PrivilegeWithdrawn)
+            },
         }
     }
 }
@@ -737,8 +739,8 @@ fn main() {
 
     let statsd_prefix = match reason_set {
         ReasonSet::All => "crlite.generate",
-        ReasonSet::Specified => "crlite.generate.specified_reasons_only",
-        ReasonSet::KeyCompromise => "crlite.generate.key_compromise_only",
+        ReasonSet::Specified => "crlite.generate.specified_reasons",
+        ReasonSet::Priority => "crlite.generate.priority_reasons",
     };
 
     let statsd_client = match args.statsd_host {
@@ -924,10 +926,10 @@ mod tests {
         let (revoked, known, dist) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
-            ReasonSet::KeyCompromise,
+            ReasonSet::Priority,
         );
-        assert_eq!(known, 86 + 75 + 9);
-        assert_eq!(revoked, 30);
+        assert_eq!(known, 86 + 75);
+        assert_eq!(revoked, 30 + 9);
         assert_eq!(dist.unspecified, 0);
         assert_eq!(dist.key_compromise, 30);
         assert_eq!(dist.ca_compromise, 0);
@@ -936,7 +938,7 @@ mod tests {
         assert_eq!(dist.cessation_of_operation, 0);
         assert_eq!(dist.certificate_hold, 0);
         assert_eq!(dist.remove_from_crl, 0);
-        assert_eq!(dist.privilege_withdrawn, 0);
+        assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
     }
 
