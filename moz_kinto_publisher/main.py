@@ -25,6 +25,10 @@ import glog as log
 import workflow
 import settings
 
+CHANNEL_ALL = "all"
+CHANNEL_SPECIFIED = "specified"
+CHANNEL_PRIORITY = "priority"
+
 
 class IntermediateRecordError(KintoException):
     pass
@@ -635,13 +639,16 @@ def publish_intermediates(*, args, rw_client):
     )
 
 
-def clear_crlite_filters(*, rw_client, noop):
+def clear_crlite_filters(*, rw_client, noop, channel):
     if noop:
         log.info("Would clean up CRLite filters, but no-op set")
         return
     existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
+    existing_records = [
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+    ]
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
         log.info(f"Cleaning up stale filter record {filter_record['id']}.")
@@ -651,13 +658,16 @@ def clear_crlite_filters(*, rw_client, noop):
         )
 
 
-def clear_crlite_stashes(*, rw_client, noop):
+def clear_crlite_stashes(*, rw_client, noop, channel):
     if noop:
         log.info("Would clean up CRLite stashes, but no-op set")
         return
     existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
+    existing_records = [
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+    ]
     existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
     for stash in existing_stashes:
         log.info(f"Cleaning up stale stash record {stash['id']}.")
@@ -678,6 +688,27 @@ def publish_crlite_record(
     if noop:
         log.info("NoOp mode enabled")
         return attributes["details"]["name"]
+
+    channel = attributes.get("channel", CHANNEL_ALL)
+
+    # You can test a filter expression relative to a mock context using the
+    # Firefox browser console as follows.
+    #   let {FilterExpressions} = ChromeUtils.importESModule("resource://gre/modules/components-utils/FilterExpressions.sys.mjs")
+    #   let expression = "env.version|versionCompare('124.0a1') >= 0"
+    #   let context = {env: {version:"130.0.1"}}
+    #   await FilterExpressions.eval(expression, context)
+    # See https://remote-settings.readthedocs.io/en/latest/target-filters.html
+    # for the expression syntax and the definition of env.
+    if channel == CHANNEL_ALL:
+        # Users on Firefox < 130 don't have the security.pki.crlite_channel
+        # pref, but we assign them to this channel by default.
+        attributes[
+            "filter_expression"
+        ] = f"env.version|versionCompare('130') < 0 || '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    else:
+        attributes[
+            "filter_expression"
+        ] = f"env.version|versionCompare('130') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
 
     record = rw_client.create_record(
         collection=settings.KINTO_CRLITE_COLLECTION,
@@ -707,7 +738,7 @@ def publish_crlite_record(
 
 
 def publish_crlite_main_filter(
-    *, rw_client, filter_path, filename, timestamp, ctlogs, intermediates, noop
+    *, rw_client, filter_path, filename, timestamp, ctlogs, intermediates, noop, channel
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
@@ -781,6 +812,7 @@ def publish_crlite_main_filter(
         "effectiveTimestamp": record_epoch_time_ms,
         "coverage": coverage,
         "enrolledIssuers": enrolledIssuers,
+        "channel": channel,
     }
 
     log.info(f"Publishing full filter {filter_path} {timestamp}")
@@ -794,7 +826,7 @@ def publish_crlite_main_filter(
 
 
 def publish_crlite_stash(
-    *, rw_client, stash_path, filename, timestamp, previous_id, noop
+    *, rw_client, stash_path, filename, timestamp, previous_id, noop, channel
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
@@ -805,6 +837,7 @@ def publish_crlite_stash(
         "incremental": True,
         "effectiveTimestamp": record_epoch_time_ms,
         "parent": previous_id,
+        "channel": channel,
     }
 
     log.info(
@@ -824,10 +857,13 @@ def timestamp_from_record(record):
     return datetime.fromisoformat(iso_string).replace(tzinfo=timezone.utc)
 
 
-def crlite_verify_record_consistency(*, existing_records):
+def crlite_verify_record_consistency(*, existing_records, channel):
     # This function assumes that existing_records is sorted according to
     # record["details"]["name"], which is a "YYYY-MM-DDTHH:MM:SS+00:00Z"
     # timestamp.
+    existing_records = [
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+    ]
 
     # It's OK if there are no records yet.
     if len(existing_records) == 0:
@@ -902,7 +938,7 @@ def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check):
             raise ConsistencyException(f"Too-wide a delta: {y-x}")
 
 
-def crlite_determine_publish(*, existing_records, run_db):
+def crlite_determine_publish(*, existing_records, run_db, channel):
     assert len(run_db) > 0, "There must be run identifiers"
 
     # The default behavior is to clear all records and upload a full
@@ -917,7 +953,9 @@ def crlite_determine_publish(*, existing_records, run_db):
 
     # If the existing records are bad, publish a full filter.
     try:
-        crlite_verify_record_consistency(existing_records=existing_records)
+        crlite_verify_record_consistency(
+            existing_records=existing_records, channel=channel
+        )
     except ConsistencyException as se:
         log.error(f"Failed to verify existing record consistency: {se}")
         return default
@@ -969,13 +1007,16 @@ def crlite_determine_publish(*, existing_records, run_db):
     return {"clear_all": False, "upload": new_run_ids}
 
 
-def publish_crlite(*, args, rw_client):
+def publish_crlite(*, args, rw_client, channel):
     # returns the run_id of a new full filter if one is published, otherwise None
     rv = None
 
     existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
     )
+    existing_records = [
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+    ]
     # Sort existing_records for crlite_verify_record_consistency,
     # which gets called in crlite_determine_publish.
     existing_records = sorted(existing_records, key=lambda x: x["details"]["name"])
@@ -990,7 +1031,7 @@ def publish_crlite(*, args, rw_client):
         return rv
 
     tasks = crlite_determine_publish(
-        existing_records=existing_records, run_db=published_run_db
+        existing_records=existing_records, run_db=published_run_db, channel=channel
     )
 
     log.debug(f"crlite_determine_publish tasks={tasks}")
@@ -1006,9 +1047,20 @@ def publish_crlite(*, args, rw_client):
     final_run_id_path.mkdir(parents=True, exist_ok=True)
 
     filter_path = final_run_id_path / Path("filter")
+
+    if channel == CHANNEL_ALL:
+        mlbf_dir = "mlbf"
+    elif channel == CHANNEL_SPECIFIED:
+        mlbf_dir = "mlbf-specified"
+    elif channel == CHANNEL_PRIORITY:
+        mlbf_dir = "mlbf-priority"
+    else:
+        log.warning(f"Unrecognized channel ({channel}).")
+        return rv
+
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
-        f"{final_run_id}/mlbf/filter",
+        f"{final_run_id}/{mlbf_dir}/filter",
         filter_path,
         timeout=timedelta(minutes=5),
     )
@@ -1023,7 +1075,7 @@ def publish_crlite(*, args, rw_client):
             stash_path = run_id_path / Path("stash")
             workflow.download_and_retry_from_google_cloud(
                 args.filter_bucket,
-                f"{run_id}/mlbf/filter.stash",
+                f"{run_id}/{mlbf_dir}/filter.stash",
                 stash_path,
                 timeout=timedelta(minutes=5),
             )
@@ -1073,11 +1125,12 @@ def publish_crlite(*, args, rw_client):
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
-            filename=f"{final_run_id}-filter",
+            filename=f"{final_run_id}-{channel}-filter",
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
             ctlogs=ctlogs,
             intermediates=intermediates,
+            channel=channel,
             noop=args.noop,
         )
         rv = final_run_id
@@ -1091,10 +1144,11 @@ def publish_crlite(*, args, rw_client):
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
-                filename=f"{run_id}-filter.stash",
+                filename=f"{run_id}-{channel}-filter.stash",
                 rw_client=rw_client,
                 previous_id=previous_id,
                 timestamp=published_run_db.get_run_timestamp(run_id),
+                channel=channel,
                 noop=args.noop,
             )
 
@@ -1324,7 +1378,9 @@ def main():
         publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        publish_crlite(args=args, rw_client=rw_client)
+        publish_crlite(args=args, channel=CHANNEL_ALL, rw_client=rw_client)
+        publish_crlite(args=args, channel=CHANNEL_SPECIFIED, rw_client=rw_client)
+        publish_crlite(args=args, channel=CHANNEL_PRIORITY, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)
