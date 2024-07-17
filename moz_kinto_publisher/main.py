@@ -1099,8 +1099,8 @@ def publish_crlite(*, args, rw_client, channel):
     if tasks["clear_all"]:
         log.info(f"Uploading a full filter based on {final_run_id}.")
 
-        clear_crlite_filters(rw_client=rw_client, noop=args.noop)
-        clear_crlite_stashes(rw_client=rw_client, noop=args.noop)
+        clear_crlite_filters(rw_client=rw_client, noop=args.noop, channel=channel)
+        clear_crlite_stashes(rw_client=rw_client, noop=args.noop, channel=channel)
 
         ctlogs_path = args.download_path / Path(final_run_id) / Path("ct-logs.json")
         workflow.download_and_retry_from_google_cloud(
