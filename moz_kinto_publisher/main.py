@@ -29,6 +29,15 @@ CHANNEL_ALL = "all"
 CHANNEL_SPECIFIED = "specified"
 CHANNEL_PRIORITY = "priority"
 
+def get_mlbf_dir(channel):
+    if channel == CHANNEL_ALL:
+        return "mlbf"
+    elif channel == CHANNEL_SPECIFIED:
+        return "mlbf-specified"
+    elif channel == CHANNEL_PRIORITY:
+        return "mlbf-priority"
+    log.warning(f"Unrecognized channel ({channel}).")
+    return None
 
 class IntermediateRecordError(KintoException):
     pass
@@ -52,14 +61,8 @@ class PublishedRunDB:
         return len(self.run_identifiers)
 
     def is_run_valid(self, run_id, channel):
-        if channel == CHANNEL_ALL:
-            mlbf_dir = "mlbf"
-        elif channel == CHANNEL_SPECIFIED:
-            mlbf_dir = "mlbf-specified"
-        elif channel == CHANNEL_PRIORITY:
-            mlbf_dir = "mlbf-priority"
-        else:
-            log.warning(f"Unrecognized channel ({channel}).")
+        mlbf_dir = get_mlbf_dir(channel)
+        if mlbf_dir == None:
             return False
 
         is_valid = (
@@ -1058,14 +1061,8 @@ def publish_crlite(*, args, rw_client, channel):
 
     filter_path = final_run_id_path / Path("filter")
 
-    if channel == CHANNEL_ALL:
-        mlbf_dir = "mlbf"
-    elif channel == CHANNEL_SPECIFIED:
-        mlbf_dir = "mlbf-specified"
-    elif channel == CHANNEL_PRIORITY:
-        mlbf_dir = "mlbf-priority"
-    else:
-        log.warning(f"Unrecognized channel ({channel}).")
+    mlbf_dir = get_mlbf_dir(channel)
+    if mlbf_dir == None:
         return rv
 
     workflow.download_and_retry_from_google_cloud(
