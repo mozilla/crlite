@@ -972,7 +972,7 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
 
     # A run ID is a "YYYYMMDD" date and an index, e.g. "20210101-3".
     # The record["attachment"]["filename"] field of an existing record is
-    # in the format "<run id>-filter" or "<run id>-filter.stash".
+    # in the format "<run id>-channel.filter" or "<run id>-channel.filter.stash".
     record_run_ids = [
         record["attachment"]["filename"].rsplit("-", 1)[0]
         for record in existing_records
@@ -1135,7 +1135,7 @@ def publish_crlite(*, args, rw_client, channel):
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
-            filename=f"{final_run_id}-{channel}-filter",
+            filename=f"{final_run_id}-{channel}.filter",
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
             ctlogs=ctlogs,
@@ -1154,7 +1154,7 @@ def publish_crlite(*, args, rw_client, channel):
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
-                filename=f"{run_id}-{channel}-filter.stash",
+                filename=f"{run_id}-{channel}.filter.stash",
                 rw_client=rw_client,
                 previous_id=previous_id,
                 timestamp=published_run_db.get_run_timestamp(run_id),
