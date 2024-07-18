@@ -51,13 +51,23 @@ class PublishedRunDB:
     def __len__(self):
         return len(self.run_identifiers)
 
-    def is_run_valid(self, run_id):
+    def is_run_valid(self, run_id, channel):
+        if channel == CHANNEL_ALL:
+            mlbf_dir = "mlbf"
+        elif channel == CHANNEL_SPECIFIED:
+            mlbf_dir = "mlbf-specified"
+        elif channel == CHANNEL_PRIORITY:
+            mlbf_dir = "mlbf-priority"
+        else:
+            log.warning(f"Unrecognized channel ({channel}).")
+            return False
+
         is_valid = (
             workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/mlbf/filter"
+                self.filter_bucket, f"{run_id}/{mblf_dir}/filter"
             )
             and workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/mlbf/filter.stash"
+                self.filter_bucket, f"{run_id}/{mlbf_dir}/filter.stash"
             )
             and workflow.google_cloud_file_exists(
                 self.filter_bucket, f"{run_id}/ct-logs.json"
@@ -913,7 +923,7 @@ def crlite_verify_record_consistency(*, existing_records, channel):
             raise ConsistencyException(f"Too-wide a delta: {y-x}")
 
 
-def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check):
+def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check, channel):
     # The runs should be complete.
     for r in identifiers_to_check:
         if not run_db.is_run_ready(r):
@@ -921,7 +931,7 @@ def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check):
 
     # Each run should have "filter", "filter.stash", and "ct-logs.json" files.
     for r in identifiers_to_check:
-        if not run_db.is_run_valid(r):
+        if not run_db.is_run_valid(r, channel):
             raise ConsistencyException(f"Not a valid run: {r}")
 
     # When sorted by run ID, the runs should have increasing timestamps.
@@ -998,7 +1008,7 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
     # If the new runs fail a consistency check, publish a full filter.
     try:
         crlite_verify_run_id_consistency(
-            run_db=run_db, identifiers_to_check=new_run_ids
+            run_db=run_db, identifiers_to_check=new_run_ids, channel=channel
         )
     except ConsistencyException as se:
         log.error(f"Failed to verify run ID consistency: {se}")
