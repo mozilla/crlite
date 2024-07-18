@@ -29,6 +29,7 @@ CHANNEL_ALL = "all"
 CHANNEL_SPECIFIED = "specified"
 CHANNEL_PRIORITY = "priority"
 
+
 def get_mlbf_dir(channel):
     if channel == CHANNEL_ALL:
         return "mlbf"
@@ -38,6 +39,7 @@ def get_mlbf_dir(channel):
         return "mlbf-priority"
     log.warning(f"Unrecognized channel ({channel}).")
     return None
+
 
 class IntermediateRecordError(KintoException):
     pass

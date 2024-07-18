@@ -198,7 +198,7 @@ class TestPublishDecisions(unittest.TestCase):
                     "20491231-3",
                     "20500101-0",
                 ],
-                channel="all"
+                channel="all",
             )
 
     def test_run_id_consistency_out_of_order(self):
@@ -207,7 +207,7 @@ class TestPublishDecisions(unittest.TestCase):
             main.crlite_verify_run_id_consistency(
                 run_db=db,
                 identifiers_to_check=["20491230-3", "20491231-1", "20491231-0"],
-                channel="all"
+                channel="all",
             )
 
     def test_run_id_consistency_okay(self):
@@ -221,14 +221,14 @@ class TestPublishDecisions(unittest.TestCase):
         ]
         db = MockRunDB(identifiers)
         main.crlite_verify_run_id_consistency(
-            run_db=db,
-            identifiers_to_check=identifiers,
-            channel="all"
+            run_db=db, identifiers_to_check=identifiers, channel="all"
         )
 
     def test_run_id_consistency_empty(self):
         db = MockRunDB([])
-        main.crlite_verify_run_id_consistency(run_db=db, identifiers_to_check=[], channel="all")
+        main.crlite_verify_run_id_consistency(
+            run_db=db, identifiers_to_check=[], channel="all"
+        )
 
     def test_initial_conditions(self):
         existing_records = []
