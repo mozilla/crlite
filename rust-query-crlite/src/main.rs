@@ -113,6 +113,7 @@ struct JsonRecord {
     coverage: Option<Vec<CRLiteCoverage>>,
     enrolledIssuers: Option<Vec<String>>,
     incremental: bool,
+    channel: Option<CRLiteFilterChannel>,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +146,7 @@ fn update_db(
     db_dir: &Path,
     attachment_url: &str,
     collection_url: &str,
+    channel: &CRLiteFilterChannel,
 ) -> Result<(), CRLiteDBError> {
     let filter_path = db_dir.join("crlite.filter");
     let stash_path = db_dir.join("crlite.stash");
@@ -157,8 +159,11 @@ fn update_db(
         .json()
         .map_err(|_| CRLiteDBError::from("could not read remote settings data"))?;
 
-    let (stashes, full_filters): (Vec<&JsonRecord>, Vec<&JsonRecord>) =
-        records.data.iter().partition(|x| x.incremental);
+    let (stashes, full_filters): (Vec<&JsonRecord>, Vec<&JsonRecord>) = records
+        .data
+        .iter()
+        .filter(|x| x.channel.unwrap_or_default() == *channel)
+        .partition(|x| x.incremental);
 
     if full_filters.len() != 1 {
         return Err(CRLiteDBError::from(
@@ -718,6 +723,10 @@ struct Cli {
     #[clap(long, arg_enum)]
     update: Option<RemoteSettingsInstance>,
 
+    /// CRLite filter channel
+    #[clap(long, value_enum, default_value = "all")]
+    channel: CRLiteFilterChannel,
+
     /// CRLite directory e.g. <firefox profile>/security_state/.
     #[clap(short, long, parse(from_os_str), default_value = "./crlite_db/")]
     db: PathBuf,
@@ -728,6 +737,14 @@ struct Cli {
 
     #[clap(subcommand)]
     command: Subcommand,
+}
+
+#[derive(clap::ValueEnum, Copy, Clone, Default, Deserialize, PartialEq)]
+enum CRLiteFilterChannel {
+    #[default]
+    All,
+    Specified,
+    Priority,
 }
 
 #[derive(Clone, clap::ArgEnum)]
@@ -775,7 +792,7 @@ fn main() {
             RemoteSettingsInstance::Prod => (PROD_ATTACH_URL, PROD_URL),
         };
 
-        if let Err(e) = update_db(&args.db, attachment_url, collection_url) {
+        if let Err(e) = update_db(&args.db, attachment_url, collection_url, &args.channel) {
             error!("{}", e.message);
             std::process::exit(1);
         }
