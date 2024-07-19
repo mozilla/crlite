@@ -69,7 +69,7 @@ class PublishedRunDB:
 
         is_valid = (
             workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/{mblf_dir}/filter"
+                self.filter_bucket, f"{run_id}/{mlbf_dir}/filter"
             )
             and workflow.google_cloud_file_exists(
                 self.filter_bucket, f"{run_id}/{mlbf_dir}/filter.stash"

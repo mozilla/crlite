@@ -1,11 +1,21 @@
 import glog as log
+import os
 import re
+import shutil
 import time
 from datetime import datetime, timedelta
 from google.api_core import exceptions, page_iterator
 from google.cloud import storage
+from pathlib import Path
+
 
 kIdentifierFormat = re.compile(r"(\d{8}-\d+)/?")
+
+kTestBucket = "local_test"
+
+
+def get_test_dir(bucket_name):
+    return bucket_name.removeprefix(kTestBucket + ":")
 
 
 class FileNotFoundException(exceptions.NotFound):
@@ -17,6 +27,10 @@ def _item_to_value(iterator, item):
 
 
 def list_google_storage_directories(bucket_name, *, prefix=None):
+    if bucket_name.startswith(kTestBucket):
+        for _, dirs, _ in os.walk(get_test_dir(bucket_name)):
+            return dirs
+
     extra_params = {"projection": "noAcl", "delimiter": "/"}
 
     if prefix is not None:
@@ -58,6 +72,9 @@ def get_run_identifiers(bucket_name):
 
 
 def google_cloud_file_exists(bucket_name, remote):
+    if bucket_name.startswith(kTestBucket):
+        return (Path(get_test_dir(bucket_name)) / remote).exists()
+
     gcs = storage.Client()
     bucket = gcs.get_bucket(bucket_name)
 
@@ -66,6 +83,10 @@ def google_cloud_file_exists(bucket_name, remote):
 
 
 def download_from_google_cloud_to_string(bucket_name, remote):
+    if bucket_name.startswith(kTestBucket):
+        with open(Path(get_test_dir(bucket_name)) / remote, "rb") as f:
+            return f.read()
+
     gcs = storage.Client()
     bucket = gcs.get_bucket(bucket_name)
 
@@ -76,6 +97,10 @@ def download_from_google_cloud_to_string(bucket_name, remote):
 
 
 def download_from_google_cloud(bucket_name, remote, local):
+    if bucket_name.startswith(kTestBucket):
+        shutil.copy(Path(get_test_dir(bucket_name)) / remote, local)
+        return
+
     gcs = storage.Client()
     bucket = gcs.get_bucket(bucket_name)
 
