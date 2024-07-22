@@ -91,7 +91,7 @@ class PublishedRunDB:
     def await_most_recent_run(self, *, timeout=timedelta(minutes=5)):
         run_id = self.most_recent_id()
         time_start = datetime.now()
-        while not self.is_run_ready(run_id):
+        while run_id is None or not self.is_run_ready(run_id):
             time_waiting = datetime.now() - time_start
             if time_waiting >= timeout:
                 raise TimeoutException(f"{time_waiting}")
@@ -100,9 +100,10 @@ class PublishedRunDB:
                 + f"deadline={timeout-time_waiting})"
             )
             time.sleep(30)
+            run_id = self.most_recent_id()
 
     def most_recent_id(self):
-        return self.run_identifiers[-1]
+        return self.run_identifiers[-1] if len(self.run_identifiers) else None
 
     def get_run_timestamp(self, run_id):
         if run_id not in self.cached_run_times:
@@ -912,6 +913,8 @@ def crlite_verify_record_consistency(*, existing_records, channel):
             if ptr not in ids:
                 raise ConsistencyException(f"Record {r['id']} has unknown parent {ptr}")
             height += 1
+            if height > len(existing_records):
+                raise ConsistencyException(f"Record parent cycle")
         maxHeight = max(height, maxHeight)
 
     # The incremental filters should form a chain (no branching), hence there's
@@ -959,7 +962,8 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
     # The default behavior is to clear all records and upload a full
     # filter based on the most recent run. We'll check if we can do
     # an incremental update instead.
-    default = {"clear_all": True, "upload": [run_db.most_recent_id()]}
+    new_run_id = run_db.most_recent_id()
+    default = {"clear_all": True, "upload": [new_run_id]}
 
     # If there are no existing records, publish a full filter.
     if not existing_records:
@@ -982,15 +986,6 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
         record["attachment"]["filename"].rsplit("-", 1)[0]
         for record in existing_records
     ]
-    record_run_dates = [
-        datetime.strptime(id.split("-")[0], "%Y%m%d") for id in record_run_ids
-    ]
-
-    # If it's been 10 days since a full filter, publish a full filter.
-    oldest_run_date = min(record_run_dates)
-    if datetime.now() - oldest_run_date >= timedelta(days=10):
-        log.info("Published full filter is >= 10 days old")
-        return default
 
     # Get a list of run IDs that are newer than any existing record.
     # These are candidates for inclusion in an incremental update.
@@ -1019,10 +1014,17 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
         log.error(f"Failed to verify run ID consistency: {se}")
         return default
 
+    # If it's been 10 days since a full filter, publish a full filter.
+    earliest_timestamp = run_db.get_run_timestamp(min(record_run_ids))
+    new_timestamp = run_db.get_run_timestamp(new_run_id)
+    if new_timestamp - earliest_timestamp >= timedelta(days=10):
+        log.info("Published full filter is >= 10 days old")
+        return default
+
     return {"clear_all": False, "upload": new_run_ids}
 
 
-def publish_crlite(*, args, rw_client, channel):
+def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
     # returns the run_id of a new full filter if one is published, otherwise None
     rv = None
 
@@ -1040,7 +1042,7 @@ def publish_crlite(*, args, rw_client, channel):
 
     # Wait for the most recent run to finish.
     try:
-        published_run_db.await_most_recent_run(timeout=timedelta(minutes=5))
+        published_run_db.await_most_recent_run(timeout=timeout)
     except TimeoutException as te:
         log.warning(f"The most recent run is not ready to be published (waited {te}).")
         return rv

@@ -15,7 +15,7 @@ kTestBucket = "local_test"
 
 
 def get_test_dir(bucket_name):
-    return bucket_name.removeprefix(kTestBucket + ":")
+    return Path(bucket_name.removeprefix(kTestBucket + ":")) / "db"
 
 
 class FileNotFoundException(exceptions.NotFound):
@@ -84,8 +84,7 @@ def google_cloud_file_exists(bucket_name, remote):
 
 def download_from_google_cloud_to_string(bucket_name, remote):
     if bucket_name.startswith(kTestBucket):
-        with open(Path(get_test_dir(bucket_name)) / remote, "rb") as f:
-            return f.read()
+        return (Path(get_test_dir(bucket_name)) / remote).read_bytes()
 
     gcs = storage.Client()
     bucket = gcs.get_bucket(bucket_name)
