@@ -720,11 +720,11 @@ def publish_crlite_record(
         # pref, but we assign them to this channel by default.
         attributes[
             "filter_expression"
-        ] = f"env.version|versionCompare('130') < 0 || '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+        ] = f"env.version|versionCompare('130.!') < 0 || '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
     else:
         attributes[
             "filter_expression"
-        ] = f"env.version|versionCompare('130') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+        ] = f"env.version|versionCompare('130.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
 
     record = rw_client.create_record(
         collection=settings.KINTO_CRLITE_COLLECTION,
