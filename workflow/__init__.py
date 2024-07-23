@@ -15,9 +15,9 @@ kTestBucket = "local_test"
 
 
 def get_test_dir(bucket_name):
-    if not bucket_name.startswith(kTestBucket+":"):
-        raise
-    return Path(bucket_name[len(kTestBucket)+1:]) / "db"
+    if not bucket_name.startswith(kTestBucket + ":"):
+        raise ValueError(f"Expected bucket_name to start with '{kTestBucket}:`")
+    return Path(bucket_name[len(kTestBucket) + 1 :]) / "db"
 
 
 class FileNotFoundException(exceptions.NotFound):
