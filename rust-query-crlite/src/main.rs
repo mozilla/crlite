@@ -22,7 +22,7 @@ use clap::Parser;
 use der_parser::oid;
 use log::*;
 use rust_cascade::Cascade;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
@@ -37,10 +37,12 @@ const ICA_LIST_URL: &str =
     "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport";
 
 const STAGE_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.allizom.org/";
-const STAGE_URL: &str = "https://firefox.settings.services.allizom.org/v1/buckets/security-state-staging/collections/cert-revocations/records";
+const STAGE_URL: &str =
+    "https://firefox.settings.services.allizom.org/v1/buckets/security-state-staging/collections/";
 
 const PROD_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.mozilla.net/";
-const PROD_URL: &str = "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/cert-revocations/records";
+const PROD_URL: &str =
+    "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/";
 
 const COVERAGE_SERIALIZATION_VERSION: u8 = 1;
 const COVERAGE_V1_ENTRY_BYTES: usize = 48;
@@ -102,14 +104,14 @@ struct CRLiteCoverage {
 }
 
 #[derive(Deserialize)]
-struct RemoteSettingsData {
-    data: Vec<JsonRecord>,
+struct CertRevCollection {
+    data: Vec<CertRevRecord>,
 }
 
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
-struct JsonRecord {
-    attachment: JsonRecordAttachment,
+struct CertRevRecord {
+    attachment: CertRevRecordAttachment,
     coverage: Option<Vec<CRLiteCoverage>>,
     enrolledIssuers: Option<Vec<String>>,
     incremental: bool,
@@ -117,10 +119,38 @@ struct JsonRecord {
 }
 
 #[derive(Deserialize)]
-struct JsonRecordAttachment {
+struct CertRevRecordAttachment {
     hash: String,
     location: String,
     size: u64,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct CTLogsCollection {
+    data: Vec<CTLogRecord>,
+}
+
+impl CTLogsCollection {
+    fn encode(&self) -> Result<Vec<u8>, CRLiteDBError> {
+        bincode::serialize(&self)
+            .map_err(|_| CRLiteDBError::from("could not serialize CTLogsCollection"))
+    }
+
+    fn from_bincode(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
+        bincode::deserialize(bytes)
+            .map_err(|_| CRLiteDBError::from("could not deserialize bincoded CTLogsCollection"))
+    }
+
+    fn get_log_metadata(&self, log_id: &str) -> Option<&CTLogRecord> {
+        self.data.iter().find(|&record| record.logID == log_id)
+    }
+}
+
+#[allow(non_snake_case)]
+#[derive(Debug, Serialize, Deserialize)]
+struct CTLogRecord {
+    logID: String,
+    description: String,
 }
 
 fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
@@ -142,6 +172,17 @@ fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
     Ok(())
 }
 
+fn update_ct_logs(db_dir: &Path, collection_url: &str) -> Result<(), CRLiteDBError> {
+    let ct_logs_path = db_dir.join("crlite.logs");
+    let ct_logs_records: CTLogsCollection =
+        reqwest::blocking::get(collection_url.to_owned() + "ct-logs/records")
+            .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
+            .json()
+            .map_err(CRLiteDBError::from)?;
+    std::fs::write(&ct_logs_path, &ct_logs_records.encode()?)?;
+    Ok(())
+}
+
 fn update_db(
     db_dir: &Path,
     attachment_url: &str,
@@ -153,13 +194,23 @@ fn update_db(
     let enrollment_path = db_dir.join("crlite.enrollment");
     let coverage_path = db_dir.join("crlite.coverage");
 
-    info!("Fetching remote settings data from {}", collection_url);
-    let records: RemoteSettingsData = reqwest::blocking::get(collection_url)
-        .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
-        .json()
-        .map_err(|_| CRLiteDBError::from("could not read remote settings data"))?;
+    info!(
+        "Fetching ct-logs records from remote settings {}",
+        collection_url
+    );
+    update_ct_logs(db_dir, collection_url)?;
 
-    let (stashes, full_filters): (Vec<&JsonRecord>, Vec<&JsonRecord>) = records
+    info!(
+        "Fetching cert-revocations records from remote settings {}",
+        collection_url
+    );
+    let cert_rev_records: CertRevCollection =
+        reqwest::blocking::get(collection_url.to_owned() + "cert-revocations/records")
+            .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
+            .json()
+            .map_err(|_| CRLiteDBError::from("could not read remote settings data"))?;
+
+    let (stashes, full_filters): (Vec<&CertRevRecord>, Vec<&CertRevRecord>) = cert_rev_records
         .data
         .iter()
         .filter(|x| x.channel.unwrap_or_default() == *channel)
@@ -285,6 +336,7 @@ struct CRLiteDB {
     coverage: Coverage,
     enrollment: Enrollment,
     intermediates: Intermediates,
+    ct_logs: CTLogsCollection,
 }
 impl CRLiteDB {
     fn load(db_dir: &Path) -> Result<Self, CRLiteDBError> {
@@ -293,6 +345,7 @@ impl CRLiteDB {
         let enrollment_path = db_dir.join("crlite.enrollment");
         let coverage_path = db_dir.join("crlite.coverage");
         let intermediates_path = db_dir.join("crlite.intermediates");
+        let ct_logs_path = db_dir.join("crlite.logs");
 
         let filter_bytes = std::fs::read(filter_path)?;
         let filter = Cascade::from_bytes(filter_bytes)?
@@ -319,12 +372,21 @@ impl CRLiteDB {
         let intermediates_bytes = std::fs::read(intermediates_path)?;
         let intermediates = Intermediates::from_bincode(&intermediates_bytes)?;
 
+        // Likewise for the CT log list
+        let ct_logs = if ct_logs_path.exists() {
+            let ct_logs_bytes = std::fs::read(ct_logs_path)?;
+            CTLogsCollection::from_bincode(&ct_logs_bytes)?
+        } else {
+            Default::default()
+        };
+
         Ok(CRLiteDB {
             filter,
             stash,
             coverage,
             enrollment,
             intermediates,
+            ct_logs,
         })
     }
 
@@ -353,7 +415,7 @@ impl CRLiteDB {
             return Status::NotEnrolled;
         }
 
-        if !self.coverage.contains(cert) {
+        if !self.coverage.contains(cert, &self.ct_logs) {
             return Status::NotCovered;
         }
 
@@ -436,7 +498,7 @@ impl Coverage {
         Ok(Coverage(coverage))
     }
 
-    fn contains(&self, cert: &X509Certificate) -> bool {
+    fn contains(&self, cert: &X509Certificate, ct_logs: &CTLogsCollection) -> bool {
         let sct_extension = match cert.tbs_certificate.get_extension_unique(OID_SCT_EXTENSION) {
             Ok(Some(sct_extension)) => sct_extension,
             _ => return false,
@@ -446,15 +508,25 @@ impl Coverage {
             _ => return false,
         };
         for sct in scts.iter() {
+            let log_id_b64 = base64::encode(sct.id.key_id);
+            let log_name = match ct_logs.get_log_metadata(&log_id_b64) {
+                Some(log_meta) => &log_meta.description,
+                None => &log_id_b64,
+            };
             if let Some((min, max)) = self.0.get(sct.id.key_id.as_ref()) {
                 if *min <= sct.timestamp && sct.timestamp <= *max {
                     debug!(
-                        "Logged at {} by enrolled log {}",
-                        sct.timestamp,
-                        base64::encode(sct.id.key_id)
+                        "SCT from {} at {} is in observed interval [{}, {}].",
+                        log_name, sct.timestamp, *min, *max
                     );
                     return true;
                 }
+                debug!(
+                    "SCT from {} at {} is outside observed interval [{}, {}].",
+                    log_name, sct.timestamp, *min, *max
+                );
+            } else {
+                debug!("SCT from non-enrolled {} at {}.", log_name, sct.timestamp);
             }
         }
         false
