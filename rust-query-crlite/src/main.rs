@@ -260,7 +260,7 @@ fn update_db(
 
         let mut enrollment_bytes = vec![ENROLLMENT_SERIALIZATION_VERSION];
         for b64_issuer_id in enrolled_issuers {
-            let issuer_id = match base64::decode(&b64_issuer_id) {
+            let issuer_id = match base64::decode(b64_issuer_id) {
                 Ok(issuer_id) if issuer_id.len() == 32 => issuer_id,
                 _ => return Err(CRLiteDBError::from("malformed enrollment data")),
             };
@@ -300,7 +300,7 @@ fn update_db(
 
         std::fs::write(&enrollment_path, &enrollment_bytes)?;
         std::fs::write(&coverage_path, &coverage_bytes)?;
-        std::fs::write(&filter_path, &filter_bytes)?;
+        std::fs::write(&filter_path, filter_bytes)?;
     }
 
     if !stash_needs_update {
@@ -395,7 +395,7 @@ impl CRLiteDB {
         let serial = cert.tbs_certificate.raw_serial();
 
         debug!("Issuer DN: {}", cert.tbs_certificate.issuer);
-        debug!("Serial number: {}", hex::encode(&serial));
+        debug!("Serial number: {}", hex::encode(serial));
 
         let issuer_spki = match self.intermediates.lookup_issuer_spki(cert) {
             Some(issuer_spki) => issuer_spki.raw,
@@ -403,7 +403,7 @@ impl CRLiteDB {
         };
 
         let mut hasher = Sha256::new();
-        hasher.update(&issuer_spki);
+        hasher.update(issuer_spki);
         let issuer_spki_hash = hasher.finalize().to_vec();
 
         debug!("Issuer SPKI hash: {}", hex::encode(&issuer_spki_hash));
@@ -419,7 +419,7 @@ impl CRLiteDB {
             return Status::NotCovered;
         }
 
-        if self.stash.has(&issuer_spki_hash, &serial) {
+        if self.stash.has(&issuer_spki_hash, serial) {
             return Status::Revoked;
         }
 
@@ -429,7 +429,7 @@ impl CRLiteDB {
             return Status::Expired;
         }
 
-        let crlite_key = crlite_key(&issuer_spki_hash, &serial);
+        let crlite_key = crlite_key(&issuer_spki_hash, serial);
         if self.filter.has(crlite_key) {
             Status::Revoked
         } else {
@@ -583,7 +583,7 @@ impl Intermediates {
                 intermediates
                     .0
                     .entry(name.to_vec())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(der.contents);
             } else {
                 return Err(CRLiteDBError::from("error reading CCADB report"));
@@ -690,16 +690,13 @@ fn query_https_host(
             Err(e) => warn!("{}", e.message),
         }
         // Some servers consistently reset our first TLS connection. Try again!
-        match query_https_addr(db, host, addr, Arc::clone(&tls_config)) {
-            Ok(result) => return Ok(result),
-            Err(_) => (),
-        }
+        if let Ok(result) = query_https_addr(db, host, addr, Arc::clone(&tls_config)) { return Ok(result) }
     }
     // None of the addresses for this host worked
-    return Err(CRLiteDBError::from(format!(
+    Err(CRLiteDBError::from(format!(
         "could not obtain cert for {}",
         host
-    )));
+    )))
 }
 
 fn query_https_addr(
@@ -749,7 +746,7 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
             warn!("File does not exist: {}", file.display());
             continue;
         }
-        let input = match std::fs::read(&file) {
+        let input = match std::fs::read(file) {
             Ok(input) => {
                 debug!("Loaded certificate from {}", file.display());
                 input
