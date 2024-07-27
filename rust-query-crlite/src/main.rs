@@ -172,10 +172,10 @@ fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
     Ok(())
 }
 
-fn update_ct_logs(db_dir: &Path, collection_url: &str) -> Result<(), CRLiteDBError> {
+fn update_ct_logs(db_dir: &Path, base_url: &str) -> Result<(), CRLiteDBError> {
     let ct_logs_path = db_dir.join("crlite.logs");
     let ct_logs_records: CTLogsCollection =
-        reqwest::blocking::get(collection_url.to_owned() + "ct-logs/records")
+        reqwest::blocking::get(base_url.to_owned() + "ct-logs/records")
             .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
             .json()
             .map_err(CRLiteDBError::from)?;
@@ -186,7 +186,7 @@ fn update_ct_logs(db_dir: &Path, collection_url: &str) -> Result<(), CRLiteDBErr
 fn update_db(
     db_dir: &Path,
     attachment_url: &str,
-    collection_url: &str,
+    base_url: &str,
     channel: &CRLiteFilterChannel,
 ) -> Result<(), CRLiteDBError> {
     let filter_path = db_dir.join("crlite.filter");
@@ -194,18 +194,15 @@ fn update_db(
     let enrollment_path = db_dir.join("crlite.enrollment");
     let coverage_path = db_dir.join("crlite.coverage");
 
-    info!(
-        "Fetching ct-logs records from remote settings {}",
-        collection_url
-    );
-    update_ct_logs(db_dir, collection_url)?;
+    info!("Fetching ct-logs records from remote settings {}", base_url);
+    update_ct_logs(db_dir, base_url)?;
 
     info!(
         "Fetching cert-revocations records from remote settings {}",
-        collection_url
+        base_url
     );
     let cert_rev_records: CertRevCollection =
-        reqwest::blocking::get(collection_url.to_owned() + "cert-revocations/records")
+        reqwest::blocking::get(base_url.to_owned() + "cert-revocations/records")
             .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
             .json()
             .map_err(|_| CRLiteDBError::from("could not read remote settings data"))?;
@@ -690,7 +687,9 @@ fn query_https_host(
             Err(e) => warn!("{}", e.message),
         }
         // Some servers consistently reset our first TLS connection. Try again!
-        if let Ok(result) = query_https_addr(db, host, addr, Arc::clone(&tls_config)) { return Ok(result) }
+        if let Ok(result) = query_https_addr(db, host, addr, Arc::clone(&tls_config)) {
+            return Ok(result);
+        }
     }
     // None of the addresses for this host worked
     Err(CRLiteDBError::from(format!(
@@ -856,13 +855,13 @@ fn main() {
     }
 
     if args.update.is_some() {
-        let (attachment_url, collection_url) = match args.update.unwrap() {
+        let (attachment_url, base_url) = match args.update.unwrap() {
             RemoteSettingsInstance::Dev => (STAGE_ATTACH_URL, STAGE_URL),
             RemoteSettingsInstance::Stage => (STAGE_ATTACH_URL, STAGE_URL),
             RemoteSettingsInstance::Prod => (PROD_ATTACH_URL, PROD_URL),
         };
 
-        if let Err(e) = update_db(&args.db, attachment_url, collection_url, &args.channel) {
+        if let Err(e) = update_db(&args.db, attachment_url, base_url, &args.channel) {
             error!("{}", e.message);
             std::process::exit(1);
         }
