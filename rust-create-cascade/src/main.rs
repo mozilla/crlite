@@ -172,9 +172,10 @@ impl RevokedSerialAndReasonIterator {
         match self.reason_set {
             ReasonSet::All => false,
             ReasonSet::Specified => *reason == Reason::Unspecified,
-            ReasonSet::Priority => {
-                !matches!(*reason, Reason::KeyCompromise | Reason::CessationOfOperation | Reason::PrivilegeWithdrawn)
-            },
+            ReasonSet::Priority => !matches!(
+                *reason,
+                Reason::KeyCompromise | Reason::CessationOfOperation | Reason::PrivilegeWithdrawn
+            ),
         }
     }
 }
@@ -318,68 +319,6 @@ fn count(
     (revoked_count, ok_count, reasons)
 }
 
-/// `include` finds revoked serials that are known and includes them in the filter cascade.
-fn include(
-    builder: &mut CascadeBuilder,
-    issuer: &[u8],
-    revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
-    known_serials: KnownSerialIterator,
-) {
-    let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
-
-    for serial in known_serials {
-        if revoked_serial_set.contains(&serial) {
-            let key = crlite_key(issuer, &decode_serial(&serial));
-            builder
-                .include(key)
-                .expect("Capacity error. Did the file contents change?");
-            // Ensure that we do not attempt to include this issuer+serial again.
-            revoked_serial_set.remove(&serial);
-        }
-    }
-}
-
-/// `exclude` finds known serials that are not revoked excludes them from the filter cascade.
-/// It returns an `ExcludeSet` which must be emptied into the builder using
-/// `CascadeBuilder::collect_exclude_set` before `CascadeBuilder::finalize` is called.
-fn exclude(
-    builder: &CascadeBuilder,
-    issuer: &[u8],
-    revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-    known_serials: KnownSerialIterator,
-) -> ExcludeSet {
-    let mut exclude_set = ExcludeSet::default();
-    let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
-        .map(|iter| iter.into())
-        .unwrap_or_default();
-
-    let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
-    for serial in non_revoked_serials {
-        let key = crlite_key(issuer, &decode_serial(&serial));
-        builder.exclude_threaded(&mut exclude_set, key);
-    }
-    exclude_set
-}
-
-/// `check` verifies that a cascade labels items correctly.
-fn check(
-    cascade: &Cascade,
-    issuer: &[u8],
-    revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-    known_serials: KnownSerialIterator,
-) {
-    let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
-        .map(|iter| iter.into())
-        .unwrap_or_default();
-
-    for serial in known_serials {
-        assert_eq!(
-            cascade.has(crlite_key(issuer, &decode_serial(&serial))),
-            revoked_serial_set.contains(&serial)
-        );
-    }
-}
-
 /// `count_all` performs a parallel iteration over file pairs, applies
 /// `count` to each pair, and sums up the results.
 fn count_all(
@@ -403,66 +342,171 @@ fn count_all(
         )
 }
 
-/// `check_all` performs a parallel iteration over file pairs, and applies
-/// `check` to each pair.
-fn check_all(cascade: &Cascade, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet) {
-    list_issuer_file_pairs(revoked_dir, known_dir)
-        .par_iter()
-        .for_each(|pair| {
-            let (issuer, revoked_file, known_file) = pair;
-            let revoked_serials_and_reasons = revoked_file
-                .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
-            let known_serials = KnownSerialIterator::new(known_file);
-            check(cascade, issuer, revoked_serials_and_reasons, known_serials);
-        });
-}
+trait FilterBuilder {
+    type ExcludeSetType;
+    type OutputType;
 
-/// `include_all` performs a serial iteration over file pairs, and applies
-/// `include` to each pair.
-fn include_all(
-    builder: &mut CascadeBuilder,
-    revoked_dir: &Path,
-    known_dir: &Path,
-    reason_set: ReasonSet,
-) {
-    // Include file pairs with a revoked component. Must be done serially, as
-    // CascadeBuilder::include takes &mut self.
-    for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
-        if let (issuer, Some(revoked_file), known_file) = pair {
-            include(
-                builder,
-                issuer,
-                RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
-                KnownSerialIterator::new(known_file),
-            );
+    fn include(
+        &mut self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
+        known_serials: KnownSerialIterator,
+    );
+
+    fn exclude(
+        &self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+        known_serials: KnownSerialIterator,
+    ) -> Self::ExcludeSetType;
+
+    fn collect_exclude_set(&mut self, exclude_set: &mut Self::ExcludeSetType);
+
+    fn finalize(self) -> Self::OutputType;
+
+    /// `include_all` performs a serial iteration over file pairs, and applies
+    /// `include` to each pair.
+    fn include_all(&mut self, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet) {
+        // Include file pairs with a revoked component. Must be done serially, as
+        // CascadeBuilder::include takes &mut self.
+        for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
+            if let (issuer, Some(revoked_file), known_file) = pair {
+                self.include(
+                    issuer,
+                    RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
+                    KnownSerialIterator::new(known_file),
+                );
+            }
         }
+    }
+
+    /// `exclude_all` performs a parallel iteration over file pairs, and applies
+    /// `exclude` to each pair and empties the returned `ExcludeSet`s into the builder.
+    fn exclude_all(&mut self, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet)
+    where
+        Self::ExcludeSetType: Send,
+        Self: Sync,
+    {
+        let mut exclude_sets: Vec<Self::ExcludeSetType> =
+            list_issuer_file_pairs(revoked_dir, known_dir)
+                .par_iter()
+                .map(|pair| {
+                    let (issuer, revoked_file, known_file) = pair;
+                    let revoked_serials_and_reasons = revoked_file
+                        .as_ref()
+                        .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
+                    let known_serials = KnownSerialIterator::new(known_file);
+                    self.exclude(issuer, revoked_serials_and_reasons, known_serials)
+                })
+                .collect();
+
+        exclude_sets
+            .iter_mut()
+            .for_each(|x| self.collect_exclude_set(x));
     }
 }
 
-/// `exclude_all` performs a parallel iteration over file pairs, and applies
-/// `exclude` to each pair and empties the returned `ExcludeSet`s into the builder.
-fn exclude_all(
-    builder: &mut CascadeBuilder,
-    revoked_dir: &Path,
-    known_dir: &Path,
-    reason_set: ReasonSet,
-) {
-    let mut exclude_sets: Vec<ExcludeSet> = list_issuer_file_pairs(revoked_dir, known_dir)
-        .par_iter()
-        .map(|pair| {
-            let (issuer, revoked_file, known_file) = pair;
-            let revoked_serials_and_reasons = revoked_file
-                .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
-            let known_serials = KnownSerialIterator::new(known_file);
-            exclude(builder, issuer, revoked_serials_and_reasons, known_serials)
-        })
-        .collect();
+impl FilterBuilder for CascadeBuilder {
+    type ExcludeSetType = ExcludeSet;
+    type OutputType = Cascade;
 
-    exclude_sets
-        .iter_mut()
-        .for_each(|x| builder.collect_exclude_set(x).unwrap());
+    /// `include` finds revoked serials that are known and includes them in the filter cascade.
+    fn include(
+        &mut self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
+        known_serials: KnownSerialIterator,
+    ) {
+        let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
+
+        for serial in known_serials {
+            if revoked_serial_set.contains(&serial) {
+                let key = crlite_key(issuer, &decode_serial(&serial));
+                self.include(key)
+                    .expect("Capacity error. Did the file contents change?");
+                // Ensure that we do not attempt to include this issuer+serial again.
+                revoked_serial_set.remove(&serial);
+            }
+        }
+    }
+
+    /// `exclude` finds known serials that are not revoked excludes them from the filter cascade.
+    /// It returns an `ExcludeSet` which must be emptied into the builder using
+    /// `CascadeBuilder::collect_exclude_set` before `CascadeBuilder::finalize` is called.
+    fn exclude(
+        &self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+        known_serials: KnownSerialIterator,
+    ) -> ExcludeSet {
+        let mut exclude_set = ExcludeSet::default();
+        let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
+            .map(|iter| iter.into())
+            .unwrap_or_default();
+
+        let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
+        for serial in non_revoked_serials {
+            let key = crlite_key(issuer, &decode_serial(&serial));
+            self.exclude_threaded(&mut exclude_set, key);
+        }
+        exclude_set
+    }
+
+    fn collect_exclude_set(&mut self, exclude_set: &mut ExcludeSet) {
+        self.collect_exclude_set(exclude_set).unwrap();
+    }
+
+    fn finalize(self) -> Cascade {
+        *self.finalize().unwrap()
+    }
+}
+
+trait CheckableFilter {
+    /// `check` verifies that a cascade labels items correctly.
+    fn check(
+        &self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+        known_serials: KnownSerialIterator,
+    );
+
+    /// `check_all` performs a parallel iteration over file pairs, and applies
+    /// `check` to each pair.
+    fn check_all(&self, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet)
+    where
+        Self: Sync,
+    {
+        list_issuer_file_pairs(revoked_dir, known_dir)
+            .par_iter()
+            .for_each(|pair| {
+                let (issuer, revoked_file, known_file) = pair;
+                let revoked_serials_and_reasons = revoked_file
+                    .as_ref()
+                    .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
+                let known_serials = KnownSerialIterator::new(known_file);
+                self.check(issuer, revoked_serials_and_reasons, known_serials);
+            });
+    }
+}
+
+impl CheckableFilter for Cascade {
+    fn check(
+        &self,
+        issuer: &[u8],
+        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
+        known_serials: KnownSerialIterator,
+    ) {
+        let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
+            .map(|iter| iter.into())
+            .unwrap_or_default();
+
+        for serial in known_serials {
+            assert_eq!(
+                self.has(crlite_key(issuer, &decode_serial(&serial))),
+                revoked_serial_set.contains(&serial)
+            );
+        }
+    }
 }
 
 /// `create_cascade` runs through the full filter generation process and writes a cascade to
@@ -498,13 +542,13 @@ fn create_cascade(
     let mut builder = CascadeBuilder::new(hash_alg, salt, revoked, not_revoked);
 
     info!("Processing revoked serials");
-    include_all(&mut builder, revoked_dir, known_dir, reason_set);
+    FilterBuilder::include_all(&mut builder, revoked_dir, known_dir, reason_set);
 
     info!("Processing non-revoked serials");
-    exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
+    FilterBuilder::exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
 
     info!("Eliminating false positives");
-    let cascade = builder.finalize().expect("build error");
+    let cascade = FilterBuilder::finalize(builder);
 
     info!("Testing serialization");
     let cascade_bytes = cascade.to_bytes().expect("cannot serialize cascade");
@@ -516,7 +560,7 @@ fn create_cascade(
         info!("\n{}", cascade);
 
         info!("Verifying cascade");
-        check_all(&cascade, revoked_dir, known_dir, reason_set);
+        cascade.check_all(revoked_dir, known_dir, reason_set);
     } else {
         warn!("Produced empty cascade. Exiting.");
         return;
@@ -792,8 +836,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_all, count_all, create_cascade, crlite_key, decode_issuer, decode_serial,
-        write_revset_and_stash, Reason, ReasonSet,
+        count_all, create_cascade, crlite_key, decode_issuer, decode_serial,
+        write_revset_and_stash, CheckableFilter, Reason, ReasonSet,
     };
     use rand::rngs::OsRng;
     use rand::RngCore;
@@ -923,11 +967,8 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist) = count_all(
-            &env.revoked_dir(),
-            &env.known_dir(),
-            ReasonSet::Priority,
-        );
+        let (revoked, known, dist) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Priority);
         assert_eq!(known, 86 + 75);
         assert_eq!(revoked, 30 + 9);
         assert_eq!(dist.unspecified, 0);
@@ -1067,11 +1108,6 @@ mod tests {
             .expect("cascade should be some");
 
         // Checking with ReasonSet::All will panic
-        check_all(
-            &cascade,
-            &env.revoked_dir(),
-            &env.known_dir(),
-            ReasonSet::All,
-        );
+        cascade.check_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
     }
 }
