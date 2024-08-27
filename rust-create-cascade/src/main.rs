@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 //! # rust-create-cascade
 //!
 //! Builds a filter cascade from the output of crlite's `aggregate-known` and `aggregate-crls` programs.
@@ -19,9 +23,11 @@
 //! IssuerSPKIHash by applying `base64::decode_config(., base64::URL_SAFE)` to a file name. We
 //! obtain Serial by applying `hex::decode(...)` to a line of a file.
 //!
+
 extern crate base64;
 extern crate bincode;
 extern crate clap;
+extern crate clubcard;
 extern crate hex;
 extern crate log;
 extern crate rand;
@@ -34,8 +40,9 @@ extern crate tempfile;
 use clap::Parser;
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use rust_cascade::{Cascade, CascadeBuilder, ExcludeSet, HashAlgorithm};
+use rust_cascade::HashAlgorithm;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::prelude::{BufRead, Write};
@@ -43,8 +50,11 @@ use std::io::{BufReader, Lines};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use rand::rngs::OsRng;
-use rand::RngCore;
+mod cascade_helper;
+use cascade_helper::create_cascade;
+
+mod clubcard_helper;
+use clubcard_helper::create_clubcard;
 
 type Serial = String;
 
@@ -226,9 +236,11 @@ impl Iterator for KnownSerialIterator {
     }
 }
 
-fn decode_issuer(s: &str) -> Vec<u8> {
+fn decode_issuer(s: &str) -> [u8; 32] {
     base64::decode_config(s, base64::URL_SAFE)
         .expect("found invalid issuer id: not url-safe base64.")
+        .try_into()
+        .expect("found invalid issuer id: not 32 bytes.")
 }
 
 fn decode_serial(s: &str) -> Vec<u8> {
@@ -257,7 +269,7 @@ fn crlite_key(issuer: &[u8], serial: &[u8]) -> Vec<u8> {
 fn list_issuer_file_pairs(
     revoked_dir: &Path,
     known_dir: &Path,
-) -> Vec<(Vec<u8>, Option<PathBuf>, PathBuf)> {
+) -> Vec<([u8; 32], Option<PathBuf>, PathBuf)> {
     let known_files = Path::read_dir(known_dir).unwrap();
     let known_issuers: Vec<OsString> = known_files
         .filter_map(|x| x.ok())
@@ -348,19 +360,19 @@ trait FilterBuilder {
 
     fn include(
         &mut self,
-        issuer: &[u8],
+        issuer: &[u8; 32],
         revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
         known_serials: KnownSerialIterator,
     );
 
     fn exclude(
         &self,
-        issuer: &[u8],
+        issuer: &[u8; 32],
         revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
         known_serials: KnownSerialIterator,
     ) -> Self::ExcludeSetType;
 
-    fn collect_exclude_set(&mut self, exclude_set: &mut Self::ExcludeSetType);
+    fn collect_exclude_sets(&mut self, exclude_sets: Vec<Self::ExcludeSetType>);
 
     fn finalize(self) -> Self::OutputType;
 
@@ -387,7 +399,7 @@ trait FilterBuilder {
         Self::ExcludeSetType: Send,
         Self: Sync,
     {
-        let mut exclude_sets: Vec<Self::ExcludeSetType> =
+        let exclude_sets: Vec<Self::ExcludeSetType> =
             list_issuer_file_pairs(revoked_dir, known_dir)
                 .par_iter()
                 .map(|pair| {
@@ -400,64 +412,7 @@ trait FilterBuilder {
                 })
                 .collect();
 
-        exclude_sets
-            .iter_mut()
-            .for_each(|x| self.collect_exclude_set(x));
-    }
-}
-
-impl FilterBuilder for CascadeBuilder {
-    type ExcludeSetType = ExcludeSet;
-    type OutputType = Cascade;
-
-    /// `include` finds revoked serials that are known and includes them in the filter cascade.
-    fn include(
-        &mut self,
-        issuer: &[u8],
-        revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
-        known_serials: KnownSerialIterator,
-    ) {
-        let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
-
-        for serial in known_serials {
-            if revoked_serial_set.contains(&serial) {
-                let key = crlite_key(issuer, &decode_serial(&serial));
-                self.include(key)
-                    .expect("Capacity error. Did the file contents change?");
-                // Ensure that we do not attempt to include this issuer+serial again.
-                revoked_serial_set.remove(&serial);
-            }
-        }
-    }
-
-    /// `exclude` finds known serials that are not revoked excludes them from the filter cascade.
-    /// It returns an `ExcludeSet` which must be emptied into the builder using
-    /// `CascadeBuilder::collect_exclude_set` before `CascadeBuilder::finalize` is called.
-    fn exclude(
-        &self,
-        issuer: &[u8],
-        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-        known_serials: KnownSerialIterator,
-    ) -> ExcludeSet {
-        let mut exclude_set = ExcludeSet::default();
-        let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
-            .map(|iter| iter.into())
-            .unwrap_or_default();
-
-        let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
-        for serial in non_revoked_serials {
-            let key = crlite_key(issuer, &decode_serial(&serial));
-            self.exclude_threaded(&mut exclude_set, key);
-        }
-        exclude_set
-    }
-
-    fn collect_exclude_set(&mut self, exclude_set: &mut ExcludeSet) {
-        self.collect_exclude_set(exclude_set).unwrap();
-    }
-
-    fn finalize(self) -> Cascade {
-        *self.finalize().unwrap()
+        self.collect_exclude_sets(exclude_sets);
     }
 }
 
@@ -465,7 +420,7 @@ trait CheckableFilter {
     /// `check` verifies that a cascade labels items correctly.
     fn check(
         &self,
-        issuer: &[u8],
+        issuer: &[u8; 32],
         revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
         known_serials: KnownSerialIterator,
     );
@@ -486,115 +441,6 @@ trait CheckableFilter {
                 let known_serials = KnownSerialIterator::new(known_file);
                 self.check(issuer, revoked_serials_and_reasons, known_serials);
             });
-    }
-}
-
-impl CheckableFilter for Cascade {
-    fn check(
-        &self,
-        issuer: &[u8],
-        revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
-        known_serials: KnownSerialIterator,
-    ) {
-        let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
-            .map(|iter| iter.into())
-            .unwrap_or_default();
-
-        for serial in known_serials {
-            assert_eq!(
-                self.has(crlite_key(issuer, &decode_serial(&serial))),
-                revoked_serial_set.contains(&serial)
-            );
-        }
-    }
-}
-
-/// `create_cascade` runs through the full filter generation process and writes a cascade to
-/// `out_file`.
-fn create_cascade(
-    out_file: &Path,
-    revoked_dir: &Path,
-    known_dir: &Path,
-    hash_alg: HashAlgorithm,
-    reason_set: ReasonSet,
-    statsd_client: Option<&statsd::Client>,
-) {
-    info!("Counting serials");
-    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir, reason_set);
-
-    info!(
-        "Found {} 'revoked' and {} 'not revoked' serial numbers",
-        revoked, not_revoked
-    );
-    info!("Revocation reason codes: {:?}", reasons);
-
-    let salt_len = match hash_alg {
-        HashAlgorithm::MurmurHash3 => 0,
-        HashAlgorithm::Sha256l32 => 16,
-        HashAlgorithm::Sha256 => 16,
-    };
-
-    let mut salt = vec![0u8; salt_len];
-    if salt_len > 0 {
-        OsRng.fill_bytes(&mut salt);
-    }
-
-    let mut builder = CascadeBuilder::new(hash_alg, salt, revoked, not_revoked);
-
-    info!("Processing revoked serials");
-    FilterBuilder::include_all(&mut builder, revoked_dir, known_dir, reason_set);
-
-    info!("Processing non-revoked serials");
-    FilterBuilder::exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
-
-    info!("Eliminating false positives");
-    let cascade = FilterBuilder::finalize(builder);
-
-    info!("Testing serialization");
-    let cascade_bytes = cascade.to_bytes().expect("cannot serialize cascade");
-    info!("Cascade is {} bytes", cascade_bytes.len());
-
-    if let Some(cascade) =
-        Cascade::from_bytes(cascade_bytes.clone()).expect("cannot deserialize cascade")
-    {
-        info!("\n{}", cascade);
-
-        info!("Verifying cascade");
-        cascade.check_all(revoked_dir, known_dir, reason_set);
-    } else {
-        warn!("Produced empty cascade. Exiting.");
-        return;
-    }
-
-    info!("Writing cascade to {}", out_file.display());
-    let mut filter_writer = File::create(out_file).expect("cannot open file");
-    filter_writer
-        .write_all(&cascade_bytes)
-        .expect("can't write file");
-
-    if let Some(client) = statsd_client {
-        client.gauge("filter_size", cascade_bytes.len() as f64);
-        client.gauge("not_revoked", not_revoked as f64);
-        client.gauge("revoked", revoked as f64);
-        client.gauge("revoked.unspecified", reasons.unspecified as f64);
-        client.gauge("revoked.key_compromise", reasons.key_compromise as f64);
-        client.gauge("revoked.ca_compromise", reasons.ca_compromise as f64);
-        client.gauge(
-            "revoked.affiliation_changed",
-            reasons.affiliation_changed as f64,
-        );
-        client.gauge("revoked.superseded", reasons.superseded as f64);
-        client.gauge(
-            "revoked.cessation_of_operation",
-            reasons.cessation_of_operation as f64,
-        );
-        client.gauge("revoked.certificate_hold", reasons.certificate_hold as f64);
-        client.gauge("revoked.remove_from_crl", reasons.remove_from_crl as f64);
-        client.gauge(
-            "revoked.privilege_withdrawn",
-            reasons.privilege_withdrawn as f64,
-        );
-        client.gauge("revoked.aa_compromise", reasons.aa_compromise as f64);
     }
 }
 
@@ -694,6 +540,12 @@ fn write_revset_and_stash(
     }
 }
 
+#[derive(clap::ValueEnum, Copy, Clone)]
+enum FilterType {
+    Cascade,
+    Clubcard,
+}
+
 #[derive(Parser)]
 struct Cli {
     #[clap(long, parse(from_os_str), default_value = "./known/")]
@@ -710,6 +562,8 @@ struct Cli {
     statsd_host: Option<String>,
     #[clap(long)]
     murmurhash3: bool,
+    #[clap(long, value_enum, default_value = "cascade")]
+    filter_type: FilterType,
     #[clap(long)]
     clobber: bool,
     #[clap(short = 'v', parse(from_occurrences))]
@@ -731,6 +585,7 @@ fn main() {
     let revoked_dir = &args.revoked;
     let prev_revset_file = &args.prev_revset;
     let reason_set = args.reason_set;
+    let filter_type = args.filter_type;
 
     let out_dir = &args.outdir;
     let filter_file = &out_dir.join("filter");
@@ -781,10 +636,15 @@ fn main() {
         false => HashAlgorithm::Sha256,
     };
 
-    let statsd_prefix = match reason_set {
-        ReasonSet::All => "crlite.generate",
-        ReasonSet::Specified => "crlite.generate.specified_reasons",
-        ReasonSet::Priority => "crlite.generate.priority_reasons",
+    let statsd_prefix = match (filter_type, reason_set) {
+        (FilterType::Cascade, ReasonSet::All) => "crlite.generate",
+        (FilterType::Cascade, ReasonSet::Specified) => "crlite.generate.specified_reasons",
+        (FilterType::Cascade, ReasonSet::Priority) => "crlite.generate.priority_reasons",
+        (FilterType::Clubcard, ReasonSet::All) => "crlite.clubcard.generate",
+        (FilterType::Clubcard, ReasonSet::Specified) => {
+            "crlite.clubcard.generate.specified_reasons"
+        }
+        (FilterType::Clubcard, ReasonSet::Priority) => "crlite.clubcard.generate.priority_reasons",
     };
 
     let statsd_client = match args.statsd_host {
@@ -803,18 +663,39 @@ fn main() {
         info!("Could not connect to statsd {}", args.statsd_host.unwrap());
     }
 
-    info!("Generating cascade");
-    let timer_start = Instant::now();
-    create_cascade(
-        filter_file,
-        revoked_dir,
-        known_dir,
-        hash_alg,
-        reason_set,
-        statsd_client.as_ref(),
+    info!("Counting serials");
+    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir, reason_set);
+
+    info!(
+        "Found {} 'revoked' and {} 'not revoked' serial numbers",
+        revoked, not_revoked
     );
+    info!("Revocation reason codes: {:#?}", reasons);
+
+    let timer_start = Instant::now();
+    let filter_bytes = match filter_type {
+        FilterType::Clubcard => {
+            info!("Generating clubcard");
+            create_clubcard(filter_file, revoked_dir, known_dir, reason_set)
+        }
+        FilterType::Cascade => {
+            info!("Generating cascade");
+            create_cascade(
+                filter_file,
+                revoked,
+                not_revoked,
+                revoked_dir,
+                known_dir,
+                hash_alg,
+                reason_set,
+            )
+        }
+    };
+    let timer_finish = Instant::now() - timer_start;
+    info!("Finished in {} seconds", timer_finish.as_secs());
 
     info!("Generating stash file");
+    let timer_start = Instant::now();
     write_revset_and_stash(
         revset_file,
         stash_file,
@@ -826,8 +707,31 @@ fn main() {
     );
     let timer_finish = Instant::now() - timer_start;
     info!("Finished in {} seconds", timer_finish.as_secs());
+
     if let Some(client) = statsd_client {
         client.gauge("time", timer_finish.as_secs() as f64);
+        client.gauge("filter_size", filter_bytes.len() as f64);
+        client.gauge("not_revoked", not_revoked as f64);
+        client.gauge("revoked", revoked as f64);
+        client.gauge("revoked.unspecified", reasons.unspecified as f64);
+        client.gauge("revoked.key_compromise", reasons.key_compromise as f64);
+        client.gauge("revoked.ca_compromise", reasons.ca_compromise as f64);
+        client.gauge(
+            "revoked.affiliation_changed",
+            reasons.affiliation_changed as f64,
+        );
+        client.gauge("revoked.superseded", reasons.superseded as f64);
+        client.gauge(
+            "revoked.cessation_of_operation",
+            reasons.cessation_of_operation as f64,
+        );
+        client.gauge("revoked.certificate_hold", reasons.certificate_hold as f64);
+        client.gauge("revoked.remove_from_crl", reasons.remove_from_crl as f64);
+        client.gauge(
+            "revoked.privilege_withdrawn",
+            reasons.privilege_withdrawn as f64,
+        );
+        client.gauge("revoked.aa_compromise", reasons.aa_compromise as f64);
     }
 
     info!("Done");
@@ -836,9 +740,10 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_all, create_cascade, crlite_key, decode_issuer, decode_serial,
-        write_revset_and_stash, CheckableFilter, Reason, ReasonSet,
+        cascade_helper::create_cascade, clubcard_helper::create_clubcard, count_all, crlite_key,
+        decode_issuer, decode_serial, write_revset_and_stash, CheckableFilter, Reason, ReasonSet,
     };
+    use clubcard::Clubcard;
     use rand::rngs::OsRng;
     use rand::RngCore;
     use rust_cascade::{Cascade, HashAlgorithm};
@@ -884,7 +789,6 @@ mod tests {
             OsRng.fill_bytes(&mut serial_bytes);
 
             let mut known_file = std::fs::OpenOptions::new()
-                .write(true)
                 .append(true)
                 .open(self.known_dir().join(issuer))
                 .expect("could not open known file");
@@ -900,19 +804,17 @@ mod tests {
             OsRng.fill_bytes(&mut serial_bytes);
 
             let mut known_file = std::fs::OpenOptions::new()
-                .write(true)
                 .append(true)
                 .open(self.known_dir().join(issuer))
                 .expect("could not open known file");
 
             let mut revoked_file = std::fs::OpenOptions::new()
-                .write(true)
                 .append(true)
                 .open(self.revoked_dir().join(issuer))
                 .expect("could not open revoked file");
 
             let serial_str = hex::encode(serial_bytes);
-            let reason_str = hex::encode(&[reason as u8]);
+            let reason_str = hex::encode([reason as u8]);
             writeln!(known_file, "{}", serial_str).expect("write failed");
             writeln!(revoked_file, "{}{}", reason_str, serial_str).expect("write failed");
 
@@ -998,13 +900,16 @@ mod tests {
         let revset_file = env.dir.path().join("revset.bin");
         let prev_revset_file = env.dir.path().join("old-revset.bin");
 
+        let (revoked, not_revoked, _reasons) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
         create_cascade(
             &filter_file,
+            revoked,
+            not_revoked,
             &env.revoked_dir(),
             &env.known_dir(),
             HashAlgorithm::Sha256,
             ReasonSet::All,
-            None,
         );
 
         write_revset_and_stash(
@@ -1093,13 +998,16 @@ mod tests {
         let filter_file = env.dir.path().join("filter");
 
         // Use ReasonSet::Specified while creating the filter
+        let (revoked, not_revoked, _reasons) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Specified);
         create_cascade(
             &filter_file,
+            revoked,
+            not_revoked,
             &env.revoked_dir(),
             &env.known_dir(),
             HashAlgorithm::Sha256,
             ReasonSet::Specified,
-            None,
         );
 
         let filter_bytes = std::fs::read(&filter_file).expect("could not read filter file");
@@ -1109,5 +1017,54 @@ mod tests {
 
         // Checking with ReasonSet::All will panic
         cascade.check_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+    }
+
+    #[test]
+    fn test_cascade() {
+        let env = TestEnv::new();
+        let issuer = env.add_issuer();
+        for _ in 1..=(1 << 16) {
+            env.add_serial(&issuer);
+        }
+        for _ in 1..=(1 << 10) {
+            env.add_revoked_serial(&issuer, Reason::Unspecified);
+        }
+
+        let filter_file = env.dir.path().join("filter");
+
+        let (revoked, not_revoked, _reasons) =
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+
+        let cascade_bytes = create_cascade(
+            &filter_file,
+            revoked,
+            not_revoked,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            HashAlgorithm::Sha256,
+            ReasonSet::All,
+        );
+        assert!(Clubcard::from_bytes(&cascade_bytes).is_err(), "A Cascade should not deserialize as a Clubcard");
+    }
+
+    #[test]
+    fn test_clubcard() {
+        let env = TestEnv::new();
+        let issuer = env.add_issuer();
+        for _ in 1..=(1 << 16) {
+            env.add_serial(&issuer);
+        }
+        for _ in 1..=(1 << 10) {
+            env.add_revoked_serial(&issuer, Reason::Unspecified);
+        }
+
+        let filter_file = env.dir.path().join("filter");
+        let clubcard_bytes = create_clubcard(
+            &filter_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::All,
+        );
+        assert!(Cascade::from_bytes(clubcard_bytes).is_err(), "A Clubcard should not deserialize as a Cascade");
     }
 }
