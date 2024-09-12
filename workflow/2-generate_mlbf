@@ -24,6 +24,12 @@ parser.add_argument(
     required=False,
 )
 
+parser.add_argument(
+    "--filter-type",
+    help="Filter type [values: cascade, clubcard]",
+    required=False,
+)
+
 
 def main():
     args = parser.parse_args()
@@ -48,15 +54,24 @@ def main():
     if args.statsd_host:
         cmdline += ["--statsd-host", args.statsd_host]
 
-    if not args.reason_set or args.reason_set == "all":
-        cmdline += ["--outdir", os.path.join(runIdPath, "mlbf")]
+    reason_set = args.reason_set if args.reason_set else "all"
+    filter_type = args.filter_type if args.filter_type else "cascade"
+
+    if filter_type == "cascade" and reason_set == "all":
+        outdir = os.path.join(runIdPath, "mlbf")
+    elif filter_type == "cascade":
+        outdir = os.path.join(runIdPath, f"mlbf-{args.reason_set}")
     else:
-        cmdline += [
-            "--outdir",
-            os.path.join(runIdPath, f"mlbf-{args.reason_set}"),
-            "--reason-set",
-            args.reason_set,
-        ]
+        outdir = os.path.join(runIdPath, f"{args.filter_type}-{args.reason_set}")
+
+    cmdline += [
+        "--outdir",
+        outdir,
+        "--reason-set",
+        reason_set,
+        "--filter-type",
+        filter_type,
+    ]
 
     if not args.nodiff and "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
         try:
