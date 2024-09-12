@@ -28,6 +28,7 @@ import settings
 CHANNEL_ALL = "all"
 CHANNEL_SPECIFIED = "specified"
 CHANNEL_PRIORITY = "priority"
+CHANNEL_EXPERIMENTAL = "experimental"
 
 
 def get_mlbf_dir(channel):
@@ -37,6 +38,8 @@ def get_mlbf_dir(channel):
         return "mlbf-specified"
     elif channel == CHANNEL_PRIORITY:
         return "mlbf-priority"
+    elif channel == CHANNEL_EXPERIMENTAL:
+        return "clubcard-all"
     log.warning(f"Unrecognized channel ({channel}).")
     return None
 
@@ -1392,6 +1395,7 @@ def main():
         publish_crlite(args=args, channel=CHANNEL_ALL, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_SPECIFIED, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_PRIORITY, rw_client=rw_client)
+        publish_crlite(args=args, channel=CHANNEL_CLUBCARD_ALL, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)

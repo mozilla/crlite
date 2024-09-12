@@ -9,7 +9,12 @@ import workflow
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-CHANNELS = [main.CHANNEL_ALL, main.CHANNEL_SPECIFIED, main.CHANNEL_PRIORITY]
+CHANNELS = [
+    main.CHANNEL_ALL,
+    main.CHANNEL_SPECIFIED,
+    main.CHANNEL_PRIORITY,
+    main.CHANNEL_EXPERIMENTAL,
+]
 
 
 def date(time):
