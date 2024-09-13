@@ -4,6 +4,7 @@ extern crate base64;
 extern crate bincode;
 extern crate byteorder;
 extern crate clap;
+extern crate clubcard;
 extern crate der_parser;
 extern crate hex;
 extern crate log;
@@ -19,6 +20,7 @@ extern crate x509_parser;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
+use clubcard::Clubcard;
 use der_parser::oid;
 use log::*;
 use rust_cascade::Cascade;
@@ -60,7 +62,7 @@ type IssuerDN = Vec<u8>;
 type IssuerSPKIHash = Vec<u8>;
 type LogID = Vec<u8>;
 
-fn crlite_key(issuer_spki_hash: &[u8], serial: &[u8]) -> CRLiteKey {
+fn crlite_key(issuer_spki_hash: &[u8; 32], serial: &[u8]) -> CRLiteKey {
     let mut key = issuer_spki_hash.to_vec();
     key.extend_from_slice(serial);
     key
@@ -327,8 +329,39 @@ fn update_db(
     Ok(())
 }
 
+enum Filter {
+    Cascade(Cascade),
+    Clubcard(Clubcard),
+}
+
+impl Filter {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
+        if let Ok(clubcard) = Clubcard::from_bytes(bytes) {
+            return Ok(Filter::Clubcard(clubcard));
+        }
+        if let Ok(Some(cascade)) = Cascade::from_bytes(bytes.to_vec()) {
+            return Ok(Filter::Cascade(cascade));
+        }
+        Err(CRLiteDBError::from("could not load filter"))
+    }
+
+    fn has(&self, issuer_spki_hash: &[u8; 32], serial: &[u8]) -> bool {
+        match self {
+            Filter::Cascade(cascade) => {
+                let crlite_key = crlite_key(&issuer_spki_hash, serial);
+                cascade.has(crlite_key)
+            }
+            Filter::Clubcard(clubcard) => {
+                let crlite_key =
+                    clubcard::crlite::CRLiteKey::query(*issuer_spki_hash, serial.to_vec());
+                clubcard.contains(&crlite_key)
+            }
+        }
+    }
+}
+
 struct CRLiteDB {
-    filter: Cascade,
+    filter: Filter,
     stash: Stash,
     coverage: Coverage,
     enrollment: Enrollment,
@@ -345,8 +378,7 @@ impl CRLiteDB {
         let ct_logs_path = db_dir.join("crlite.logs");
 
         let filter_bytes = std::fs::read(filter_path)?;
-        let filter = Cascade::from_bytes(filter_bytes)?
-            .ok_or_else(|| CRLiteDBError::from("empty filter"))?;
+        let filter = Filter::from_bytes(&filter_bytes)?;
 
         let stash_bytes = std::fs::read(stash_path)?;
         let stash = Stash::from_bytes(&stash_bytes)?;
@@ -401,7 +433,7 @@ impl CRLiteDB {
 
         let mut hasher = Sha256::new();
         hasher.update(issuer_spki);
-        let issuer_spki_hash = hasher.finalize().to_vec();
+        let issuer_spki_hash: [u8; 32] = hasher.finalize().into();
 
         debug!("Issuer SPKI hash: {}", hex::encode(&issuer_spki_hash));
 
@@ -426,8 +458,7 @@ impl CRLiteDB {
             return Status::Expired;
         }
 
-        let crlite_key = crlite_key(&issuer_spki_hash, serial);
-        if self.filter.has(crlite_key) {
+        if self.filter.has(&issuer_spki_hash, serial) {
             Status::Revoked
         } else {
             Status::Good
@@ -814,6 +845,7 @@ enum CRLiteFilterChannel {
     All,
     Specified,
     Priority,
+    Experimental,
 }
 
 #[derive(Clone, clap::ArgEnum)]
