@@ -8,7 +8,7 @@ use crate::{
 };
 use clubcard::{
     builder::{ApproximateRibbon, ClubcardBuilder, ExactRibbon},
-    crlite::CRLiteKey,
+    crlite::{CRLiteBuilderItem, CRLiteClubcard, CRLiteCoverage, CRLiteQuery},
     Clubcard,
 };
 
@@ -17,22 +17,23 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::Write;
+use std::io::BufReader;
 use std::path::Path;
 
 fn clubcard_do_one_issuer(
-    clubcard: &ClubcardBuilder<4, CRLiteKey>,
+    clubcard: &ClubcardBuilder<4, CRLiteBuilderItem>,
     issuer: &[u8; 32],
     revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
     known_serials: KnownSerialIterator,
-) -> ApproximateRibbon<4, CRLiteKey> {
+) -> ApproximateRibbon<4, CRLiteBuilderItem> {
     let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
 
-    let mut ribbon_builder = clubcard.get_approx_builder(&issuer);
+    let mut ribbon_builder = clubcard.new_approx_builder(issuer.as_ref());
     let mut universe_size = 0;
     for serial in known_serials {
         universe_size += 1;
         if revoked_serial_set.contains(&serial) {
-            let key = CRLiteKey::revoked(*issuer, decode_serial(&serial));
+            let key = CRLiteBuilderItem::revoked(*issuer, decode_serial(&serial));
             ribbon_builder.insert(key);
             // Ensure that we do not attempt to include this issuer+serial again.
             revoked_serial_set.remove(&serial);
@@ -42,9 +43,9 @@ fn clubcard_do_one_issuer(
     ribbon_builder.into()
 }
 
-impl FilterBuilder for ClubcardBuilder<4, CRLiteKey> {
-    type ExcludeSetType = ExactRibbon<4, CRLiteKey>;
-    type OutputType = Clubcard;
+impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
+    type ExcludeSetType = ExactRibbon<4, CRLiteBuilderItem>;
+    type OutputType = ClubcardBuilder<4, CRLiteBuilderItem>;
 
     fn include(
         &mut self,
@@ -60,7 +61,7 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteKey> {
     }
 
     fn include_all(&mut self, revoked_dir: &Path, known_dir: &Path, reason_set: ReasonSet) {
-        let ribbons: Vec<ApproximateRibbon<4, CRLiteKey>> =
+        let ribbons: Vec<ApproximateRibbon<4, CRLiteBuilderItem>> =
             list_issuer_file_pairs(revoked_dir, known_dir)
                 .par_iter()
                 .map(|pair| {
@@ -87,7 +88,7 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteKey> {
         revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
         known_serials: KnownSerialIterator,
     ) -> Self::ExcludeSetType {
-        let mut ribbon_builder = ClubcardBuilder::get_exact_builder(self, &issuer);
+        let mut ribbon_builder = ClubcardBuilder::new_exact_builder(self, issuer);
 
         let revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons
             .map(|iter| iter.into())
@@ -96,12 +97,12 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteKey> {
         let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
 
         for serial in &revoked_serial_set {
-            let key = CRLiteKey::revoked(*issuer, decode_serial(serial));
+            let key = CRLiteBuilderItem::revoked(*issuer, decode_serial(serial));
             ribbon_builder.insert(key);
         }
 
         for serial in non_revoked_serials {
-            let key = CRLiteKey::not_revoked(*issuer, decode_serial(&serial));
+            let key = CRLiteBuilderItem::not_revoked(*issuer, decode_serial(&serial));
             ribbon_builder.insert(key);
         }
         ribbon_builder.into()
@@ -112,11 +113,11 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteKey> {
     }
 
     fn finalize(self) -> Self::OutputType {
-        ClubcardBuilder::build(self)
+        self
     }
 }
 
-impl CheckableFilter for Clubcard {
+impl CheckableFilter for CRLiteClubcard {
     fn check(
         &self,
         issuer: &[u8; 32],
@@ -128,8 +129,11 @@ impl CheckableFilter for Clubcard {
             .unwrap_or_default();
 
         for serial in known_serials {
-            let key = CRLiteKey::query(*issuer, decode_serial(&serial));
-            assert!(Clubcard::contains(self, &key) == revoked_serial_set.contains(&serial))
+            let decoded_serial = decode_serial(&serial);
+            let key = CRLiteQuery::new(issuer, &decoded_serial, None);
+            assert!(
+                Clubcard::unchecked_contains(self, &key) == revoked_serial_set.contains(&serial)
+            );
         }
     }
 }
@@ -138,8 +142,13 @@ pub fn create_clubcard(
     out_file: &Path,
     revoked_dir: &Path,
     known_dir: &Path,
+    coverage_path: &Path,
     reason_set: ReasonSet,
 ) -> Vec<u8> {
+    let coverage = CRLiteCoverage::from_mozilla_ct_logs_json(BufReader::new(
+        std::fs::File::open(coverage_path).unwrap(),
+    ));
+
     let mut builder = ClubcardBuilder::new();
 
     info!("Processing revoked serials");
@@ -148,8 +157,9 @@ pub fn create_clubcard(
     info!("Processing non-revoked serials");
     FilterBuilder::exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
 
-    info!("Eliminating false positives");
-    let clubcard = FilterBuilder::finalize(builder);
+    info!("Building clubcard");
+    let clubcard: CRLiteClubcard =
+        FilterBuilder::finalize(builder).build::<CRLiteQuery>(coverage, ());
 
     info!("Generated {}", clubcard);
 
