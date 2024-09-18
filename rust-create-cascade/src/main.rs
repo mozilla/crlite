@@ -554,6 +554,8 @@ struct Cli {
     revoked: PathBuf,
     #[clap(long, parse(from_os_str), default_value = "./prev_revset.bin")]
     prev_revset: PathBuf,
+    #[clap(long, parse(from_os_str), default_value = "./ct-logs.json")]
+    ct_log_json: PathBuf,
     #[clap(long, parse(from_os_str), default_value = ".")]
     outdir: PathBuf,
     #[clap(long, value_enum, default_value = "all")]
@@ -586,6 +588,7 @@ fn main() {
     let prev_revset_file = &args.prev_revset;
     let reason_set = args.reason_set;
     let filter_type = args.filter_type;
+    let ct_log_json = &args.ct_log_json;
 
     let out_dir = &args.outdir;
     let filter_file = &out_dir.join("filter");
@@ -676,7 +679,7 @@ fn main() {
     let filter_bytes = match filter_type {
         FilterType::Clubcard => {
             info!("Generating clubcard");
-            create_clubcard(filter_file, revoked_dir, known_dir, reason_set)
+            create_clubcard(filter_file, revoked_dir, known_dir, ct_log_json, reason_set)
         }
         FilterType::Cascade => {
             info!("Generating cascade");
@@ -1044,7 +1047,10 @@ mod tests {
             HashAlgorithm::Sha256,
             ReasonSet::All,
         );
-        assert!(Clubcard::from_bytes(&cascade_bytes).is_err(), "A Cascade should not deserialize as a Clubcard");
+        assert!(
+            Clubcard::from_bytes(&cascade_bytes).is_err(),
+            "A Cascade should not deserialize as a Clubcard"
+        );
     }
 
     #[test]
@@ -1065,6 +1071,9 @@ mod tests {
             &env.known_dir(),
             ReasonSet::All,
         );
-        assert!(Cascade::from_bytes(clubcard_bytes).is_err(), "A Clubcard should not deserialize as a Cascade");
+        assert!(
+            Cascade::from_bytes(clubcard_bytes).is_err(),
+            "A Clubcard should not deserialize as a Cascade"
+        );
     }
 }
