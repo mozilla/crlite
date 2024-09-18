@@ -20,7 +20,8 @@ extern crate x509_parser;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
-use clubcard::Clubcard;
+use clubcard::crlite::{CRLiteClubcard, CRLiteQuery};
+use clubcard::{Clubcard, Membership};
 use der_parser::oid;
 use log::*;
 use rust_cascade::Cascade;
@@ -329,9 +330,23 @@ fn update_db(
     Ok(())
 }
 
+fn get_sct_ids_and_timestamps(cert: &X509Certificate) -> Vec<([u8; 32], u64)> {
+    let sct_extension = match cert.tbs_certificate.get_extension_unique(OID_SCT_EXTENSION) {
+        Ok(Some(sct_extension)) => sct_extension,
+        _ => return vec![],
+    };
+    let scts = match sct_extension.parsed_extension() {
+        ParsedExtension::SCT(scts) => scts,
+        _ => return vec![],
+    };
+    scts.iter()
+        .map(|sct| (*sct.id.key_id, sct.timestamp))
+        .collect()
+}
+
 enum Filter {
     Cascade(Cascade),
-    Clubcard(Clubcard),
+    Clubcard(CRLiteClubcard),
 }
 
 impl Filter {
@@ -345,16 +360,28 @@ impl Filter {
         Err(CRLiteDBError::from("could not load filter"))
     }
 
-    fn has(&self, issuer_spki_hash: &[u8; 32], serial: &[u8]) -> bool {
+    fn has(
+        &self,
+        issuer_spki_hash: &[u8; 32],
+        serial: &[u8],
+        timestamps: &[([u8; 32], u64)],
+    ) -> Status {
         match self {
             Filter::Cascade(cascade) => {
-                let crlite_key = crlite_key(&issuer_spki_hash, serial);
-                cascade.has(crlite_key)
+                let crlite_key = crlite_key(issuer_spki_hash, serial);
+                match cascade.has(crlite_key) {
+                    true => Status::Revoked,
+                    false => Status::Good,
+                }
             }
             Filter::Clubcard(clubcard) => {
-                let crlite_key =
-                    clubcard::crlite::CRLiteKey::query(*issuer_spki_hash, serial.to_vec());
-                clubcard.contains(&crlite_key)
+                let crlite_key = CRLiteQuery::new(issuer_spki_hash, serial, Some(timestamps));
+                match clubcard.contains(&crlite_key) {
+                    Membership::Member => Status::Revoked,
+                    Membership::Nonmember => Status::Good,
+                    Membership::NoData => Status::NotEnrolled,
+                    Membership::NotInUniverse => Status::NotCovered,
+                }
             }
         }
     }
@@ -368,6 +395,7 @@ struct CRLiteDB {
     intermediates: Intermediates,
     ct_logs: CTLogsCollection,
 }
+
 impl CRLiteDB {
     fn load(db_dir: &Path) -> Result<Self, CRLiteDBError> {
         let filter_path = db_dir.join("crlite.filter");
@@ -435,22 +463,10 @@ impl CRLiteDB {
         hasher.update(issuer_spki);
         let issuer_spki_hash: [u8; 32] = hasher.finalize().into();
 
-        debug!("Issuer SPKI hash: {}", hex::encode(&issuer_spki_hash));
+        debug!("Issuer SPKI hash: {}", hex::encode(issuer_spki_hash));
 
         let enrollment_key = enrollment_key(issuer_dn.as_raw(), issuer_spki);
         debug!("Issuer enrollment key: {}", base64::encode(&enrollment_key));
-
-        if !self.enrollment.contains(&enrollment_key) {
-            return Status::NotEnrolled;
-        }
-
-        if !self.coverage.contains(cert, &self.ct_logs) {
-            return Status::NotCovered;
-        }
-
-        if self.stash.has(&issuer_spki_hash, serial) {
-            return Status::Revoked;
-        }
 
         // An expired certificate, even if enrolled and covered, might
         // not be included in the filter.
@@ -458,11 +474,31 @@ impl CRLiteDB {
             return Status::Expired;
         }
 
-        if self.filter.has(&issuer_spki_hash, serial) {
-            Status::Revoked
-        } else {
-            Status::Good
+        if self.stash.has(&issuer_spki_hash, serial) {
+            return Status::Revoked;
         }
+
+        match self.filter {
+            Filter::Cascade(_) => {
+                // Cascades do not contain their own enrollment and coverage metadata, so we need
+                // to check enrollment and coverage first.
+                if !self.enrollment.contains(&enrollment_key) {
+                    return Status::NotEnrolled;
+                }
+
+                if !self.coverage.contains(cert, &self.ct_logs) {
+                    return Status::NotCovered;
+                }
+            },
+            Filter::Clubcard(_) => {
+                // Clubcards contain their own coverage metadata, so we don't need to query coverage
+                // here. But this will output some useful debugging information.
+                let _ = self.coverage.contains(cert, &self.ct_logs);
+            }
+        }
+
+        self.filter
+            .has(&issuer_spki_hash, serial, &get_sct_ids_and_timestamps(cert))
     }
 }
 
@@ -527,34 +563,27 @@ impl Coverage {
     }
 
     fn contains(&self, cert: &X509Certificate, ct_logs: &CTLogsCollection) -> bool {
-        let sct_extension = match cert.tbs_certificate.get_extension_unique(OID_SCT_EXTENSION) {
-            Ok(Some(sct_extension)) => sct_extension,
-            _ => return false,
-        };
-        let scts = match sct_extension.parsed_extension() {
-            ParsedExtension::SCT(scts) => scts,
-            _ => return false,
-        };
-        for sct in scts.iter() {
-            let log_id_b64 = base64::encode(sct.id.key_id);
+        let sct_ids_and_timestamps = get_sct_ids_and_timestamps(cert);
+        for (id, timestamp) in sct_ids_and_timestamps.iter() {
+            let log_id_b64 = base64::encode(id);
             let log_name = match ct_logs.get_log_metadata(&log_id_b64) {
                 Some(log_meta) => &log_meta.description,
                 None => &log_id_b64,
             };
-            if let Some((min, max)) = self.0.get(sct.id.key_id.as_ref()) {
-                if *min <= sct.timestamp && sct.timestamp <= *max {
+            if let Some((min, max)) = self.0.get(id.as_ref()) {
+                if min <= timestamp && timestamp <= max {
                     debug!(
                         "SCT from {} at {} is in observed interval [{}, {}].",
-                        log_name, sct.timestamp, *min, *max
+                        log_name, timestamp, min, max
                     );
                     return true;
                 }
                 debug!(
                     "SCT from {} at {} is outside observed interval [{}, {}].",
-                    log_name, sct.timestamp, *min, *max
+                    log_name, timestamp, min, max
                 );
             } else {
-                debug!("SCT from non-enrolled {} at {}.", log_name, sct.timestamp);
+                debug!("SCT from non-enrolled {} at {}.", log_name, timestamp);
             }
         }
         false
