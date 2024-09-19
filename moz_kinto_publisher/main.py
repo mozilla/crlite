@@ -1395,7 +1395,7 @@ def main():
         publish_crlite(args=args, channel=CHANNEL_ALL, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_SPECIFIED, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_PRIORITY, rw_client=rw_client)
-        publish_crlite(args=args, channel=CHANNEL_CLUBCARD_ALL, rw_client=rw_client)
+        publish_crlite(args=args, channel=CHANNEL_EXPERIMENTAL, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)
