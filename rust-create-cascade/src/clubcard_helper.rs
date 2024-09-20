@@ -6,11 +6,9 @@ use crate::{
     decode_serial, list_issuer_file_pairs, CheckableFilter, FilterBuilder, KnownSerialIterator,
     ReasonSet, RevokedSerialAndReasonIterator, Serial,
 };
-use clubcard::{
-    builder::{ApproximateRibbon, ClubcardBuilder, ExactRibbon},
-    crlite::{CRLiteBuilderItem, CRLiteClubcard, CRLiteCoverage, CRLiteQuery},
-    Clubcard,
-};
+use clubcard::{builder::*, Clubcard};
+
+use clubcard_crlite::{builder::*, CRLiteClubcard, CRLiteCoverage, CRLiteQuery};
 
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -132,7 +130,8 @@ impl CheckableFilter for CRLiteClubcard {
             let decoded_serial = decode_serial(&serial);
             let key = CRLiteQuery::new(issuer, &decoded_serial, None);
             assert!(
-                Clubcard::unchecked_contains(self, &key) == revoked_serial_set.contains(&serial)
+                Clubcard::unchecked_contains(self.as_ref(), &key)
+                    == revoked_serial_set.contains(&serial)
             );
         }
     }
@@ -158,8 +157,7 @@ pub fn create_clubcard(
     FilterBuilder::exclude_all(&mut builder, revoked_dir, known_dir, reason_set);
 
     info!("Building clubcard");
-    let clubcard: CRLiteClubcard =
-        FilterBuilder::finalize(builder).build::<CRLiteQuery>(coverage, ());
+    let clubcard: CRLiteClubcard = builder.finalize().build::<CRLiteQuery>(coverage, ()).into();
 
     info!("Generated {}", clubcard);
 
@@ -167,7 +165,8 @@ pub fn create_clubcard(
     let clubcard_bytes = clubcard.to_bytes().expect("cannot serialize clubcard");
     info!("Clubcard is {} bytes", clubcard_bytes.len());
 
-    let clubcard = Clubcard::from_bytes(&clubcard_bytes).expect("cannot deserialize clubcard");
+    let clubcard =
+        CRLiteClubcard::from_bytes(&clubcard_bytes).expect("cannot deserialize clubcard");
 
     info!("Verifying clubcard");
     clubcard.check_all(revoked_dir, known_dir, reason_set);
