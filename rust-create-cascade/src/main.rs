@@ -28,6 +28,7 @@ extern crate base64;
 extern crate bincode;
 extern crate clap;
 extern crate clubcard;
+extern crate clubcard_crlite;
 extern crate hex;
 extern crate log;
 extern crate rand;
