@@ -555,7 +555,7 @@ struct Cli {
     #[clap(long, parse(from_os_str), default_value = "./prev_revset.bin")]
     prev_revset: PathBuf,
     #[clap(long, parse(from_os_str), default_value = "./ct-logs.json")]
-    ct_log_json: PathBuf,
+    ct_logs_json: PathBuf,
     #[clap(long, parse(from_os_str), default_value = ".")]
     outdir: PathBuf,
     #[clap(long, value_enum, default_value = "all")]
@@ -588,7 +588,7 @@ fn main() {
     let prev_revset_file = &args.prev_revset;
     let reason_set = args.reason_set;
     let filter_type = args.filter_type;
-    let ct_log_json = &args.ct_log_json;
+    let ct_logs_json = &args.ct_logs_json;
 
     let out_dir = &args.outdir;
     let filter_file = &out_dir.join("filter");
@@ -679,7 +679,13 @@ fn main() {
     let filter_bytes = match filter_type {
         FilterType::Clubcard => {
             info!("Generating clubcard");
-            create_clubcard(filter_file, revoked_dir, known_dir, ct_log_json, reason_set)
+            create_clubcard(
+                filter_file,
+                revoked_dir,
+                known_dir,
+                ct_logs_json,
+                reason_set,
+            )
         }
         FilterType::Cascade => {
             info!("Generating cascade");
