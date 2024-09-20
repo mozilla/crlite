@@ -48,6 +48,8 @@ def main():
         os.path.join(runIdPath, "known"),
         "--revoked",
         os.path.join(runIdPath, "revoked"),
+        "--ct-logs-json",
+        os.path.join(runIdPath, "ct-logs.json"),
         "--clobber",
     ]
 
