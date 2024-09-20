@@ -20,8 +20,7 @@ extern crate x509_parser;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
-use clubcard::crlite::{CRLiteClubcard, CRLiteQuery};
-use clubcard::{Clubcard, Membership};
+use clubcard_crlite::{CRLiteClubcard, CRLiteStatus};
 use der_parser::oid;
 use log::*;
 use rust_cascade::Cascade;
@@ -351,7 +350,7 @@ enum Filter {
 
 impl Filter {
     fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        if let Ok(clubcard) = Clubcard::from_bytes(bytes) {
+        if let Ok(clubcard) = CRLiteClubcard::from_bytes(bytes) {
             return Ok(Filter::Clubcard(clubcard));
         }
         if let Ok(Some(cascade)) = Cascade::from_bytes(bytes.to_vec()) {
@@ -375,12 +374,15 @@ impl Filter {
                 }
             }
             Filter::Clubcard(clubcard) => {
-                let crlite_key = CRLiteQuery::new(issuer_spki_hash, serial, Some(timestamps));
-                match clubcard.contains(&crlite_key) {
-                    Membership::Member => Status::Revoked,
-                    Membership::Nonmember => Status::Good,
-                    Membership::NoData => Status::NotEnrolled,
-                    Membership::NotInUniverse => Status::NotCovered,
+                match clubcard.contains(
+                    issuer_spki_hash,
+                    serial,
+                    timestamps.iter().map(|(x, y)| (x, *y)),
+                ) {
+                    CRLiteStatus::Good => Status::Good,
+                    CRLiteStatus::NotCovered => Status::NotCovered,
+                    CRLiteStatus::NotEnrolled => Status::NotEnrolled,
+                    CRLiteStatus::Revoked => Status::Revoked,
                 }
             }
         }
@@ -489,7 +491,7 @@ impl CRLiteDB {
                 if !self.coverage.contains(cert, &self.ct_logs) {
                     return Status::NotCovered;
                 }
-            },
+            }
             Filter::Clubcard(_) => {
                 // Clubcards contain their own coverage metadata, so we don't need to query coverage
                 // here. But this will output some useful debugging information.
