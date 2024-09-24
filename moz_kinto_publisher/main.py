@@ -763,31 +763,29 @@ def publish_crlite_main_filter(
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
     identifier = f"{record_time}Z-full"
 
-    # Each full filter has a `coverage` field which tells users which
-    # certificates ct-fetch has downloaded from each CT log.
+    # The ct-logs.json file tells us which CT logs the ct-fetch process
+    # monitored. For each log, it lists
+    #   (1) the contiguous range of indices of Merkle tree leaves that
+    #       ct-fetch downloaded,
+    #   (2) the earliest and latest timestamps on those Merkle tree
+    #       leaves, and
+    #   (3) the maximum merge delay (MMD).
     #
-    # The ct-fetch process tells us which CT logs it is monitoring, and for each log
-    # it tells us
-    #   (1) the contiguous range of indices of Merkle tree leaves that it downloaded,
-    #   (2) the earliest timestamp it saw on those Merkle tree leaves, and
-    #   (3) the latest timestamp it saw on those Merkle tree leaves.
-    #
-    # Communicating (1) to users directly is no good---users don't see leaf
-    # indices. However (2) and (3) are useful, because users see timestamps in
-    # embedded SCTs.
+    # Intuitively, "coverage" should reflect the [MinEntry, MaxEntry] range.
+    # However, certificates only include timestamps, not indices, and
+    # timestamps do not increase monotonically with leaf index.
     #
     # The timestamp in an embedded SCT is a promise from a log that it will
-    # assign an index in the next "maximum merge delay" (MMD) window. So if
+    # assign an index in the next MMD window. So if
     #   timestamp(Cert A) + MMD <= timestamp(Cert B)
     # then
     #   index(Cert A) < index(Cert B).
     #
-    # It follows that if t0 is the time from (2) and t1 is the time from (3),
-    # then a certificate has an index in (1) if
-    #   t0 + MMD <= timestamp(certificate) <= t1 - MMD
+    # It follows that a certificate has an index in [MinEntry, MaxEntry] if
+    #   MinTimestamp + MMD <= timestamp(certificate) <= MaxTimestamp - MMD
     #
-    # Note that this is an "if" not an "only if". In some special cases we can
-    # extend the coverage beyond [t0 + MMD, t1 - MMD]. See below.
+    # In the event that MinEntry = 0, we can refine this to
+    #   0 <= timestamp(certificate) <= MaxTimestamp - MMD
     #
     coverage = []
     for ctlog in ctlogs:
@@ -824,6 +822,12 @@ def publish_crlite_main_filter(
             uid = base64.urlsafe_b64decode(issuer["uniqueID"])
             enrolledIssuers.add(base64.b64encode(uid).decode("utf-8"))
     enrolledIssuers = list(enrolledIssuers)
+
+    # clubcard filters already contain the coverage and enrolledIssuer
+    # metadata
+    if "clubcard" in get_mlbf_dir(channel):
+        coverage = []
+        enrolledIssuers = []
 
     attributes = {
         "details": {"name": identifier},
