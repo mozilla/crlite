@@ -541,7 +541,7 @@ fn write_revset_and_stash(
     }
 }
 
-#[derive(clap::ValueEnum, Copy, Clone)]
+#[derive(clap::ValueEnum, Copy, Clone, PartialEq)]
 enum FilterType {
     Cascade,
     Clubcard,
@@ -602,6 +602,10 @@ fn main() {
     }
     if !revoked_dir.exists() {
         error!("{} not found", revoked_dir.display());
+        err = true;
+    }
+    if filter_type == FilterType::Clubcard && !ct_logs_json.exists() {
+        error!("{} not found", ct_logs_json.display());
         err = true;
     }
 
