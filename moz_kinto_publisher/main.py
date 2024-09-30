@@ -724,6 +724,11 @@ def publish_crlite_record(
         attributes[
             "filter_expression"
         ] = f"env.version|versionCompare('130.!') < 0 || '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    elif channel == CHANNEL_EXPERIMENTAL:
+        # Support for Clubcard-based CRLite filters first landed in Firefox 132
+        attributes[
+            "filter_expression"
+        ] = f"env.version|versionCompare('132.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
     else:
         attributes[
             "filter_expression"
