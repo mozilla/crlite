@@ -590,6 +590,8 @@ struct Cli {
     outdir: PathBuf,
     #[clap(long, value_enum, default_value = "all")]
     reason_set: ReasonSet,
+    #[clap(long, value_enum, default_value = "all")]
+    delta_reason_set: ReasonSet,
     #[clap(long)]
     statsd_host: Option<String>,
     #[clap(long)]
@@ -617,6 +619,7 @@ fn main() {
     let revoked_dir = &args.revoked;
     let prev_revset_file = &args.prev_revset;
     let reason_set = args.reason_set;
+    let delta_reason_set = args.delta_reason_set;
     let filter_type = args.filter_type;
     let ct_logs_json = &args.ct_logs_json;
 
@@ -751,17 +754,22 @@ fn main() {
         prev_revset_file,
         revoked_dir,
         known_dir,
-        reason_set,
+        delta_reason_set,
         statsd_client.as_ref(),
     );
 
-    write_stash(stash_file, delta_dir, reason_set, statsd_client.as_ref());
+    write_stash(
+        stash_file,
+        delta_dir,
+        delta_reason_set,
+        statsd_client.as_ref(),
+    );
     let timer_finish = Instant::now() - timer_start;
     info!("Finished in {} seconds", timer_finish.as_secs());
 
     info!("Counting delta serials");
     let (delta_revoked, delta_not_revoked, delta_reasons) =
-        count_all(delta_dir, known_dir, reason_set);
+        count_all(delta_dir, known_dir, delta_reason_set);
 
     info!("Found {} 'revoked' serial numbers in delta", delta_revoked,);
     info!("Revocation reason codes: {:#?}", delta_reasons);
@@ -776,7 +784,7 @@ fn main() {
                 delta_dir,
                 known_dir,
                 ct_logs_json,
-                reason_set,
+                delta_reason_set,
             )
         }
         FilterType::Cascade => {
@@ -788,7 +796,7 @@ fn main() {
                 delta_dir,
                 known_dir,
                 hash_alg,
-                reason_set,
+                delta_reason_set,
             )
         }
     };
