@@ -23,6 +23,11 @@ parser.add_argument(
     help="Reason set [values: all, specified, priority]",
     required=False,
 )
+parser.add_argument(
+    "--delta-reason-set",
+    help="Delta reason set. Mirrors --reason-set if omitted. [values: all, specified, priority]",
+    required=False,
+)
 
 parser.add_argument(
     "--filter-type",
@@ -57,6 +62,7 @@ def main():
         cmdline += ["--statsd-host", args.statsd_host]
 
     reason_set = args.reason_set if args.reason_set else "all"
+    delta_reason_set = args.delta_reason_set if args.delta_reason_set else reason_set
     filter_type = args.filter_type if args.filter_type else "cascade"
 
     if filter_type == "cascade" and reason_set == "all":
@@ -71,6 +77,8 @@ def main():
         outdir,
         "--reason-set",
         reason_set,
+        "--delta-reason-set",
+        delta_reason_set,
         "--filter-type",
         filter_type,
     ]
