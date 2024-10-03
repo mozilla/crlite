@@ -270,7 +270,7 @@ fn crlite_key(issuer: &[u8], serial: &[u8]) -> Vec<u8> {
 fn list_issuer_file_pairs(
     revoked_dir: &Path,
     known_dir: &Path,
-) -> Vec<([u8; 32], Option<PathBuf>, PathBuf)> {
+) -> Vec<(OsString, Option<PathBuf>, PathBuf)> {
     let known_files = Path::read_dir(known_dir).unwrap();
     let known_issuers: Vec<OsString> = known_files
         .filter_map(|x| x.ok())
@@ -281,11 +281,10 @@ fn list_issuer_file_pairs(
     for issuer in known_issuers {
         let k_file = known_dir.join(&issuer);
         let r_file = revoked_dir.join(&issuer);
-        let issuer_bytes = decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
         if r_file.exists() {
-            pairs.push((issuer_bytes, Some(r_file), k_file));
+            pairs.push((issuer, Some(r_file), k_file));
         } else {
-            pairs.push((issuer_bytes, None, k_file));
+            pairs.push((issuer, None, k_file));
         }
     }
 
@@ -384,8 +383,10 @@ trait FilterBuilder {
         // CascadeBuilder::include takes &mut self.
         for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
             if let (issuer, Some(revoked_file), known_file) = pair {
+                let issuer_bytes =
+                    decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
                 self.include(
-                    issuer,
+                    &issuer_bytes,
                     RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
                     KnownSerialIterator::new(known_file),
                 );
@@ -405,11 +406,13 @@ trait FilterBuilder {
                 .par_iter()
                 .map(|pair| {
                     let (issuer, revoked_file, known_file) = pair;
+                    let issuer_bytes =
+                        decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
                     let revoked_serials_and_reasons = revoked_file
                         .as_ref()
                         .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
                     let known_serials = KnownSerialIterator::new(known_file);
-                    self.exclude(issuer, revoked_serials_and_reasons, known_serials)
+                    self.exclude(&issuer_bytes, revoked_serials_and_reasons, known_serials)
                 })
                 .collect();
 
@@ -436,22 +439,86 @@ trait CheckableFilter {
             .par_iter()
             .for_each(|pair| {
                 let (issuer, revoked_file, known_file) = pair;
+                let issuer_bytes =
+                    decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
                 let revoked_serials_and_reasons = revoked_file
                     .as_ref()
                     .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
                 let known_serials = KnownSerialIterator::new(known_file);
-                self.check(issuer, revoked_serials_and_reasons, known_serials);
+                self.check(&issuer_bytes, revoked_serials_and_reasons, known_serials);
             });
     }
 }
 
-/// `write_revset_and_stash` writes a revset and a stash to disk.
+/// `write_revset_and_delta` writes a revset and a delta between revsets to disk
 ///
 /// A revset is a representation of the set R (CRLite keys corresponding to known-revoked certificates).
-/// A stash file represents the delta between revsets from different runs.
 ///
 /// Revsets are only consumed by this program. Their format is subject to change (we currently
 /// bincode a HashSet of CRLite keys).
+///
+/// The delta is output in the same form as the /revoked/ directory.
+///
+/// # Arguments
+/// * output_delta_dir: where to write the delta update.
+/// * output_revset_file: where to write the revset.
+/// * prev_revset_file: where to find a revset produced by a previous run of this program.
+/// * revoked_dir: the directory where lists of revoked serials can be found.
+/// * known_dir: the directory where lists of known serials can be found.
+/// * statsd_client: optional statsd client
+///
+fn write_revset_and_delta(
+    output_delta_dir: &Path,
+    output_revset_file: &Path,
+    prev_revset_file: &Path,
+    revoked_dir: &Path,
+    known_dir: &Path,
+    reason_set: ReasonSet,
+    statsd_client: Option<&statsd::Client>,
+) {
+    let prev_revset: HashSet<Vec<u8>> = match std::fs::read(prev_revset_file)
+        .as_deref()
+        .map(bincode::deserialize)
+    {
+        Ok(Ok(prev_revset)) => prev_revset,
+        _ => {
+            warn!("Could not load previous revset. Stash file will be large.");
+            Default::default()
+        }
+    };
+    let mut revset: HashSet<Vec<u8>> = HashSet::new();
+
+    for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
+        if let (issuer, Some(revoked_file), known_file) = pair {
+            let issuer_bytes = decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
+            let revoked_serials: HashMap<Serial, Reason> =
+                RevokedSerialAndReasonIterator::new(revoked_file, reason_set).into();
+            let known_revoked_serials = KnownSerialIterator::new(known_file)
+                .filter_map(|x| revoked_serials.get_key_value(&x));
+            let mut per_issuer_delta_file = File::create(&output_delta_dir.join(issuer))
+                .expect("could not create per-issuer delta file");
+            for (serial, reason) in known_revoked_serials {
+                let serial_bytes = decode_serial(serial);
+                let key = crlite_key(&issuer_bytes, &serial_bytes);
+                if !prev_revset.contains(&key) {
+                    writeln!(per_issuer_delta_file, "{:02x}{}", (*reason) as u8, serial)
+                        .expect("Could not write delta entry");
+                }
+                revset.insert(key);
+            }
+        }
+    }
+
+    let revset_bytes = bincode::serialize(&revset).unwrap();
+    info!("Revset is {} bytes", revset_bytes.len());
+    std::fs::write(output_revset_file, &revset_bytes).expect("can't write revset file");
+
+    if let Some(client) = statsd_client {
+        client.gauge("revset_size", revset_bytes.len() as f64);
+    }
+}
+
+/// A stash file represents the change between revsets from different runs.
 ///
 /// Stashes are consumed by other programs. We use a custom serialization, which has the following
 /// pseudo-grammar:
@@ -465,78 +532,40 @@ trait CheckableFilter {
 ///     )
 ///     SERIAL := (len: u8, serial: [u8; len])
 ///
-/// # Arguments
-/// * revset_file: where to write the revset.
-/// * stash_file: where to write the stash.
-/// * prev_revset_file: where to find a revset produced by a previous run of this program.
-/// * revoked_dir: the directory where lists of revoked serials can be found.
-/// * known_dir: the directory where lists of known serials can be found.
-///
-fn write_revset_and_stash(
-    revset_file: &Path,
-    stash_file: &Path,
-    prev_revset_file: &Path,
-    revoked_dir: &Path,
-    known_dir: &Path,
+fn write_stash(
+    output_stash_file: &Path,
+    delta_dir: &Path,
     reason_set: ReasonSet,
     statsd_client: Option<&statsd::Client>,
 ) {
-    let mut prev_keys: HashSet<Vec<u8>> = HashSet::new();
-    if prev_revset_file.exists() {
-        let prev_list_bytes = std::fs::read(prev_revset_file).unwrap();
-        if let Ok(decoded) = bincode::deserialize(&prev_list_bytes) {
-            prev_keys = decoded;
-        }
-    } else {
-        warn!("Previous revset not found. Stash file will be large.");
-    }
+    let delta_files = Path::read_dir(delta_dir).unwrap();
+    let delta_issuers: Vec<OsString> = delta_files
+        .filter_map(|x| x.ok())
+        .map(|x| x.file_name())
+        .collect();
 
-    let mut revset: HashSet<Vec<u8>> = HashSet::new();
     let mut stash_bytes = vec![];
-
-    for pair in list_issuer_file_pairs(revoked_dir, known_dir).iter() {
-        if let (issuer, Some(revoked_file), known_file) = pair {
-            let mut additions = vec![];
-            let revoked_serial_set: HashSet<Serial> =
-                RevokedSerialAndReasonIterator::new(revoked_file, reason_set).into();
-            let known_revoked_serials =
-                KnownSerialIterator::new(known_file).filter(|x| revoked_serial_set.contains(x));
-            for serial in known_revoked_serials {
-                let serial_bytes = decode_serial(&serial);
-                let key = crlite_key(issuer, &serial_bytes);
-                if !prev_keys.contains(&key) {
-                    additions.push(serial_bytes);
-                }
-                revset.insert(key);
-            }
-
-            if !additions.is_empty() {
-                stash_bytes.extend((additions.len() as u32).to_le_bytes());
-                stash_bytes.push(issuer.len() as u8);
-                stash_bytes.extend_from_slice(issuer);
-                for serial in additions {
-                    stash_bytes.push(serial.len() as u8);
-                    stash_bytes.extend_from_slice(serial.as_ref());
-                }
+    for issuer in delta_issuers {
+        let issuer_bytes = decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
+        let delta_file = delta_dir.join(&issuer);
+        let delta_serial_set: HashSet<Serial> =
+            RevokedSerialAndReasonIterator::new(&delta_file, reason_set).into();
+        if !delta_serial_set.is_empty() {
+            stash_bytes.extend((delta_serial_set.len() as u32).to_le_bytes());
+            stash_bytes.push(issuer_bytes.len() as u8);
+            stash_bytes.extend_from_slice(&issuer_bytes);
+            for serial_str in delta_serial_set {
+                let serial = decode_serial(&serial_str);
+                stash_bytes.push(serial.len() as u8);
+                stash_bytes.extend_from_slice(serial.as_ref());
             }
         }
     }
-
-    let revset_bytes = bincode::serialize(&revset).unwrap();
-    info!("Revset is {} bytes", revset_bytes.len());
-    let mut revset_writer = File::create(revset_file).expect("cannot open list file");
-    revset_writer
-        .write_all(&revset_bytes)
-        .expect("can't write revset file");
 
     info!("Stash is {} bytes", stash_bytes.len());
-    let mut stash_writer = File::create(stash_file).expect("cannot open stash file");
-    stash_writer
-        .write_all(&stash_bytes)
-        .expect("can't write stash file");
+    std::fs::write(output_stash_file, &stash_bytes).expect("can't write stash file");
 
     if let Some(client) = statsd_client {
-        client.gauge("revset_size", revset_bytes.len() as f64);
         client.gauge("stash_size", stash_bytes.len() as f64);
     }
 }
@@ -595,6 +624,8 @@ fn main() {
     let filter_file = &out_dir.join("filter");
     let stash_file = &out_dir.join("filter.stash");
     let revset_file = &out_dir.join("revset.bin");
+    let delta_dir = &out_dir.join("delta");
+    let delta_filter_file = &out_dir.join("filter.delta");
 
     if !known_dir.exists() {
         error!("{} not found", known_dir.display());
@@ -609,31 +640,35 @@ fn main() {
         err = true;
     }
 
-    if std::fs::create_dir_all(out_dir).is_err() {
+    if args.clobber {
+        if out_dir.exists() && std::fs::remove_dir_all(out_dir).is_err() {
+            error!("could not clobber output directory");
+            err = true;
+        }
+    } else {
+        for f in [
+            filter_file,
+            stash_file,
+            revset_file,
+            delta_dir,
+            delta_filter_file,
+        ] {
+            if f.exists() {
+                error!(
+                    "{} exists! Will not overwrite without --clobber.",
+                    f.display()
+                );
+                err = true;
+            }
+        }
+    }
+    if !out_dir.exists() && std::fs::create_dir_all(out_dir).is_err() {
         error!("Could not create out directory: {}", out_dir.display());
         err = true;
-    } else if !args.clobber {
-        if filter_file.exists() {
-            error!(
-                "{} exists! Will not overwrite without --clobber.",
-                filter_file.display()
-            );
-            err = true;
-        }
-        if stash_file.exists() {
-            error!(
-                "{} exists! Will not overwrite without --clobber.",
-                stash_file.display()
-            );
-            err = true;
-        }
-        if revset_file.exists() {
-            error!(
-                "{} exists! Will not overwrite without --clobber.",
-                revset_file.display()
-            );
-            err = true;
-        }
+    }
+    if !delta_dir.exists() && std::fs::create_dir_all(delta_dir).is_err() {
+        error!("Could not create delta directory: {}", delta_dir.display());
+        err = true;
     }
     if err {
         return;
@@ -710,15 +745,53 @@ fn main() {
 
     info!("Generating stash file");
     let timer_start = Instant::now();
-    write_revset_and_stash(
+    write_revset_and_delta(
+        delta_dir,
         revset_file,
-        stash_file,
         prev_revset_file,
         revoked_dir,
         known_dir,
         reason_set,
         statsd_client.as_ref(),
     );
+
+    write_stash(stash_file, delta_dir, reason_set, statsd_client.as_ref());
+    let timer_finish = Instant::now() - timer_start;
+    info!("Finished in {} seconds", timer_finish.as_secs());
+
+    info!("Counting delta serials");
+    let (delta_revoked, delta_not_revoked, delta_reasons) =
+        count_all(delta_dir, known_dir, reason_set);
+
+    info!("Found {} 'revoked' serial numbers in delta", delta_revoked,);
+    info!("Revocation reason codes: {:#?}", delta_reasons);
+
+    info!("Generating delta filter");
+    let timer_start = Instant::now();
+    let delta_filter_bytes = match filter_type {
+        FilterType::Clubcard => {
+            info!("Generating clubcard");
+            create_clubcard(
+                delta_filter_file,
+                delta_dir,
+                known_dir,
+                ct_logs_json,
+                reason_set,
+            )
+        }
+        FilterType::Cascade => {
+            info!("Generating cascade");
+            create_cascade(
+                delta_filter_file,
+                delta_revoked,
+                delta_not_revoked,
+                delta_dir,
+                known_dir,
+                hash_alg,
+                reason_set,
+            )
+        }
+    };
     let timer_finish = Instant::now() - timer_start;
     info!("Finished in {} seconds", timer_finish.as_secs());
 
@@ -727,6 +800,9 @@ fn main() {
         client.gauge("filter_size", filter_bytes.len() as f64);
         client.gauge("not_revoked", not_revoked as f64);
         client.gauge("revoked", revoked as f64);
+        client.gauge("delta_filter_size", delta_filter_bytes.len() as f64);
+        client.gauge("delta_not_revoked", not_revoked as f64);
+        client.gauge("delta_revoked", delta_revoked as f64);
         client.gauge("revoked.unspecified", reasons.unspecified as f64);
         client.gauge("revoked.key_compromise", reasons.key_compromise as f64);
         client.gauge("revoked.ca_compromise", reasons.ca_compromise as f64);
@@ -755,9 +831,10 @@ fn main() {
 mod tests {
     use super::{
         cascade_helper::create_cascade, clubcard_helper::create_clubcard, count_all, crlite_key,
-        decode_issuer, decode_serial, write_revset_and_stash, CheckableFilter, Reason, ReasonSet,
+        decode_issuer, decode_serial, write_revset_and_delta, write_stash, CheckableFilter, Reason,
+        ReasonSet,
     };
-    use clubcard::Clubcard;
+    use clubcard_crlite::CRLiteClubcard;
     use rand::rngs::OsRng;
     use rand::RngCore;
     use rust_cascade::{Cascade, HashAlgorithm};
@@ -775,6 +852,9 @@ mod tests {
             let dir = tempdir().expect("could not create temp dir");
             std::fs::create_dir(dir.path().join("known")).expect("could not create known dir");
             std::fs::create_dir(dir.path().join("revoked")).expect("could not create revoked dir");
+            std::fs::create_dir(dir.path().join("delta")).expect("could not create delta dir");
+            std::fs::write(dir.path().join("ct-logs.json"), &[])
+                .expect("could not create ct-logs.json");
             Self { dir }
         }
 
@@ -784,6 +864,10 @@ mod tests {
 
         fn revoked_dir(&self) -> PathBuf {
             self.dir.path().join("revoked")
+        }
+
+        fn ct_logs_path(&self) -> PathBuf {
+            self.dir.path().join("ct-logs.json")
         }
 
         fn add_issuer(&self) -> String {
@@ -913,6 +997,7 @@ mod tests {
         let stash_file = env.dir.path().join("filter.stash");
         let revset_file = env.dir.path().join("revset.bin");
         let prev_revset_file = env.dir.path().join("old-revset.bin");
+        let delta_dir = env.dir.path().join("delta");
 
         let (revoked, not_revoked, _reasons) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
@@ -926,9 +1011,9 @@ mod tests {
             ReasonSet::All,
         );
 
-        write_revset_and_stash(
+        write_revset_and_delta(
+            &delta_dir,
             &revset_file,
-            &stash_file,
             &prev_revset_file,
             &env.revoked_dir(),
             &env.known_dir(),
@@ -944,15 +1029,17 @@ mod tests {
         // Add a revoked serial after writing the first revset and stash
         let serial = env.add_revoked_serial(&issuer, Reason::Unspecified);
 
-        write_revset_and_stash(
+        write_revset_and_delta(
+            &delta_dir,
             &revset_file,
-            &stash_file,
             &prev_revset_file,
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::All,
             None,
         );
+
+        write_stash(&stash_file, &delta_dir, ReasonSet::All, None);
 
         let second_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
         let second_revset: HashSet<Vec<u8>> =
@@ -976,15 +1063,17 @@ mod tests {
 
         // Write the revset again using ReasonSet::Specified, so the newly revoked serial
         // will not be treated as revoked.
-        write_revset_and_stash(
+        write_revset_and_delta(
+            &delta_dir,
             &revset_file,
-            &stash_file,
             &prev_revset_file,
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Specified,
             None,
         );
+
+        write_stash(&stash_file, &delta_dir, ReasonSet::Specified, None);
 
         let third_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
         let third_revset: HashSet<Vec<u8>> =
@@ -1059,7 +1148,7 @@ mod tests {
             ReasonSet::All,
         );
         assert!(
-            Clubcard::from_bytes(&cascade_bytes).is_err(),
+            CRLiteClubcard::from_bytes(&cascade_bytes).is_err(),
             "A Cascade should not deserialize as a Clubcard"
         );
     }
@@ -1080,6 +1169,7 @@ mod tests {
             &filter_file,
             &env.revoked_dir(),
             &env.known_dir(),
+            &env.ct_logs_path(),
             ReasonSet::All,
         );
         assert!(
