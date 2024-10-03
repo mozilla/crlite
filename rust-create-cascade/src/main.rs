@@ -771,7 +771,7 @@ fn main() {
     let (delta_revoked, delta_not_revoked, delta_reasons) =
         count_all(delta_dir, known_dir, delta_reason_set);
 
-    info!("Found {} 'revoked' serial numbers in delta", delta_revoked,);
+    info!("Found {} 'revoked' serial numbers in delta", delta_revoked);
     info!("Revocation reason codes: {:#?}", delta_reasons);
 
     info!("Generating delta filter");
@@ -809,7 +809,7 @@ fn main() {
         client.gauge("not_revoked", not_revoked as f64);
         client.gauge("revoked", revoked as f64);
         client.gauge("delta_filter_size", delta_filter_bytes.len() as f64);
-        client.gauge("delta_not_revoked", not_revoked as f64);
+        client.gauge("delta_not_revoked", delta_not_revoked as f64);
         client.gauge("delta_revoked", delta_revoked as f64);
         client.gauge("revoked.unspecified", reasons.unspecified as f64);
         client.gauge("revoked.key_compromise", reasons.key_compromise as f64);
