@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use crate::{
-    decode_serial, list_issuer_file_pairs, CheckableFilter, FilterBuilder, KnownSerialIterator,
-    ReasonSet, RevokedSerialAndReasonIterator, Serial,
+    decode_issuer, decode_serial, list_issuer_file_pairs, CheckableFilter, FilterBuilder,
+    KnownSerialIterator, ReasonSet, RevokedSerialAndReasonIterator, Serial,
 };
 use clubcard::{builder::*, Clubcard};
 
@@ -64,9 +64,11 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
                 .par_iter()
                 .map(|pair| {
                     if let (issuer, Some(revoked_file), known_file) = pair {
+                        let issuer_bytes =
+                            decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
                         Some(clubcard_do_one_issuer(
                             self,
-                            issuer,
+                            &issuer_bytes,
                             RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
                             KnownSerialIterator::new(known_file),
                         ))
