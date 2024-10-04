@@ -337,21 +337,48 @@ fn count_all(
     revoked_dir: &Path,
     known_dir: &Path,
     reason_set: ReasonSet,
+    output_csv_path: Option<&Path>,
 ) -> (usize, usize, ReasonCodeHistogram) {
-    list_issuer_file_pairs(revoked_dir, known_dir)
-        .par_iter()
-        .map(|pair| {
-            let (_, revoked_file, known_file) = pair;
-            let revoked_serials_and_reasons = revoked_file
-                .as_ref()
-                .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
-            let known_serials = KnownSerialIterator::new(known_file);
-            count(revoked_serials_and_reasons, known_serials)
-        })
-        .reduce(
-            || (0, 0, ReasonCodeHistogram::default()),
-            |a, b| (a.0 + b.0, a.1 + b.1, a.2.merge(b.2)),
-        )
+    let mut counts: Vec<(OsString, (usize, usize, ReasonCodeHistogram))> =
+        list_issuer_file_pairs(revoked_dir, known_dir)
+            .par_iter()
+            .map(|pair| {
+                let (issuer, revoked_file, known_file) = pair;
+                let revoked_serials_and_reasons = revoked_file
+                    .as_ref()
+                    .map(|x| RevokedSerialAndReasonIterator::new(x, reason_set));
+                let known_serials = KnownSerialIterator::new(known_file);
+                (
+                    issuer.clone(),
+                    count(revoked_serials_and_reasons, known_serials),
+                )
+            })
+            .collect();
+
+    if let Some(output_csv_path) = output_csv_path {
+        let mut output_csv = File::create(output_csv_path)
+            .expect("could not open output file for reason code counts");
+        writeln!(output_csv, "issuer_spki_hash,unspecified,key_compromise,privilege_withdrawn,affiliation_changed,superseded,cessation_of_operation,revoked_certificates,non_revoked_certificates").expect("could not write reason code count line");
+        for (issuer, (revoked, non_revoked, reasons)) in &counts {
+            writeln!(
+                output_csv,
+                "{issuer},{unspecified},{key_compromise},{privilege_withdrawn},{affiliation_changed},{superseded},{cessation},{revoked},{non_revoked}",
+                issuer = issuer.to_str().unwrap(),
+                unspecified = reasons.unspecified,
+                key_compromise = reasons.key_compromise,
+                privilege_withdrawn = reasons.privilege_withdrawn,
+                affiliation_changed = reasons.affiliation_changed,
+                superseded = reasons.superseded,
+                cessation = reasons.cessation_of_operation,
+            )
+            .expect("could not write reason code count line");
+        }
+    }
+    counts
+        .drain(..)
+        .map(|x| x.1)
+        .reduce(|a, b| (a.0 + b.0, a.1 + b.1, a.2.merge(b.2)))
+        .unwrap_or_default()
 }
 
 trait FilterBuilder {
@@ -629,6 +656,7 @@ fn main() {
     let revset_file = &out_dir.join("revset.bin");
     let delta_dir = &out_dir.join("delta");
     let delta_filter_file = &out_dir.join("filter.delta");
+    let reason_codes_csv_file = &out_dir.join("reason_codes.csv");
 
     if !known_dir.exists() {
         error!("{} not found", known_dir.display());
@@ -710,7 +738,12 @@ fn main() {
     }
 
     info!("Counting serials");
-    let (revoked, not_revoked, reasons) = count_all(revoked_dir, known_dir, reason_set);
+    let (revoked, not_revoked, reasons) = count_all(
+        revoked_dir,
+        known_dir,
+        reason_set,
+        Some(reason_codes_csv_file),
+    );
 
     info!(
         "Found {} 'revoked' and {} 'not revoked' serial numbers",
@@ -769,7 +802,7 @@ fn main() {
 
     info!("Counting delta serials");
     let (delta_revoked, delta_not_revoked, delta_reasons) =
-        count_all(delta_dir, known_dir, delta_reason_set);
+        count_all(delta_dir, known_dir, delta_reason_set, None);
 
     info!("Found {} 'revoked' serial numbers in delta", delta_revoked);
     info!("Revocation reason codes: {:#?}", delta_reasons);
@@ -946,7 +979,7 @@ mod tests {
         }
 
         let (revoked, known, dist) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         assert_eq!(known, 86);
         assert_eq!(revoked, 75 + 30 + 9);
         assert_eq!(dist.unspecified, 75);
@@ -960,8 +993,12 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Specified);
+        let (revoked, known, dist) = count_all(
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::Specified,
+            None,
+        );
         assert_eq!(known, 86 + 75);
         assert_eq!(revoked, 30 + 9);
         assert_eq!(dist.unspecified, 0);
@@ -975,8 +1012,12 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Priority);
+        let (revoked, known, dist) = count_all(
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::Priority,
+            None,
+        );
         assert_eq!(known, 86 + 75);
         assert_eq!(revoked, 30 + 9);
         assert_eq!(dist.unspecified, 0);
@@ -1008,7 +1049,7 @@ mod tests {
         let delta_dir = env.dir.path().join("delta");
 
         let (revoked, not_revoked, _reasons) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         create_cascade(
             &filter_file,
             revoked,
@@ -1109,8 +1150,12 @@ mod tests {
         let filter_file = env.dir.path().join("filter");
 
         // Use ReasonSet::Specified while creating the filter
-        let (revoked, not_revoked, _reasons) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::Specified);
+        let (revoked, not_revoked, _reasons) = count_all(
+            &env.revoked_dir(),
+            &env.known_dir(),
+            ReasonSet::Specified,
+            None,
+        );
         create_cascade(
             &filter_file,
             revoked,
@@ -1144,7 +1189,7 @@ mod tests {
         let filter_file = env.dir.path().join("filter");
 
         let (revoked, not_revoked, _reasons) =
-            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All);
+            count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
 
         let cascade_bytes = create_cascade(
             &filter_file,
