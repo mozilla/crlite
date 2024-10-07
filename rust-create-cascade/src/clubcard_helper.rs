@@ -94,17 +94,16 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
-        let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
-
-        for serial in &revoked_serial_set {
-            let key = CRLiteBuilderItem::revoked(*issuer, decode_serial(serial));
+        for serial in known_serials {
+            let serial_bytes = decode_serial(&serial);
+            let key = if revoked_serial_set.contains(&serial) {
+                CRLiteBuilderItem::revoked(*issuer, serial_bytes)
+            } else {
+                CRLiteBuilderItem::not_revoked(*issuer, serial_bytes)
+            };
             ribbon_builder.insert(key);
         }
 
-        for serial in non_revoked_serials {
-            let key = CRLiteBuilderItem::not_revoked(*issuer, decode_serial(&serial));
-            ribbon_builder.insert(key);
-        }
         ribbon_builder.into()
     }
 
