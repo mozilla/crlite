@@ -29,6 +29,7 @@ CHANNEL_ALL = "all"
 CHANNEL_SPECIFIED = "specified"
 CHANNEL_PRIORITY = "priority"
 CHANNEL_EXPERIMENTAL = "experimental"
+CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
 
 
 def get_mlbf_dir(channel):
@@ -40,6 +41,22 @@ def get_mlbf_dir(channel):
         return "mlbf-priority"
     elif channel == CHANNEL_EXPERIMENTAL:
         return "clubcard-all"
+    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
+        return "clubcard-all"
+    log.warning(f"Unrecognized channel ({channel}).")
+    return None
+
+
+def get_delta_filename(channel):
+    if channel in [
+        CHANNEL_ALL,
+        CHANNEL_SPECIFIED,
+        CHANNEL_PRIORITY,
+        CHANNEL_EXPERIMENTAL,
+    ]:
+        return "filter.stash"
+    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
+        return "filter.delta"
     log.warning(f"Unrecognized channel ({channel}).")
     return None
 
@@ -70,12 +87,16 @@ class PublishedRunDB:
         if mlbf_dir == None:
             return False
 
+        delta_filename = get_delta_filename(channel)
+        if delta_filename == None:
+            return False
+
         is_valid = (
             workflow.google_cloud_file_exists(
                 self.filter_bucket, f"{run_id}/{mlbf_dir}/filter"
             )
             and workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/{mlbf_dir}/filter.stash"
+                self.filter_bucket, f"{run_id}/{mlbf_dir}/{delta_filename}"
             )
             and workflow.google_cloud_file_exists(
                 self.filter_bucket, f"{run_id}/ct-logs.json"
@@ -708,6 +729,7 @@ def publish_crlite_record(
         log.info("NoOp mode enabled")
         return attributes["details"]["name"]
 
+    mimeType = "application/octet-stream"
     channel = attributes.get("channel", CHANNEL_ALL)
 
     # You can test a filter expression relative to a mock context using the
@@ -729,6 +751,15 @@ def publish_crlite_record(
         attributes[
             "filter_expression"
         ] = f"env.version|versionCompare('132.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
+        # Support for Clubcard-based deltas first landed in Firefox 133
+        attributes[
+            "filter_expression"
+        ] = f"env.version|versionCompare('133.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+        # The metadata in clubcards produced by clubcard-crlite version 0.2.*
+        # is somewhat compressible, so set a mimetype that encourages our CDN to use
+        # compression (see: https://cloud.google.com/cdn/docs/dynamic-compression).
+        mimeType = "application/x-protobuf"
     else:
         attributes[
             "filter_expression"
@@ -747,6 +778,7 @@ def publish_crlite_record(
             fileName=attachment_name,
             filePath=attachment_path,
             recordId=recordid,
+            mimeType=mimeType,
         )
     except KintoException as ke:
         log.error(
@@ -949,7 +981,7 @@ def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check, channel):
         if not run_db.is_run_ready(r):
             raise ConsistencyException(f"Run is not ready: {r}")
 
-    # Each run should have "filter", "filter.stash", and "ct-logs.json" files.
+    # Each run should be valid.
     for r in identifiers_to_check:
         if not run_db.is_run_valid(r, channel):
             raise ConsistencyException(f"Not a valid run: {r}")
@@ -993,7 +1025,8 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
 
     # A run ID is a "YYYYMMDD" date and an index, e.g. "20210101-3".
     # The record["attachment"]["filename"] field of an existing record is
-    # in the format "<run id>-channel.filter" or "<run id>-channel.filter.stash".
+    # in the format "<run id>-channel.filter", "<run id>-channel.filter.stash",
+    # or "<run id>-channel.filter.delta".
     record_run_ids = [
         record["attachment"]["filename"].rsplit("-", 1)[0]
         for record in existing_records
@@ -1081,6 +1114,10 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
     if mlbf_dir == None:
         return rv
 
+    delta_filename = get_delta_filename(channel)
+    if delta_filename == None:
+        return rv
+
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
         f"{final_run_id}/{mlbf_dir}/filter",
@@ -1098,7 +1135,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
             stash_path = run_id_path / Path("stash")
             workflow.download_and_retry_from_google_cloud(
                 args.filter_bucket,
-                f"{run_id}/{mlbf_dir}/filter.stash",
+                f"{run_id}/{mlbf_dir}/{delta_filename}",
                 stash_path,
                 timeout=timedelta(minutes=5),
             )
@@ -1167,7 +1204,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
-                filename=f"{run_id}-{channel}.filter.stash",
+                filename=f"{run_id}-{channel}.{delta_filename}",
                 rw_client=rw_client,
                 previous_id=previous_id,
                 timestamp=published_run_db.get_run_timestamp(run_id),
@@ -1405,6 +1442,9 @@ def main():
         publish_crlite(args=args, channel=CHANNEL_SPECIFIED, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_PRIORITY, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_EXPERIMENTAL, rw_client=rw_client)
+        publish_crlite(
+            args=args, channel=CHANNEL_EXPERIMENTAL_DELTAS, rw_client=rw_client
+        )
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)
