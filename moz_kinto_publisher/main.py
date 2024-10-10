@@ -1439,8 +1439,6 @@ def main():
 
         log.info("Updating cert-revocations collection")
         publish_crlite(args=args, channel=CHANNEL_ALL, rw_client=rw_client)
-        publish_crlite(args=args, channel=CHANNEL_SPECIFIED, rw_client=rw_client)
-        publish_crlite(args=args, channel=CHANNEL_PRIORITY, rw_client=rw_client)
         publish_crlite(args=args, channel=CHANNEL_EXPERIMENTAL, rw_client=rw_client)
         publish_crlite(
             args=args, channel=CHANNEL_EXPERIMENTAL_DELTAS, rw_client=rw_client
