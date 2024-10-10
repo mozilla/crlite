@@ -60,18 +60,6 @@ ${workflow}/2-generate_mlbf ${ID} \
 ${workflow}/2-generate_mlbf ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
               --statsd-host ${statsdHost} \
-              --reason-set specified \
-              --filter-type cascade
-
-${workflow}/2-generate_mlbf ${ID} \
-              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-              --statsd-host ${statsdHost} \
-              --reason-set priority \
-              --filter-type cascade
-
-${workflow}/2-generate_mlbf ${ID} \
-              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-              --statsd-host ${statsdHost} \
               --reason-set all \
               --filter-type clubcard
 

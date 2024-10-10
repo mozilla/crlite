@@ -14,6 +14,7 @@ CHANNELS = [
     main.CHANNEL_SPECIFIED,
     main.CHANNEL_PRIORITY,
     main.CHANNEL_EXPERIMENTAL,
+    main.CHANNEL_EXPERIMENTAL_DELTAS,
 ]
 
 
@@ -51,9 +52,14 @@ class MockRunDB(main.PublishedRunDB):
         )
         for channel in CHANNELS:
             mlbf_dir = main.get_mlbf_dir(channel)
+            if (rundir / mlbf_dir).exists():
+                # multiple channels can share the same mlbf_dir if one
+                # uses stashes and one uses deltas.
+                continue
             os.mkdir(rundir / mlbf_dir)
             (rundir / mlbf_dir / "filter").write_bytes(b"\x00" * filter_size)
             (rundir / mlbf_dir / "filter.stash").write_bytes(b"\x00" * stash_size)
+            (rundir / mlbf_dir / "filter.delta").write_bytes(b"\x00" * stash_size)
         if completed:
             (rundir / "completed").touch()
         self.run_identifiers += [run_id]
