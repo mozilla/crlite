@@ -877,6 +877,8 @@ enum CRLiteFilterChannel {
     Specified,
     Priority,
     Experimental,
+    #[serde(rename = "experimental+deltas")]
+    ExperimentalDeltas,
 }
 
 #[derive(Clone, clap::ArgEnum)]
