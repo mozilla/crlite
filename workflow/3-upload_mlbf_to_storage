@@ -75,7 +75,8 @@ def main():
         remoteFolder = localFolder.relative_to(runIdPath.parent)
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
         # Add a copy to /latest
-        uploadFiles(files, localFolder, Path("latest"), bucket, args=args)
+        subFolder = localFolder.relative_to(runIdPath / "mlbf")
+        uploadFiles(files, localFolder, Path("latest") / subFolder, bucket, args=args)
 
     for path, dirs, files in os.walk(runIdPath / "mlbf-specified"):
         localFolder = Path(path)
