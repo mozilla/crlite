@@ -374,11 +374,8 @@ impl Filter {
                 }
             }
             Filter::Clubcard(clubcard) => {
-                match clubcard.contains(
-                    issuer_spki_hash,
-                    serial,
-                    timestamps.iter().map(|(x, y)| (x, *y)),
-                ) {
+                let crlite_key = clubcard_crlite::CRLiteKey::new(issuer_spki_hash, serial);
+                match clubcard.contains(&crlite_key, timestamps.iter().map(|(x, y)| (x, *y))) {
                     CRLiteStatus::Good => Status::Good,
                     CRLiteStatus::NotCovered => Status::NotCovered,
                     CRLiteStatus::NotEnrolled => Status::NotEnrolled,

@@ -8,7 +8,7 @@ use crate::{
 };
 use clubcard::{builder::*, Clubcard};
 
-use clubcard_crlite::{builder::*, CRLiteClubcard, CRLiteCoverage, CRLiteQuery};
+use clubcard_crlite::{builder::*, CRLiteClubcard, CRLiteCoverage, CRLiteKey, CRLiteQuery};
 
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -129,9 +129,10 @@ impl CheckableFilter for CRLiteClubcard {
 
         for serial in known_serials {
             let decoded_serial = decode_serial(&serial);
-            let key = CRLiteQuery::new(issuer, &decoded_serial, None);
+            let key = CRLiteKey::new(issuer, &decoded_serial);
+            let query = CRLiteQuery::new(&key, None);
             assert!(
-                Clubcard::unchecked_contains(self.as_ref(), &key)
+                Clubcard::unchecked_contains(self.as_ref(), &query)
                     == revoked_serial_set.contains(&serial)
             );
         }
