@@ -15,5 +15,5 @@ statsd = "0.16.0"
 stderrlog = "0.5"
 tempfile = "3.10.1"
 clubcard = { version = "0.3", features = ["builder"] }
-clubcard-crlite = { version = "0.2", features = ["builder"] }
+clubcard-crlite = { version = "0.3", features = ["builder"] }
 serde_json = "1"
