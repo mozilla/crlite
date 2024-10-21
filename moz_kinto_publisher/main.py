@@ -25,11 +25,29 @@ import glog as log
 import workflow
 import settings
 
+# To add a channel: give it a unique name and add it to both the `CHANNELS` and
+# the `ENABLED_CHANNELS` lists.
+#
+# To remove a channel: remove it from the ENABLED_CHANNELS list but keep it in
+# CHANNELS. This will ensure that records for the channel are removed from
+# remote settings.
+#
+# NOTE: Channel names cannot contain underscores.
 CHANNEL_ALL = "all"
 CHANNEL_SPECIFIED = "specified"
 CHANNEL_PRIORITY = "priority"
 CHANNEL_EXPERIMENTAL = "experimental"
 CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
+
+CHANNELS = [
+    CHANNEL_ALL,
+    CHANNEL_SPECIFIED,
+    CHANNEL_PRIORITY,
+    CHANNEL_EXPERIMENTAL,
+    CHANNEL_EXPERIMENTAL_DELTAS,
+]
+
+ENABLED_CHANNELS = [CHANNEL_ALL, CHANNEL_EXPERIMENTAL, CHANNEL_EXPERIMENTAL_DELTAS]
 
 
 def get_mlbf_dir(channel):
@@ -1438,11 +1456,14 @@ def main():
         publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        publish_crlite(args=args, channel=CHANNEL_ALL, rw_client=rw_client)
-        publish_crlite(args=args, channel=CHANNEL_EXPERIMENTAL, rw_client=rw_client)
-        publish_crlite(
-            args=args, channel=CHANNEL_EXPERIMENTAL_DELTAS, rw_client=rw_client
-        )
+        for channel in ENABLED_CHANNELS:
+            publish_crlite(args=args, channel=channel, rw_client=rw_client)
+
+        log.info("Removing records for unused channels")
+        for channel in CHANNELS:
+            if channel not in ENABLED_CHANNELS:
+                clear_crlite_filters(args=args, channel=channel, rw_client=rw_client)
+                clear_crlite_stashes(args=args, channel=channel, rw_client=rw_client)
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)
