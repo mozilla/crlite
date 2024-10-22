@@ -139,7 +139,10 @@ class MockClient:
 class TestLoadIntermediates(unittest.TestCase):
     def test_load_local(self):
         intermediates_path = Path(__file__).parent / Path("example_enrolled.json")
-        main.load_local_intermediates(intermediates_path=intermediates_path)
+        intermediates = main.load_local_intermediates(
+            intermediates_path=intermediates_path
+        )
+        self.assertEqual(len(intermediates), 1708)
 
     def test_load_remote(self):
         ro_client = main.PublisherClient(
@@ -147,7 +150,8 @@ class TestLoadIntermediates(unittest.TestCase):
             bucket=settings.KINTO_BUCKET,
             retry=5,
         )
-        main.load_remote_intermediates(kinto_client=ro_client)
+        (intermediates, errors) = main.load_remote_intermediates(kinto_client=ro_client)
+        self.assertEqual(len(errors), 0)
 
 
 class Args:
