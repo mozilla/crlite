@@ -1462,8 +1462,12 @@ def main():
         log.info("Removing records for unused channels")
         for channel in CHANNELS:
             if channel not in ENABLED_CHANNELS:
-                clear_crlite_filters(args=args, channel=channel, rw_client=rw_client)
-                clear_crlite_stashes(args=args, channel=channel, rw_client=rw_client)
+                clear_crlite_filters(
+                    noop=args.noop, channel=channel, rw_client=rw_client
+                )
+                clear_crlite_stashes(
+                    noop=args.noop, channel=channel, rw_client=rw_client
+                )
 
         log.info("Updating intermediates collection")
         publish_intermediates(args=args, rw_client=rw_client)
