@@ -246,7 +246,6 @@ def exactlyOneIn(keys, record):
 
 class Intermediate:
     cert: x509.Certificate
-    crlite_enrolled: bool
     derHash: bytes
     kinto_id: str
     pemAttachment: AttachedPem
@@ -254,8 +253,6 @@ class Intermediate:
     pemHash: str
     pubKeyHash: bytes
     subject: str
-    subjectDN: bytes
-    whitelist: bool
 
     def __init__(self, **kwargs):
         self.derHash = None
@@ -263,7 +260,6 @@ class Intermediate:
         self.pemAttachment = None
         self.pemData = None
         self.pemHash = None
-        self.subjectDN = None
 
         parseError = IntermediateRecordError(f"Malformed record: {kwargs}")
 
@@ -275,11 +271,8 @@ class Intermediate:
 
         if "pem" in kwargs and not allIn(
             [
-                "enrolled",
                 "pubKeyHash",
                 "subject",
-                "subjectDN",
-                "whitelist",
             ],
             kwargs,
         ):
@@ -287,13 +280,10 @@ class Intermediate:
 
         if "attachment" in kwargs and not allIn(
             [
-                "crlite_enrolled",
                 "derHash",
                 "id",
                 "pubKeyHash",
                 "subject",
-                "subjectDN",
-                "whitelist",
             ],
             kwargs,
         ):
@@ -303,10 +293,6 @@ class Intermediate:
             self.pubKeyHash = base64.b64decode(
                 kwargs["pubKeyHash"], altchars="-_", validate=True
             )  # sha256 of the SPKI
-
-            self.subjectDN = base64.b64decode(
-                kwargs["subjectDN"], altchars="-_", validate=True
-            )
 
             if "derHash" in kwargs:
                 self.derHash = base64.b64decode(
@@ -322,19 +308,12 @@ class Intermediate:
             raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
 
         self.subject = kwargs["subject"]
-        self.whitelist = kwargs["whitelist"]
 
         if "pem" in kwargs:
-            # The crlite_enrolled field is no longer used by CRLite. Set it to
-            # False for local intermediates so that eventually the remote
-            # intermediates will be stop being updated due to enrollment
-            # changes.
-            self.crlite_enrolled = False
             self.set_pem(kwargs["pem"])
 
         if "attachment" in kwargs:
             self.kinto_id = kwargs["id"]
-            self.crlite_enrolled = kwargs["crlite_enrolled"]
             self.cert = None
             self.pemAttachment = AttachedPem(**kwargs["attachment"])
             self.pemHash = self.pemAttachment.hash
@@ -345,7 +324,6 @@ class Intermediate:
         return (
             f"{{Int: {self.subject} "
             + f"[h={base64.b85encode(self.pubKeyHash).decode('utf-8')}"
-            + f" e={self.crlite_enrolled}]}}"
         )
 
     def unique_id(self):
@@ -356,12 +334,7 @@ class Intermediate:
 
     def _get_attributes(self, *, complete=False):
         attributes = {
-            "subject": self.subject,
-            "subjectDN": base64.standard_b64encode(self.subjectDN).decode("utf-8"),
             "derHash": base64.standard_b64encode(self.derHash).decode("utf-8"),
-            "pubKeyHash": base64.standard_b64encode(self.pubKeyHash).decode("utf-8"),
-            "whitelist": self.whitelist,
-            "crlite_enrolled": self.crlite_enrolled,
         }
 
         if complete and self.pemAttachment:
@@ -379,9 +352,7 @@ class Intermediate:
         )
 
     def equals(self, *, remote_record=None):
-        sameAttributes = self._get_attributes() == remote_record._get_attributes()
-        sameAttachment = remote_record.derHash == self.derHash
-        return sameAttributes and sameAttachment
+        return self._get_attributes() == remote_record._get_attributes()
 
     def set_pem(self, pem_data):
         self.pemData = pem_data
@@ -394,7 +365,6 @@ class Intermediate:
             )
         except Exception as e:
             raise IntermediateRecordError("Cannot parse PEM data: {}".format(e))
-        self.subjectDN = self.cert.subject.public_bytes(backend=default_backend())
 
     def download_pem(self, kinto_client):
         if not self.pemAttachment:
