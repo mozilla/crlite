@@ -295,14 +295,19 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 		new(big.Int).SetInt64(0))
 	enrolledIssuer := types.NewIssuer(enrolledCert)
 
-	notEnrolledCert, notEnrolledCertPem := makeCert(t, "CN=Not Enrolled Issuer", "2001-12-01",
+	notEnrolledCert, _ := makeCert(t, "CN=Not Enrolled Issuer", "2001-12-01",
 		new(big.Int).SetInt64(255))
 	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
 	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem, nil)
-	mi.InsertIssuerFromCertAndPem(notEnrolledCert, notEnrolledCertPem, nil)
-	mi.Enroll(enrolledIssuer)
+
+	if !mi.IsIssuerInProgram(enrolledIssuer) {
+		t.Error("enrolledIssuer should be in program")
+	}
+	if mi.IsIssuerInProgram(notEnrolledIssuer) {
+		t.Error("notEnrolledIssuer should not be in program")
+	}
 
 	tmpfile, err := ioutil.TempFile("", "Test_SaveLoadIssuersList")
 	if err != nil {
@@ -323,33 +328,8 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 	if !loadedIssuers.IsIssuerInProgram(enrolledIssuer) {
 		t.Error("enrolledIssuer should be in program")
 	}
-	if !loadedIssuers.IsIssuerInProgram(notEnrolledIssuer) {
-		t.Error("notEnrolledIssuer should be in program")
-	}
-	if !loadedIssuers.IsIssuerEnrolled(enrolledIssuer) {
-		t.Error("enrolledIssuer should be enrolled")
-	}
-	if loadedIssuers.IsIssuerEnrolled(notEnrolledIssuer) {
-		t.Error("notEnrolledIssuer should not be enrolled")
-	}
-}
-
-func Test_IsIssuerEnrolled(t *testing.T) {
-	cert, certPem := makeCert(t, "CN=Issuer", "2001-01-01",
-		new(big.Int).SetInt64(0))
-	issuer := types.NewIssuer(cert)
-
-	mi := NewMozillaIssuers()
-	mi.InsertIssuerFromCertAndPem(cert, certPem, nil)
-
-	if mi.IsIssuerEnrolled(issuer) {
-		t.Error("Should not yet be enrolled")
-	}
-
-	mi.Enroll(issuer)
-
-	if !mi.IsIssuerEnrolled(issuer) {
-		t.Error("Should now be enrolled")
+	if loadedIssuers.IsIssuerInProgram(notEnrolledIssuer) {
+		t.Error("notEnrolledIssuer should not be in program")
 	}
 }
 

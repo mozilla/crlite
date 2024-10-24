@@ -144,8 +144,7 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 			if err != nil {
 				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
 			}
-			// Even if err is set, pass the blank path to the results, so we
-			// can use it in enrolled/not enrolled determination
+			// the path here might be blank if err is set
 			urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
 		}
 
@@ -175,6 +174,11 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 
 	if err = aIssuerCert.CheckCRLSignature(crl); err != nil {
 		return nil, []byte{}, fmt.Errorf("Invalid signature on CRL, will not process revocations: %s", err)
+	}
+
+	if crl.HasExpired(time.Now()) {
+		glog.Warningf("[%s] CRL is expired, but proceeding anyway. (ThisUpdate=%s,"+
+			" NextUpdate=%s)", aPath, crl.TBSCertList.ThisUpdate, crl.TBSCertList.NextUpdate)
 	}
 
 	shasum := sha256.Sum256(crlBytes)
@@ -288,10 +292,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			}
 		}
 
-		// Issuer is considered enrolled if all known CRLs were processed
 		if anyCrlFailed == false {
-			ae.issuers.Enroll(tuple.Issuer)
-
 			if err := ae.saveStorage.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
@@ -299,7 +300,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			glog.Infof("[%s] %d total revoked serials for %s (len=%d, cap=%d)", tuple.Issuer.ID(),
 				serialCount, tuple.IssuerDN, len(serials), cap(serials))
 		} else {
-			glog.Infof("Issuer %s not enrolled", tuple.Issuer.ID())
+			glog.Infof("May not have all revoked certificates for issuer %s", tuple.Issuer.ID())
 		}
 	}
 }
