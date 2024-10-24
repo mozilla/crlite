@@ -191,23 +191,14 @@ func main() {
 
 	var count int64
 	for _, iObj := range issuerList {
-		if mozIssuers.IsIssuerEnrolled(iObj.Issuer) {
+		if mozIssuers.IsIssuerInProgram(iObj.Issuer) {
 			count = count + int64(len(iObj.ExpDates))
-		} else {
-			if mozIssuers.IsIssuerInProgram(iObj.Issuer) {
-				subj, err := mozIssuers.GetSubjectForIssuer(iObj.Issuer)
-				if err != nil {
-					glog.Error(err)
-				}
-				glog.Infof("Skipping in-program issuer ID=%s that is not enrolled: %s",
-					iObj.Issuer.ID(), subj)
-			}
 		}
 	}
 
 	workChan := make(chan knownWorkUnit, count)
 	for _, iObj := range issuerList {
-		if !mozIssuers.IsIssuerEnrolled(iObj.Issuer) {
+		if !mozIssuers.IsIssuerInProgram(iObj.Issuer) {
 			continue
 		}
 

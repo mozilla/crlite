@@ -34,18 +34,14 @@ type issuerCert struct {
 }
 
 type IssuerData struct {
-	certs    []issuerCert
-	enrolled bool
+	certs []issuerCert
 }
 
 type EnrolledIssuer struct {
 	UniqueID   string `json:"uniqueID"`
 	PubKeyHash string `json:"pubKeyHash"`
-	Whitelist  bool   `json:"whitelist"`
-	SubjectDN  string `json:"subjectDN"`
 	Subject    string `json:"subject"`
 	Pem        string `json:"pem"`
-	Enrolled   bool   `json:"enrolled"`
 }
 
 type MozIssuers struct {
@@ -183,7 +179,6 @@ func normalizePem(input string) string {
 func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
-	enrolledCount := 0
 	certCount := 0
 
 	issuers := make([]EnrolledIssuer, 0, len(mi.issuerMap))
@@ -194,20 +189,14 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 			issuers = append(issuers, EnrolledIssuer{
 				UniqueID:   base64.URLEncoding.EncodeToString(uniqueID[:]),
 				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
-				Whitelist:  false,
-				SubjectDN:  base64.URLEncoding.EncodeToString([]byte(cert.subjectDN)),
 				Subject:    cert.subjectDN,
 				Pem:        normalizePem(cert.pemInfo),
-				Enrolled:   val.enrolled,
 			})
 			certCount++
-			if val.enrolled {
-				enrolledCount++
-			}
 		}
 	}
 
-	glog.Infof("Saving %d issuers and %d certs, of which %d are marked as enrolled", len(mi.issuerMap), certCount, enrolledCount)
+	glog.Infof("Saving %d issuers and %d certs", len(mi.issuerMap), certCount)
 	fd, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		glog.Errorf("Error opening enrolled issuer %s: %s", filePath, err)
@@ -244,38 +233,15 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 		if err != nil {
 			return err
 		}
-		issuer := mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil)
-		if ei.Enrolled {
-			mi.Enroll(issuer)
-		}
-		// TODO: Support whitelisting, overall
+		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil)
 	}
 
 	return nil
 }
 
-func (mi *MozIssuers) Enroll(aIssuer types.Issuer) {
-	mi.mutex.Lock()
-	defer mi.mutex.Unlock()
-
-	if _, ok := mi.issuerMap[aIssuer.ID()]; ok {
-		data := mi.issuerMap[aIssuer.ID()]
-		data.enrolled = true
-		mi.issuerMap[aIssuer.ID()] = data
-	}
-}
-
 func (mi *MozIssuers) IsIssuerInProgram(aIssuer types.Issuer) bool {
 	_, ok := mi.issuerMap[aIssuer.ID()]
 	return ok
-}
-
-func (mi *MozIssuers) IsIssuerEnrolled(aIssuer types.Issuer) bool {
-	if _, ok := mi.issuerMap[aIssuer.ID()]; ok {
-		data := mi.issuerMap[aIssuer.ID()]
-		return data.enrolled
-	}
-	return false
 }
 
 func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*x509.Certificate, error) {
@@ -386,8 +352,7 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 	}
 
 	mi.issuerMap[issuer.ID()] = IssuerData{
-		certs:    []issuerCert{ic},
-		enrolled: false,
+		certs: []issuerCert{ic},
 	}
 
 	return issuer
@@ -399,8 +364,7 @@ func (mi *MozIssuers) NewTestIssuerFromSubjectString(aSub string) types.Issuer {
 		subjectDN: aSub,
 	}
 	mi.issuerMap[issuer.ID()] = IssuerData{
-		certs:    []issuerCert{ic},
-		enrolled: false,
+		certs: []issuerCert{ic},
 	}
 	return issuer
 }
