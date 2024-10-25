@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -95,6 +96,13 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				}
 
 				serialCount += knownSetLen
+				// Write the common (truncated) expiry date for this collection of serial numbers
+				// as a zero-padded 16 digit hex string. The date is encoded as a unix timestamp.
+				// Expiry date rows are prefixed by "@" to distinguish them from a serial numbers.
+				_, err := writer.WriteString(fmt.Sprintf("@%016x\n", expDate.Unix()))
+				if err != nil {
+					glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
+				}
 				for _, s := range knownSet {
 					_, err := writer.WriteString(s.HexString())
 					if err != nil {

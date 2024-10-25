@@ -335,6 +335,10 @@ func (e ExpDate) String() string {
 	return e.ID()
 }
 
+func (e ExpDate) Unix() int64 {
+	return e.date.Unix()
+}
+
 func (e ExpDate) ID() string {
 	if e.hourResolution {
 		return e.date.Format(kExpirationFormatWithHour)
