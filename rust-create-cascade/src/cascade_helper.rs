@@ -30,7 +30,7 @@ impl FilterBuilder for CascadeBuilder {
     ) {
         let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
 
-        for serial in known_serials {
+        for (_expiry, serial) in known_serials {
             if revoked_serial_set.contains(&serial) {
                 let key = crlite_key(issuer.as_ref(), &decode_serial(&serial));
                 CascadeBuilder::include(self, key)
@@ -55,8 +55,9 @@ impl FilterBuilder for CascadeBuilder {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
-        let non_revoked_serials = known_serials.filter(|x| !revoked_serial_set.contains(x));
-        for serial in non_revoked_serials {
+        let non_revoked_serials =
+            known_serials.filter(|(_expiry, serial)| !revoked_serial_set.contains(serial));
+        for (_expiry, serial) in non_revoked_serials {
             let key = crlite_key(issuer, &decode_serial(&serial));
             CascadeBuilder::exclude_threaded(self, &mut exclude_set, key);
         }
@@ -85,7 +86,7 @@ impl CheckableFilter for Cascade {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
-        for serial in known_serials {
+        for (_expiry, serial) in known_serials {
             assert_eq!(
                 Cascade::has(self, crlite_key(issuer, &decode_serial(&serial))),
                 revoked_serial_set.contains(&serial)

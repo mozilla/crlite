@@ -28,7 +28,7 @@ fn clubcard_do_one_issuer(
 
     let mut ribbon_builder = clubcard.new_approx_builder(issuer.as_ref());
     let mut universe_size = 0;
-    for serial in known_serials {
+    for (_expiry, serial) in known_serials {
         universe_size += 1;
         if revoked_serial_set.contains(&serial) {
             let key = CRLiteBuilderItem::revoked(*issuer, decode_serial(&serial));
@@ -95,7 +95,7 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
-        for serial in known_serials {
+        for (_expiry, serial) in known_serials {
             let serial_bytes = decode_serial(&serial);
             let key = if revoked_serial_set.contains(&serial) {
                 CRLiteBuilderItem::revoked(*issuer, serial_bytes)
@@ -128,7 +128,7 @@ impl CheckableFilter for CRLiteClubcard {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
-        for serial in known_serials {
+        for (_expiry, serial) in known_serials {
             let decoded_serial = decode_serial(&serial);
             let key = CRLiteKey::new(issuer, &decoded_serial);
             let query = CRLiteQuery::new(&key, None);
