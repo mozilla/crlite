@@ -69,7 +69,7 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
                         Some(revoked_file) => {
                             RevokedSerialAndReasonIterator::new(revoked_file, reason_set)
                         }
-                        None => Default::default(), // empty iterator
+                        None => RevokedSerialAndReasonIterator::empty(reason_set),
                     };
                     clubcard_do_one_issuer(
                         self,
