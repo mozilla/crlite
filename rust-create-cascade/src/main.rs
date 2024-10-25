@@ -1003,7 +1003,7 @@ mod tests {
             env.add_revoked_serial(&issuer, Reason::PrivilegeWithdrawn);
         }
 
-        let (revoked, known, dist) =
+        let (revoked, known, dist, _) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         assert_eq!(known, 86);
         assert_eq!(revoked, 75 + 30 + 9);
@@ -1018,7 +1018,7 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist) = count_all(
+        let (revoked, known, dist, _) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Specified,
@@ -1037,7 +1037,7 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist) = count_all(
+        let (revoked, known, dist, _) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Priority,
@@ -1073,7 +1073,7 @@ mod tests {
         let prev_revset_file = env.dir.path().join("old-revset.bin");
         let delta_dir = env.dir.path().join("delta");
 
-        let (revoked, not_revoked, _reasons) =
+        let (revoked, not_revoked, _reasons, _lower_bound) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         create_cascade(
             &filter_file,
@@ -1175,7 +1175,7 @@ mod tests {
         let filter_file = env.dir.path().join("filter");
 
         // Use ReasonSet::Specified while creating the filter
-        let (revoked, not_revoked, _reasons) = count_all(
+        let (revoked, not_revoked, _reasons, _lower_bound) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Specified,
@@ -1213,7 +1213,7 @@ mod tests {
 
         let filter_file = env.dir.path().join("filter");
 
-        let (revoked, not_revoked, _reasons) =
+        let (revoked, not_revoked, _reasons, _lower_bound) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
 
         let cascade_bytes = create_cascade(
