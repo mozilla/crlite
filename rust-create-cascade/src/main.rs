@@ -159,22 +159,24 @@ impl ReasonCodeHistogram {
     }
 }
 
-#[derive(clap::ValueEnum, Copy, Clone)]
+#[derive(clap::ValueEnum, Copy, Clone, Default)]
 enum ReasonSet {
+    #[default]
     All,
     Specified,
     Priority,
 }
 
+#[derive(Default)]
 struct RevokedSerialAndReasonIterator {
-    lines: Lines<BufReader<File>>,
+    lines: Option<Lines<BufReader<File>>>,
     reason_set: ReasonSet,
 }
 
 impl RevokedSerialAndReasonIterator {
     fn new(path: &Path, reason_set: ReasonSet) -> Self {
         Self {
-            lines: BufReader::new(File::open(path).unwrap()).lines(),
+            lines: Some(BufReader::new(File::open(path).unwrap()).lines()),
             reason_set,
         }
     }
@@ -194,7 +196,7 @@ impl RevokedSerialAndReasonIterator {
 impl Iterator for RevokedSerialAndReasonIterator {
     type Item = (Serial, Reason);
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(mut line) = self.lines.next().transpose().expect("IO error") {
+        while let Some(mut line) = self.lines.as_mut()?.next().transpose().expect("IO error") {
             let reason = decode_reason(&line[..2]);
             if self.skip_reason(&reason) {
                 continue;
