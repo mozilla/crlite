@@ -104,6 +104,25 @@ jobs:
           command: go test -race -short ./...
           working_directory: /go/src/github.com/mozilla.com/crlite/go
 
+  rust-create-cascade-build-and-test:
+    docker:
+      - image: cimg/rust:1.82.0
+    environment:
+      RUSTFLAGS: '-D warnings'
+    working_directory: ~/crlite/rust-create-cascade
+    steps:
+      - checkout:
+          path: ~/crlite/
+      - run:
+          name: Version information
+          command: rustc --version; cargo --version; rustup --version
+      - run:
+          name: rustfmt
+          command: rustfmt --check src/*.rs
+      - run:
+          name: Run Tests
+          command: cargo test -r
+
   publish-dev-image:
     executor: docker/docker
     steps:
@@ -135,6 +154,7 @@ workflows:
     jobs:
       - python-build-and-test
       - golang-build-and-test
+      - rust-create-cascade-build-and-test
       - publish-dev-image:
           filters:
             branches:
@@ -142,6 +162,7 @@ workflows:
           requires:
             - python-build-and-test
             - golang-build-and-test
+            - rust-create-cascade-build-and-test
       - publish-latest-image:
           filters:
             branches:
@@ -149,6 +170,7 @@ workflows:
           requires:
             - python-build-and-test
             - golang-build-and-test
+            - rust-create-cascade-build-and-test
 
   tagged-build:
     jobs:
@@ -164,6 +186,12 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v.*/
+      - rust-create-cascade-build-and-test:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
       - publish-tagged-image:
           filters:
             branches:
@@ -173,3 +201,4 @@ workflows:
           requires:
             - python-build-and-test
             - golang-build-and-test
+            - rust-create-cascade-build-and-test
