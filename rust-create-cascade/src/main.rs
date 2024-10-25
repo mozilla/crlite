@@ -9,9 +9,15 @@
 //! The aggregator program creates two directories `/known/` and `/revoked/` containing
 //! issuer-specific files. Each file name is (the url-safe base64 encoding of) the SHA256 hash of
 //! the DER encoded SubjectPublicKeyInfo field from the issuer's certificate. Each file contains
-//! line delimited ascii hex encoded data. In the known directory, each line is a certificate
-//! serial number. In the revoked directory, each line is a serial number prefixed by a one byte
-//! revocation reason code.
+//! newline delimited data.
+//! In the known directory, each line is either
+//!     1) an ascii hex encoded 64 bit unix timestamp prefixed by "@", or
+//!     2) an ascii hex encoded certificate serial number.
+//! The timestamps are truncated to the hour (or day depending on how the CRLite backend is
+//! configured). The certificates that follow a timestamp share the same (truncated) notAfter
+//! date.
+//! In the revoked directory, each line is an ascii hex encoded serial number prefixed by an ascii
+//! hex encoded revocation reason code. The reason codes are one byte.
 //!
 //! A filter cascade encodes a subset R of a set U.
 //! Here we take U to be the set
@@ -227,20 +233,29 @@ impl From<RevokedSerialAndReasonIterator> for HashMap<Serial, Reason> {
 
 struct KnownSerialIterator {
     lines: Lines<BufReader<File>>,
+    date: u64,
 }
 
 impl KnownSerialIterator {
     fn new(path: &Path) -> Self {
         Self {
             lines: BufReader::new(File::open(path).unwrap()).lines(),
+            date: 0,
         }
     }
 }
 
 impl Iterator for KnownSerialIterator {
-    type Item = String;
+    type Item = (u64, String);
     fn next(&mut self) -> Option<Self::Item> {
-        self.lines.next().transpose().expect("io error")
+        while let Some(line) = self.lines.next().transpose().expect("io error") {
+            if let Some(timestamp) = line.strip_prefix("@") {
+                self.date = u64::from_str_radix(timestamp, 16).expect("malformed date");
+                continue;
+            }
+            return Some((self.date, line));
+        }
+        None
     }
 }
 
@@ -298,6 +313,22 @@ fn list_issuer_file_pairs(
     pairs
 }
 
+fn size_lower_bound(ok_count: usize, revoked_count: usize) -> f64 {
+    let r = revoked_count as f64;
+    let n = (ok_count + revoked_count) as f64;
+    let entropy = if revoked_count == 0 || ok_count == 0 {
+        0.0
+    } else {
+        let p = r / n;
+        -p * p.log2() - (1.0 - p) * (1.0 - p).log2()
+    };
+    // Any function that can encode an arbitrary r element subset of an n element set needs
+    // an output of length ~log(n choose r) bits. Stirling's approximation to n! implies
+    // that log(n choose r) can be approximated by n*H(r/n) where H is the binary entropy
+    // function.
+    n * entropy
+}
+
 /// `count` obtains an upper bound on the number of distinct serial numbers in `revoked_serials_and_reasons` and
 /// `known_serials`.
 ///
@@ -316,40 +347,45 @@ fn list_issuer_file_pairs(
 fn count(
     revoked_serials_and_reasons: Option<RevokedSerialAndReasonIterator>,
     known_serials: KnownSerialIterator,
-) -> (usize, usize, ReasonCodeHistogram, f64) {
-    let mut ok_count: usize = 0;
+) -> (usize, usize, ReasonCodeHistogram, f64, f64) {
     let mut known_revoked_serial_set = HashSet::new();
     let mut reasons = ReasonCodeHistogram::default();
+
+    let mut approx_counts = HashMap::<u64, (usize, usize)>::new();
 
     let revoked_serial_to_reason_map: HashMap<Serial, Reason> = revoked_serials_and_reasons
         .map(|iter| iter.into())
         .unwrap_or_default();
 
-    for serial in known_serials {
+    for (date, serial) in known_serials {
+        let (ok_count, revoked_count) = approx_counts.entry(date).or_insert((0, 0));
         if let Some(reason) = revoked_serial_to_reason_map.get(serial.as_str()) {
             known_revoked_serial_set.insert(serial);
             reasons.add(*reason);
+            *revoked_count += 1;
         } else {
-            ok_count += 1;
+            *ok_count += 1;
         }
     }
 
-    let revoked_count = known_revoked_serial_set.len();
-    let r = revoked_count as f64;
-    let n = (ok_count + revoked_count) as f64;
-    let entropy = if revoked_count == 0 || ok_count == 0 {
-        0.0
-    } else {
-        let p = r / n;
-        -p * p.log2() - (1.0 - p) * (1.0 - p).log2()
-    };
-    // Any function that can encode an arbitrary r element subset of an n element set needs
-    // an output of length ~log(n choose r) bits. Stirling's approximation to n! implies
-    // that log(n choose r) can be approximated by n*H(r/n) where H is the binary entropy
-    // function.
-    let lower_bound = n * entropy;
+    let mut approx_total_ok_count = 0;
+    let mut split_by_issuer_and_expiry_lower_bound = 0.0;
+    for (approx_ok_count, approx_revoked_count) in approx_counts.values() {
+        approx_total_ok_count += approx_ok_count;
+        split_by_issuer_and_expiry_lower_bound +=
+            size_lower_bound(*approx_ok_count, *approx_revoked_count);
+    }
 
-    (revoked_count, ok_count, reasons, lower_bound)
+    let total_revoked_count = known_revoked_serial_set.len();
+    let split_by_issuer_lower_bound = size_lower_bound(approx_total_ok_count, total_revoked_count);
+
+    (
+        total_revoked_count,
+        approx_total_ok_count,
+        reasons,
+        split_by_issuer_lower_bound,
+        split_by_issuer_and_expiry_lower_bound,
+    )
 }
 
 /// `count_all` performs a parallel iteration over file pairs, applies
@@ -359,8 +395,8 @@ fn count_all(
     known_dir: &Path,
     reason_set: ReasonSet,
     output_csv_path: Option<&Path>,
-) -> (usize, usize, ReasonCodeHistogram, f64) {
-    let mut counts: Vec<(OsString, (usize, usize, ReasonCodeHistogram, f64))> =
+) -> (usize, usize, ReasonCodeHistogram, f64, f64) {
+    let mut counts: Vec<(OsString, (usize, usize, ReasonCodeHistogram, f64, f64))> =
         list_issuer_file_pairs(revoked_dir, known_dir)
             .par_iter()
             .map(|pair| {
@@ -380,7 +416,7 @@ fn count_all(
         let mut output_csv = File::create(output_csv_path)
             .expect("could not open output file for reason code counts");
         writeln!(output_csv, "issuer_spki_hash,unspecified,key_compromise,privilege_withdrawn,affiliation_changed,superseded,cessation_of_operation,revoked_certificates,non_revoked_certificates").expect("could not write reason code count line");
-        for (issuer, (revoked, non_revoked, reasons, _)) in &counts {
+        for (issuer, (revoked, non_revoked, reasons, _, _)) in &counts {
             writeln!(
                 output_csv,
                 "{issuer},{unspecified},{key_compromise},{privilege_withdrawn},{affiliation_changed},{superseded},{cessation},{revoked},{non_revoked}",
@@ -398,7 +434,7 @@ fn count_all(
     counts
         .drain(..)
         .map(|x| x.1)
-        .reduce(|a, b| (a.0 + b.0, a.1 + b.1, a.2.merge(b.2), a.3 + b.3))
+        .reduce(|a, b| (a.0 + b.0, a.1 + b.1, a.2.merge(b.2), a.3 + b.3, a.4 + b.4))
         .unwrap_or_default()
 }
 
@@ -542,7 +578,7 @@ fn write_revset_and_delta(
             let revoked_serials: HashMap<Serial, Reason> =
                 RevokedSerialAndReasonIterator::new(revoked_file, reason_set).into();
             let known_revoked_serials = KnownSerialIterator::new(known_file)
-                .filter_map(|x| revoked_serials.get_key_value(&x));
+                .filter_map(|(_expiry, serial)| revoked_serials.get_key_value(&serial));
             let mut per_issuer_delta_file = File::create(output_delta_dir.join(issuer))
                 .expect("could not create per-issuer delta file");
             for (serial, reason) in known_revoked_serials {
@@ -759,13 +795,26 @@ fn main() {
     }
 
     info!("Counting serials");
-    let (revoked, not_revoked, reasons, filter_lower_bound) = count_all(
+    let (
+        revoked,
+        not_revoked,
+        reasons,
+        filter_by_issuer_lower_bound,
+        filter_by_issuer_and_expiry_lower_bound,
+    ) = count_all(
         revoked_dir,
         known_dir,
         reason_set,
         Some(reason_codes_csv_file),
     );
-    info!("Lower bound is {:.0} bytes", filter_lower_bound / 8.0);
+    info!(
+        "Lower bound when splitting by issuer is {:.0} bytes",
+        filter_by_issuer_lower_bound / 8.0
+    );
+    info!(
+        "Lower bound when splitting by issuer and expiry is {:.0} bytes",
+        filter_by_issuer_and_expiry_lower_bound / 8.0
+    );
 
     info!(
         "Found {} 'revoked' and {} 'not revoked' serial numbers",
@@ -823,9 +872,21 @@ fn main() {
     info!("Finished in {} seconds", timer_finish.as_secs());
 
     info!("Counting delta serials");
-    let (delta_revoked, delta_not_revoked, delta_reasons, delta_lower_bound) =
-        count_all(delta_dir, known_dir, delta_reason_set, None);
-    info!("Lower bound is {:.0} bytes", delta_lower_bound / 8.0);
+    let (
+        delta_revoked,
+        delta_not_revoked,
+        delta_reasons,
+        delta_by_issuer_lower_bound,
+        delta_by_issuer_and_expiry_lower_bound,
+    ) = count_all(delta_dir, known_dir, delta_reason_set, None);
+    info!(
+        "Lower bound is {:.0} bytes",
+        delta_by_issuer_lower_bound / 8.0
+    );
+    info!(
+        "Lower bound is {:.0} bytes",
+        delta_by_issuer_and_expiry_lower_bound / 8.0
+    );
 
     info!("Found {} 'revoked' serial numbers in delta", delta_revoked);
     info!("Revocation reason codes: {:#?}", delta_reasons);
@@ -862,11 +923,19 @@ fn main() {
     if let Some(client) = statsd_client {
         client.gauge("time", timer_finish.as_secs() as f64);
         client.gauge("filter_size", filter_bytes.len() as f64);
-        client.gauge("lower_bound", filter_lower_bound);
+        client.gauge("filter_by_issuer_lower_bound", filter_by_issuer_lower_bound);
+        client.gauge(
+            "filter_by_issuer_and_expiry_lower_bound",
+            filter_by_issuer_and_expiry_lower_bound,
+        );
         client.gauge("not_revoked", not_revoked as f64);
         client.gauge("revoked", revoked as f64);
         client.gauge("delta_filter_size", delta_filter_bytes.len() as f64);
-        client.gauge("delta_filter_lower_bound", delta_lower_bound);
+        client.gauge("delta_by_issuer_lower_bound", delta_by_issuer_lower_bound);
+        client.gauge(
+            "delta_by_issuer_and_expiry_lower_bound",
+            delta_by_issuer_and_expiry_lower_bound,
+        );
         client.gauge("delta_not_revoked", delta_not_revoked as f64);
         client.gauge("delta_revoked", delta_revoked as f64);
         client.gauge("revoked.unspecified", reasons.unspecified as f64);
@@ -1003,7 +1072,7 @@ mod tests {
             env.add_revoked_serial(&issuer, Reason::PrivilegeWithdrawn);
         }
 
-        let (revoked, known, dist, _) =
+        let (revoked, known, dist, _, _) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         assert_eq!(known, 86);
         assert_eq!(revoked, 75 + 30 + 9);
@@ -1018,7 +1087,7 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist, _) = count_all(
+        let (revoked, known, dist, _, _) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Specified,
@@ -1037,7 +1106,7 @@ mod tests {
         assert_eq!(dist.privilege_withdrawn, 9);
         assert_eq!(dist.aa_compromise, 0);
 
-        let (revoked, known, dist, _) = count_all(
+        let (revoked, known, dist, _, _) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Priority,
@@ -1073,7 +1142,7 @@ mod tests {
         let prev_revset_file = env.dir.path().join("old-revset.bin");
         let delta_dir = env.dir.path().join("delta");
 
-        let (revoked, not_revoked, _reasons, _lower_bound) =
+        let (revoked, not_revoked, _reasons, _, _) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
         create_cascade(
             &filter_file,
@@ -1175,7 +1244,7 @@ mod tests {
         let filter_file = env.dir.path().join("filter");
 
         // Use ReasonSet::Specified while creating the filter
-        let (revoked, not_revoked, _reasons, _lower_bound) = count_all(
+        let (revoked, not_revoked, _reasons, _, _) = count_all(
             &env.revoked_dir(),
             &env.known_dir(),
             ReasonSet::Specified,
@@ -1213,7 +1282,7 @@ mod tests {
 
         let filter_file = env.dir.path().join("filter");
 
-        let (revoked, not_revoked, _reasons, _lower_bound) =
+        let (revoked, not_revoked, _, _, _) =
             count_all(&env.revoked_dir(), &env.known_dir(), ReasonSet::All, None);
 
         let cascade_bytes = create_cascade(
