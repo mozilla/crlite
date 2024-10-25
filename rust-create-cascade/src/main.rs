@@ -159,15 +159,13 @@ impl ReasonCodeHistogram {
     }
 }
 
-#[derive(clap::ValueEnum, Copy, Clone, Default)]
+#[derive(clap::ValueEnum, Copy, Clone)]
 enum ReasonSet {
-    #[default]
     All,
     Specified,
     Priority,
 }
 
-#[derive(Default)]
 struct RevokedSerialAndReasonIterator {
     lines: Option<Lines<BufReader<File>>>,
     reason_set: ReasonSet,
@@ -177,6 +175,13 @@ impl RevokedSerialAndReasonIterator {
     fn new(path: &Path, reason_set: ReasonSet) -> Self {
         Self {
             lines: Some(BufReader::new(File::open(path).unwrap()).lines()),
+            reason_set,
+        }
+    }
+
+    fn empty(reason_set: ReasonSet) -> Self {
+        Self {
+            lines: None,
             reason_set,
         }
     }
