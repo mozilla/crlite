@@ -62,21 +62,22 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
         let ribbons: Vec<ApproximateRibbon<4, CRLiteBuilderItem>> =
             list_issuer_file_pairs(revoked_dir, known_dir)
                 .par_iter()
-                .map(|pair| {
-                    if let (issuer, Some(revoked_file), known_file) = pair {
-                        let issuer_bytes =
-                            decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
-                        Some(clubcard_do_one_issuer(
-                            self,
-                            &issuer_bytes,
-                            RevokedSerialAndReasonIterator::new(revoked_file, reason_set),
-                            KnownSerialIterator::new(known_file),
-                        ))
-                    } else {
-                        None
-                    }
+                .map(|(issuer, maybe_revoked_file, known_file)| {
+                    let issuer_bytes =
+                        decode_issuer(issuer.to_str().expect("non-unicode issuer string"));
+                    let revoked_serials_and_reasons = match maybe_revoked_file {
+                        Some(revoked_file) => {
+                            RevokedSerialAndReasonIterator::new(revoked_file, reason_set)
+                        }
+                        None => Default::default(), // empty iterator
+                    };
+                    clubcard_do_one_issuer(
+                        self,
+                        &issuer_bytes,
+                        revoked_serials_and_reasons,
+                        KnownSerialIterator::new(known_file),
+                    )
                 })
-                .flatten()
                 .collect();
 
         ClubcardBuilder::collect_approx_ribbons(self, ribbons);
