@@ -142,7 +142,7 @@ class TestLoadIntermediates(unittest.TestCase):
         intermediates = main.load_local_intermediates(
             intermediates_path=intermediates_path
         )
-        self.assertEqual(len(intermediates), 1708)
+        self.assertEqual(len(intermediates), 1707)
 
     def test_load_remote(self):
         ro_client = main.PublisherClient(
