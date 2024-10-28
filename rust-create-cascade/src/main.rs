@@ -890,11 +890,11 @@ fn main() {
     info!("Counting delta serials");
     let delta_stats = count_all(delta_dir, known_dir, delta_reason_set, None);
     info!(
-        "Lower bound is {:.0} bytes",
+        "Lower bound when splitting by issuer is {:.0} bytes",
         delta_stats.split_by_issuer_lower_bound
     );
     info!(
-        "Lower bound is {:.0} bytes",
+        "Lower bound when splitting by issuer and expiry is {:.0} bytes",
         delta_stats.split_by_issuer_and_expiry_lower_bound
     );
 
