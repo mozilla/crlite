@@ -398,7 +398,7 @@ class Intermediate:
             if not kinto_client:
                 raise Exception("cannot download PEM without client")
             self.download_pem(kinto_client)
-        return self.cert.not_valid_after <= datetime.utcnow()
+        return self.cert.not_valid_after <= datetime.now(datetime.UTC)
 
     def delete_from_kinto(self, *, rw_client=None):
         if self.kinto_id is None:
