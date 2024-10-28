@@ -504,7 +504,9 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 	}
 
 	metricKey := ctLogMeta.MetricKey()
-	metrics.SetGauge([]string{metricKey, "coverage"}, float32(logObj.MaxEntry-logObj.MinEntry+1)/float32(sth.TreeSize))
+	if sth != nil {
+		metrics.SetGauge([]string{metricKey, "coverage"}, float32(logObj.MaxEntry-logObj.MinEntry+1)/float32(sth.TreeSize))
+	}
 
 	return &LogWorker{
 		Database:  ld.database,
