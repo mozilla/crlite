@@ -313,7 +313,7 @@ fn list_issuer_file_pairs(
     pairs
 }
 
-fn size_lower_bound(ok_count: usize, revoked_count: usize) -> f64 {
+fn size_lower_bound_bytes(ok_count: usize, revoked_count: usize) -> f64 {
     let r = revoked_count as f64;
     let n = (ok_count + revoked_count) as f64;
     let entropy = if revoked_count == 0 || ok_count == 0 {
@@ -326,7 +326,7 @@ fn size_lower_bound(ok_count: usize, revoked_count: usize) -> f64 {
     // an output of length ~log(n choose r) bits. Stirling's approximation to n! implies
     // that log(n choose r) can be approximated by n*H(r/n) where H is the binary entropy
     // function.
-    n * entropy
+    n * entropy / 8.0
 }
 
 #[derive(Default)]
@@ -393,11 +393,11 @@ fn count(
     for (block_approx_ok_count, block_approx_revoked_count) in approx_counts.values() {
         approx_ok_count += block_approx_ok_count;
         split_by_issuer_and_expiry_lower_bound +=
-            size_lower_bound(*block_approx_ok_count, *block_approx_revoked_count);
+            size_lower_bound_bytes(*block_approx_ok_count, *block_approx_revoked_count);
     }
 
     let exact_revoked_count = known_revoked_serial_set.len();
-    let split_by_issuer_lower_bound = size_lower_bound(approx_ok_count, exact_revoked_count);
+    let split_by_issuer_lower_bound = size_lower_bound_bytes(approx_ok_count, exact_revoked_count);
 
     BlockStats {
         exact_revoked_count,
@@ -825,11 +825,11 @@ fn main() {
     );
     info!(
         "Lower bound when splitting by issuer is {:.0} bytes",
-        filter_stats.split_by_issuer_lower_bound / 8.0
+        filter_stats.split_by_issuer_lower_bound
     );
     info!(
         "Lower bound when splitting by issuer and expiry is {:.0} bytes",
-        filter_stats.split_by_issuer_and_expiry_lower_bound / 8.0
+        filter_stats.split_by_issuer_and_expiry_lower_bound
     );
 
     info!(
@@ -891,11 +891,11 @@ fn main() {
     let delta_stats = count_all(delta_dir, known_dir, delta_reason_set, None);
     info!(
         "Lower bound is {:.0} bytes",
-        delta_stats.split_by_issuer_lower_bound / 8.0
+        delta_stats.split_by_issuer_lower_bound
     );
     info!(
         "Lower bound is {:.0} bytes",
-        delta_stats.split_by_issuer_and_expiry_lower_bound / 8.0
+        delta_stats.split_by_issuer_and_expiry_lower_bound
     );
 
     info!(
