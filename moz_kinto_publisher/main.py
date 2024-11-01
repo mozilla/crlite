@@ -16,6 +16,7 @@ import requests
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from kinto_http import Client
 from kinto_http.exceptions import KintoException
 from kinto_http.patch_type import BasicPatch
@@ -300,32 +301,36 @@ class Intermediate:
             [
                 "derHash",
                 "id",
-                "pubKeyHash",
-                "subject",
             ],
             kwargs,
         ):
             raise parseError
 
         try:
-            self.pubKeyHash = base64.b64decode(
-                kwargs["pubKeyHash"], altchars="-_", validate=True
-            )  # sha256 of the SPKI
+            if "pubKeyHash" in kwargs:
+                self.pubKeyHash = base64.b64decode(
+                    kwargs["pubKeyHash"], altchars="-_", validate=True
+                )  # sha256 of the SPKI
+            else:
+                self.pubKeyHash = None
+        except base64.binascii.Error:
+            raise parseError
 
+        if self.pubKeyHash and len(self.pubKeyHash) != 32:
+            raise IntermediateRecordError(f"Invalid pubkey hash: {kwargs}")
+
+        try:
             if "derHash" in kwargs:
                 self.derHash = base64.b64decode(
                     kwargs["derHash"], altchars="-_", validate=True
                 )
+            else:
+                self.derHash = None
         except base64.binascii.Error:
             raise parseError
 
-        if len(self.pubKeyHash) != 32:
-            raise IntermediateRecordError(f"Invalid pubkey hash: {kwargs}")
-
         if self.derHash and len(self.derHash) != 32:
             raise IntermediateRecordError(f"Invalid DER hash. {kwargs}")
-
-        self.subject = kwargs["subject"]
 
         if "pem" in kwargs:
             self.set_pem(kwargs["pem"])
@@ -376,13 +381,27 @@ class Intermediate:
         self.pemData = pem_data
         self.pemHash = hashlib.sha256(pem_data.encode("utf-8")).hexdigest()
         derCert = asciiPemToBinaryDer(pem_data)
-        self.derHash = hashlib.sha256(derCert).digest()
         try:
             self.cert = x509.load_pem_x509_certificate(
                 pem_data.encode("utf-8"), default_backend()
             )
         except Exception as e:
             raise IntermediateRecordError("Cannot parse PEM data: {}".format(e))
+
+        derHash = hashlib.sha256(self.cert.public_bytes(Encoding.DER)).digest()
+        if self.derHash and self.derHash != derHash:
+            raise IntermediateRecordError("DER hash does not match")
+        self.derHash = derHash
+
+        self.subject = self.cert.subject.rfc4514_string()
+
+        derSpki = self.cert.public_key().public_bytes(
+            encoding=Encoding.DER, format=PublicFormat.SubjectPublicKeyInfo
+        )
+        spkiHash = hashlib.sha256(derSpki).digest()
+        if self.pubKeyHash and self.pubKeyHash != spkiHash:
+            raise IntermediateRecordError("SPKI hash does not match")
+        self.pubKeyHash = spkiHash
 
     def download_pem(self, kinto_client):
         if not self.pemAttachment:
