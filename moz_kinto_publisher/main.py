@@ -36,8 +36,6 @@ import settings
 #
 # NOTE: Channel names cannot contain underscores.
 CHANNEL_ALL = "all"
-CHANNEL_SPECIFIED = "specified"
-CHANNEL_PRIORITY = "priority"
 CHANNEL_EXPERIMENTAL = "experimental"
 CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
 
@@ -61,22 +59,6 @@ CHANNELS = [
         supported_version=130,
         mimetype="application/octet-stream",
         enabled=True,
-    ),
-    Channel(
-        slug=CHANNEL_SPECIFIED,
-        dir="mlbf-specified",
-        delta_filename="filter.stash",
-        supported_version=130,
-        mimetype="application/octet-stream",
-        enabled=False,
-    ),
-    Channel(
-        slug=CHANNEL_PRIORITY,
-        dir="mlbf-priority",
-        delta_filename="filter.stash",
-        supported_version=130,
-        mimetype="application/octet-stream",
-        enabled=False,
     ),
     Channel(
         slug=CHANNEL_EXPERIMENTAL,
