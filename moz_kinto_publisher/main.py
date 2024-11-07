@@ -14,6 +14,7 @@ from pathlib import Path
 
 import requests
 
+from collections import namedtuple
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -26,12 +27,12 @@ import glog as log
 import workflow
 import settings
 
-# To add a channel: give it a unique name and add it to both the `CHANNELS` and
-# the `ENABLED_CHANNELS` lists.
+# To add a channel: give it a unique slug and add it to the CHANNELS list with
+# the enabled flag set to True.
 #
-# To remove a channel: remove it from the ENABLED_CHANNELS list but keep it in
-# CHANNELS. This will ensure that records for the channel are removed from
-# remote settings.
+# To remove a channel: set its enabled flag to False in the CHANNELS list.
+# It can be removed from the CHANNELS list once all records for the channel
+# are removed from remote settings.
 #
 # NOTE: Channel names cannot contain underscores.
 CHANNEL_ALL = "all"
@@ -40,44 +41,63 @@ CHANNEL_PRIORITY = "priority"
 CHANNEL_EXPERIMENTAL = "experimental"
 CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
 
+Channel = namedtuple(
+    "Channel",
+    [
+        "slug",
+        "dir",
+        "delta_filename",
+        "supported_version",
+        "mimetype",
+        "enabled",
+    ],
+)
+
 CHANNELS = [
-    CHANNEL_ALL,
-    CHANNEL_SPECIFIED,
-    CHANNEL_PRIORITY,
-    CHANNEL_EXPERIMENTAL,
-    CHANNEL_EXPERIMENTAL_DELTAS,
+    Channel(
+        slug=CHANNEL_ALL,
+        dir="mlbf",
+        delta_filename="filter.stash",
+        supported_version=130,
+        mimetype="application/octet-stream",
+        enabled=True,
+    ),
+    Channel(
+        slug=CHANNEL_SPECIFIED,
+        dir="mlbf-specified",
+        delta_filename="filter.stash",
+        supported_version=130,
+        mimetype="application/octet-stream",
+        enabled=False,
+    ),
+    Channel(
+        slug=CHANNEL_PRIORITY,
+        dir="mlbf-priority",
+        delta_filename="filter.stash",
+        supported_version=130,
+        mimetype="application/octet-stream",
+        enabled=False,
+    ),
+    Channel(
+        slug=CHANNEL_EXPERIMENTAL,
+        dir="clubcard-all",
+        delta_filename="filter.stash",
+        supported_version=132,
+        mimetype="application/octet-stream",
+        enabled=True,
+    ),
+    Channel(
+        slug=CHANNEL_EXPERIMENTAL_DELTAS,
+        dir="clubcard-all",
+        delta_filename="filter.delta",
+        supported_version=133,
+        # The metadata in clubcards produced by clubcard-crlite version 0.3.*
+        # is somewhat compressible, so set a mimetype that encourages our CDN to use
+        # compression (see: https://cloud.google.com/cdn/docs/dynamic-compression).
+        mimetype="application/x-protobuf",
+        enabled=True,
+    ),
 ]
-
-ENABLED_CHANNELS = [CHANNEL_ALL, CHANNEL_EXPERIMENTAL, CHANNEL_EXPERIMENTAL_DELTAS]
-
-
-def get_mlbf_dir(channel):
-    if channel == CHANNEL_ALL:
-        return "mlbf"
-    elif channel == CHANNEL_SPECIFIED:
-        return "mlbf-specified"
-    elif channel == CHANNEL_PRIORITY:
-        return "mlbf-priority"
-    elif channel == CHANNEL_EXPERIMENTAL:
-        return "clubcard-all"
-    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
-        return "clubcard-all"
-    log.warning(f"Unrecognized channel ({channel}).")
-    return None
-
-
-def get_delta_filename(channel):
-    if channel in [
-        CHANNEL_ALL,
-        CHANNEL_SPECIFIED,
-        CHANNEL_PRIORITY,
-        CHANNEL_EXPERIMENTAL,
-    ]:
-        return "filter.stash"
-    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
-        return "filter.delta"
-    log.warning(f"Unrecognized channel ({channel}).")
-    return None
 
 
 class IntermediateRecordError(KintoException):
@@ -102,20 +122,12 @@ class PublishedRunDB:
         return len(self.run_identifiers)
 
     def is_run_valid(self, run_id, channel):
-        mlbf_dir = get_mlbf_dir(channel)
-        if mlbf_dir == None:
-            return False
-
-        delta_filename = get_delta_filename(channel)
-        if delta_filename == None:
-            return False
-
         is_valid = (
             workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/{mlbf_dir}/filter"
+                self.filter_bucket, f"{run_id}/{channel.dir}/filter"
             )
             and workflow.google_cloud_file_exists(
-                self.filter_bucket, f"{run_id}/{mlbf_dir}/{delta_filename}"
+                self.filter_bucket, f"{run_id}/{channel.dir}/{channel.delta_filename}"
             )
             and workflow.google_cloud_file_exists(
                 self.filter_bucket, f"{run_id}/ct-logs.json"
@@ -694,7 +706,7 @@ def clear_crlite_filters(*, rw_client, noop, channel):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
     ]
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
@@ -713,7 +725,7 @@ def clear_crlite_stashes(*, rw_client, noop, channel):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
     ]
     existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
     for stash in existing_stashes:
@@ -730,14 +742,14 @@ def publish_crlite_record(
     attachment_path,
     attachment_name,
     rw_client,
+    channel,
     noop,
 ):
     if noop:
         log.info("NoOp mode enabled")
         return attributes["details"]["name"]
 
-    mimeType = "application/octet-stream"
-    channel = attributes.get("channel", CHANNEL_ALL)
+    attributes["channel"] = channel.slug
 
     # You can test a filter expression relative to a mock context using the
     # Firefox browser console as follows.
@@ -747,30 +759,16 @@ def publish_crlite_record(
     #   await FilterExpressions.eval(expression, context)
     # See https://remote-settings.readthedocs.io/en/latest/target-filters.html
     # for the expression syntax and the definition of env.
-    if channel == CHANNEL_ALL:
+    if channel.slug == CHANNEL_ALL:
         # Users on Firefox < 130 don't have the security.pki.crlite_channel
         # pref, but we assign them to this channel by default.
         attributes[
             "filter_expression"
-        ] = f"env.version|versionCompare('130.!') < 0 || '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
-    elif channel == CHANNEL_EXPERIMENTAL:
-        # Support for Clubcard-based CRLite filters first landed in Firefox 132
-        attributes[
-            "filter_expression"
-        ] = f"env.version|versionCompare('132.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
-    elif channel == CHANNEL_EXPERIMENTAL_DELTAS:
-        # Support for Clubcard-based deltas first landed in Firefox 133
-        attributes[
-            "filter_expression"
-        ] = f"env.version|versionCompare('133.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
-        # The metadata in clubcards produced by clubcard-crlite version 0.2.*
-        # is somewhat compressible, so set a mimetype that encourages our CDN to use
-        # compression (see: https://cloud.google.com/cdn/docs/dynamic-compression).
-        mimeType = "application/x-protobuf"
+        ] = f"env.version|versionCompare('130.!') < 0 || '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
     else:
         attributes[
             "filter_expression"
-        ] = f"env.version|versionCompare('130.!') >= 0 && '{channel}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+        ] = f"env.version|versionCompare('{channel.supported_version}.!') >= 0 && '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
 
     record = rw_client.create_record(
         collection=settings.KINTO_CRLITE_COLLECTION,
@@ -785,7 +783,7 @@ def publish_crlite_record(
             fileName=attachment_name,
             filePath=attachment_path,
             recordId=recordid,
-            mimeType=mimeType,
+            mimeType=channel.mimetype,
         )
     except KintoException as ke:
         log.error(
@@ -868,7 +866,7 @@ def publish_crlite_main_filter(
 
     # clubcard filters already contain the coverage and enrolledIssuer
     # metadata
-    if "clubcard" in get_mlbf_dir(channel):
+    if "clubcard" in channel.dir:
         coverage = []
         enrolledIssuers = []
 
@@ -878,7 +876,6 @@ def publish_crlite_main_filter(
         "effectiveTimestamp": record_epoch_time_ms,
         "coverage": coverage,
         "enrolledIssuers": enrolledIssuers,
-        "channel": channel,
     }
 
     log.info(f"Publishing full filter {filter_path} {timestamp}")
@@ -887,6 +884,7 @@ def publish_crlite_main_filter(
         attributes=attributes,
         attachment_path=filter_path,
         attachment_name=filename,
+        channel=channel,
         noop=noop,
     )
 
@@ -903,7 +901,6 @@ def publish_crlite_stash(
         "incremental": True,
         "effectiveTimestamp": record_epoch_time_ms,
         "parent": previous_id,
-        "channel": channel,
     }
 
     log.info(
@@ -914,6 +911,7 @@ def publish_crlite_stash(
         attributes=attributes,
         attachment_path=stash_path,
         attachment_name=filename,
+        channel=channel,
         noop=noop,
     )
 
@@ -928,7 +926,7 @@ def crlite_verify_record_consistency(*, existing_records, channel):
     # record["details"]["name"], which is a "YYYY-MM-DDTHH:MM:SS+00:00Z"
     # timestamp.
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
     ]
 
     # It's OK if there are no records yet.
@@ -1083,7 +1081,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel
+        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
     ]
     # Sort existing_records for crlite_verify_record_consistency,
     # which gets called in crlite_determine_publish.
@@ -1116,17 +1114,9 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
 
     filter_path = final_run_id_path / Path("filter")
 
-    mlbf_dir = get_mlbf_dir(channel)
-    if mlbf_dir == None:
-        return rv
-
-    delta_filename = get_delta_filename(channel)
-    if delta_filename == None:
-        return rv
-
     workflow.download_and_retry_from_google_cloud(
         args.filter_bucket,
-        f"{final_run_id}/{mlbf_dir}/filter",
+        f"{final_run_id}/{channel.dir}/filter",
         filter_path,
         timeout=timedelta(minutes=5),
     )
@@ -1141,7 +1131,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
             stash_path = run_id_path / Path("stash")
             workflow.download_and_retry_from_google_cloud(
                 args.filter_bucket,
-                f"{run_id}/{mlbf_dir}/{delta_filename}",
+                f"{run_id}/{channel.dir}/{channel.delta_filename}",
                 stash_path,
                 timeout=timedelta(minutes=5),
             )
@@ -1191,7 +1181,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
             filter_path=filter_path,
-            filename=f"{final_run_id}-{channel}.filter",
+            filename=f"{final_run_id}-{channel.slug}.filter",
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
             ctlogs=ctlogs,
@@ -1210,7 +1200,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
 
             previous_id = publish_crlite_stash(
                 stash_path=stash_path,
-                filename=f"{run_id}-{channel}.{delta_filename}",
+                filename=f"{run_id}-{channel.slug}.{channel.delta_filename}",
                 rw_client=rw_client,
                 previous_id=previous_id,
                 timestamp=published_run_db.get_run_timestamp(run_id),
@@ -1444,12 +1434,13 @@ def main():
         publish_ctlogs(args=args, rw_client=rw_client)
 
         log.info("Updating cert-revocations collection")
-        for channel in ENABLED_CHANNELS:
-            publish_crlite(args=args, channel=channel, rw_client=rw_client)
+        for channel in CHANNELS:
+            if channel.enabled:
+                publish_crlite(args=args, channel=channel, rw_client=rw_client)
 
         log.info("Removing records for unused channels")
         for channel in CHANNELS:
-            if channel not in ENABLED_CHANNELS:
+            if not channel.enabled:
                 clear_crlite_filters(
                     noop=args.noop, channel=channel, rw_client=rw_client
                 )
