@@ -74,7 +74,7 @@ CHANNELS = [
     Channel(
         slug=CHANNEL_EXPERIMENTAL_DELTAS,
         dir="clubcard-all",
-        max_filter_age_days=10,
+        max_filter_age_days=20,
         delta_filename="filter.delta",
         supported_version=133,
         # The metadata in clubcards produced by clubcard-crlite version 0.3.*
