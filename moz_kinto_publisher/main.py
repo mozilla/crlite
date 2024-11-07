@@ -66,7 +66,7 @@ CHANNELS = [
         delta_filename="filter.stash",
         supported_version=132,
         mimetype="application/octet-stream",
-        enabled=True,
+        enabled=False,
     ),
     Channel(
         slug=CHANNEL_EXPERIMENTAL_DELTAS,
