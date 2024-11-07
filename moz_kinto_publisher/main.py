@@ -45,6 +45,7 @@ Channel = namedtuple(
         "slug",
         "dir",
         "delta_filename",
+        "max_filter_age_days",
         "supported_version",
         "mimetype",
         "enabled",
@@ -56,6 +57,7 @@ CHANNELS = [
         slug=CHANNEL_ALL,
         dir="mlbf",
         delta_filename="filter.stash",
+        max_filter_age_days=10,
         supported_version=130,
         mimetype="application/octet-stream",
         enabled=True,
@@ -64,6 +66,7 @@ CHANNELS = [
         slug=CHANNEL_EXPERIMENTAL,
         dir="clubcard-all",
         delta_filename="filter.stash",
+        max_filter_age_days=10,
         supported_version=132,
         mimetype="application/octet-stream",
         enabled=False,
@@ -71,6 +74,7 @@ CHANNELS = [
     Channel(
         slug=CHANNEL_EXPERIMENTAL_DELTAS,
         dir="clubcard-all",
+        max_filter_age_days=10,
         delta_filename="filter.delta",
         supported_version=133,
         # The metadata in clubcards produced by clubcard-crlite version 0.3.*
@@ -1045,11 +1049,13 @@ def crlite_determine_publish(*, existing_records, run_db, channel):
         log.error(f"Failed to verify run ID consistency: {se}")
         return default
 
-    # If it's been 10 days since a full filter, publish a full filter.
+    # If the full filter is too old, publish a full filter.
     earliest_timestamp = run_db.get_run_timestamp(min(record_run_ids))
     new_timestamp = run_db.get_run_timestamp(new_run_id)
-    if new_timestamp - earliest_timestamp >= timedelta(days=10):
-        log.info("Published full filter is >= 10 days old")
+    if new_timestamp - earliest_timestamp >= timedelta(
+        days=channel.max_filter_age_days
+    ):
+        log.info(f"Published full filter is >= {channel.max_filter_age_days} days old")
         return default
 
     return {"clear_all": False, "upload": new_run_ids}
