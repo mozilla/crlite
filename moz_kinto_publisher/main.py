@@ -1134,10 +1134,17 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
 
         total_stash_size = existing_stash_size + update_stash_size
         full_filter_size = filter_path.stat().st_size
-        if total_stash_size > full_filter_size:
+
+        # Legacy stash files are completely uncompressed, so if they grow too
+        # large we should publish a full filter. Clubcard-based delta updates
+        # on the other hand can compress as well or better than full filters.
+        if (
+            channel.delta_filename == "filter.stash"
+            and total_stash_size > full_filter_size
+        ):
             tasks["clear_all"] = True
         else:
-            log.info(f"New stash size: {total_stash_size} bytes")
+            log.info(f"Total stash size: {total_stash_size} bytes")
             log.info(f"New filter size: {full_filter_size} bytes")
 
     if tasks["clear_all"]:
