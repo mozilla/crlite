@@ -9,13 +9,7 @@ import workflow
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-CHANNELS = [
-    main.CHANNEL_ALL,
-    main.CHANNEL_SPECIFIED,
-    main.CHANNEL_PRIORITY,
-    main.CHANNEL_EXPERIMENTAL,
-    main.CHANNEL_EXPERIMENTAL_DELTAS,
-]
+DEFAULT_CHANNEL = [x for x in main.CHANNELS if x.slug == main.CHANNEL_ALL][0]
 
 
 def date(time):
@@ -50,16 +44,15 @@ class MockRunDB(main.PublishedRunDB):
             self.time.isoformat(timespec="seconds"),
             encoding="utf-8",
         )
-        for channel in CHANNELS:
-            mlbf_dir = main.get_mlbf_dir(channel)
-            if (rundir / mlbf_dir).exists():
+        for channel in main.CHANNELS:
+            if (rundir / channel.dir).exists():
                 # multiple channels can share the same mlbf_dir if one
                 # uses stashes and one uses deltas.
                 continue
-            os.mkdir(rundir / mlbf_dir)
-            (rundir / mlbf_dir / "filter").write_bytes(b"\x00" * filter_size)
-            (rundir / mlbf_dir / "filter.stash").write_bytes(b"\x00" * stash_size)
-            (rundir / mlbf_dir / "filter.delta").write_bytes(b"\x00" * stash_size)
+            os.mkdir(rundir / channel.dir)
+            (rundir / channel.dir / "filter").write_bytes(b"\x00" * filter_size)
+            (rundir / channel.dir / "filter.stash").write_bytes(b"\x00" * stash_size)
+            (rundir / channel.dir / "filter.delta").write_bytes(b"\x00" * stash_size)
         if completed:
             (rundir / "completed").touch()
         self.run_identifiers += [run_id]
@@ -114,11 +107,11 @@ class MockClient:
     def get_records(self, *args, **kwargs):
         return self.existing_records
 
-    def get_run_ids(self, *, channel=main.CHANNEL_ALL):
+    def get_run_ids(self, *, channel=DEFAULT_CHANNEL):
         return [
             x["attachment"]["filename"].rsplit("-", 1)[0]
             for x in self.existing_records
-            if x["channel"] == channel
+            if x["channel"] == channel.slug
         ]
 
     def request_review_of_collection(self, *args, **kwargs):
@@ -127,7 +120,7 @@ class MockClient:
     def update_record(self, *args, **kwargs):
         raise
 
-    def publish(self, *, channel=main.CHANNEL_ALL, timeout=timedelta(seconds=0)):
+    def publish(self, *, channel=DEFAULT_CHANNEL, timeout=timedelta(seconds=0)):
         return main.publish_crlite(
             args=Args(),
             channel=channel,
@@ -177,7 +170,7 @@ class TestPublishDecisions(unittest.TestCase):
         rw_client.existing_records += rw_client.existing_records
         with self.assertRaisesRegex(main.ConsistencyException, "Multiple full filters"):
             main.crlite_verify_record_consistency(
-                existing_records=rw_client.get_records(), channel=main.CHANNEL_ALL
+                existing_records=rw_client.get_records(), channel=DEFAULT_CHANNEL
             )
 
     def test_record_consistency_unique_history(self):
@@ -194,7 +187,7 @@ class TestPublishDecisions(unittest.TestCase):
             main.ConsistencyException, "Multiple filter descendents"
         ):
             main.crlite_verify_record_consistency(
-                existing_records=rw_client.get_records(), channel=main.CHANNEL_ALL
+                existing_records=rw_client.get_records(), channel=DEFAULT_CHANNEL
             )
 
     def test_record_consistency_unknown_parent(self):
@@ -207,7 +200,7 @@ class TestPublishDecisions(unittest.TestCase):
         rw_client.existing_records[2]["parent"] = "unknown"
         with self.assertRaisesRegex(main.ConsistencyException, "unknown parent"):
             main.crlite_verify_record_consistency(
-                existing_records=rw_client.get_records(), channel=main.CHANNEL_ALL
+                existing_records=rw_client.get_records(), channel=DEFAULT_CHANNEL
             )
 
     def test_record_consistency_self_reference(self):
@@ -220,7 +213,7 @@ class TestPublishDecisions(unittest.TestCase):
         rw_client.existing_records[1]["parent"] = rw_client.existing_records[1]["id"]
         with self.assertRaisesRegex(main.ConsistencyException, "cycle"):
             main.crlite_verify_record_consistency(
-                existing_records=rw_client.get_records(), channel=main.CHANNEL_ALL
+                existing_records=rw_client.get_records(), channel=DEFAULT_CHANNEL
             )
 
     def test_run_db_consistency_out_of_order_timestamps(self):
@@ -237,7 +230,7 @@ class TestPublishDecisions(unittest.TestCase):
             main.crlite_verify_run_id_consistency(
                 run_db=db,
                 identifiers_to_check=db_run_ids,
-                channel=main.CHANNEL_ALL,
+                channel=DEFAULT_CHANNEL,
             )
 
     def test_publish(self):
@@ -263,15 +256,15 @@ class TestPublishDecisions(unittest.TestCase):
         db = MockRunDB()
         # add full filter
         db_run_ids = [db.add_run()]
-        for channel in CHANNELS:
+        for channel in main.CHANNELS:
             self.assertEqual(db_run_ids[0], rw_client.publish(channel=channel))
             self.assertEqual(db_run_ids, rw_client.get_run_ids(channel=channel))
         # add stash
         db_run_ids += [db.add_run()]
-        for channel in CHANNELS:
+        for channel in main.CHANNELS:
             self.assertEqual(None, rw_client.publish(channel=channel))
             self.assertEqual(db_run_ids, rw_client.get_run_ids(channel=channel))
-        self.assertEqual(2 * len(CHANNELS), len(rw_client.get_records()))
+        self.assertEqual(2 * len(main.CHANNELS), len(rw_client.get_records()))
 
     def test_publish_channels_with_error(self):
         # test that a consistency error while publishing one channel does not affect the others
@@ -279,32 +272,30 @@ class TestPublishDecisions(unittest.TestCase):
         db = MockRunDB()
         # add full filter
         db_run_ids = [db.add_run()]
-        for channel in CHANNELS:
+        for channel in main.CHANNELS:
             self.assertEqual(db_run_ids[0], rw_client.publish(channel=channel))
             self.assertEqual(db_run_ids, rw_client.get_run_ids(channel=channel))
         # add stash
         db_run_ids += [db.add_run()]
-        for channel in CHANNELS:
+        for channel in main.CHANNELS:
             self.assertEqual(None, rw_client.publish(channel=channel))
             self.assertEqual(db_run_ids, rw_client.get_run_ids(channel=channel))
         # delete the filter record on one channel
         rw_client.existing_records[:] = [
             x
             for x in rw_client.existing_records
-            if not (x["channel"] == main.CHANNEL_ALL and x["incremental"] == False)
+            if not (x["channel"] == DEFAULT_CHANNEL.slug and x["incremental"] == False)
         ]
         # the error should be detected and a new full filter should be published
-        self.assertEqual(db_run_ids[-1], rw_client.publish(channel=main.CHANNEL_ALL))
+        self.assertEqual(db_run_ids[-1], rw_client.publish(channel=DEFAULT_CHANNEL))
         self.assertEqual(
-            [db_run_ids[-1]], rw_client.get_run_ids(channel=main.CHANNEL_ALL)
+            [db_run_ids[-1]], rw_client.get_run_ids(channel=DEFAULT_CHANNEL)
         )
         # the other channels are not touched
-        self.assertEqual(
-            db_run_ids, rw_client.get_run_ids(channel=main.CHANNEL_SPECIFIED)
-        )
-        self.assertEqual(
-            db_run_ids, rw_client.get_run_ids(channel=main.CHANNEL_PRIORITY)
-        )
+        for channel in main.CHANNELS:
+            if channel == DEFAULT_CHANNEL:
+                continue
+            self.assertEqual(db_run_ids, rw_client.get_run_ids(channel=channel))
 
     def test_publish_no_runs(self):
         # An empty run db is not an error
