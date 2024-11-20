@@ -1224,6 +1224,7 @@ def publish_ctlogs(*, args, rw_client):
     #       "logID": string,
     #       "mmd": integer,
     #       "operator": string
+    #       "tiled": boolean,
     #       "url": string
     #   }
     #
@@ -1242,6 +1243,14 @@ def publish_ctlogs(*, args, rw_client):
     upstream_logs_raw = []
     for operator in log_list_json["operators"]:
         for ctlog in operator["logs"]:
+            ctlog["tiled"] = False
+            ctlog["operator"] = operator["name"]
+            ctlog["admissible"] = any(
+                state in ctlog["state"] for state in admissible_states
+            )
+            upstream_logs_raw.append(ctlog)
+        for ctlog in operator["tiled_logs"]:
+            ctlog["tiled"] = True
             ctlog["operator"] = operator["name"]
             ctlog["admissible"] = any(
                 state in ctlog["state"] for state in admissible_states
@@ -1258,7 +1267,8 @@ def publish_ctlogs(*, args, rw_client):
             "logID": ctlog["log_id"],
             "mmd": ctlog["mmd"],
             "operator": ctlog["operator"],
-            "url": ctlog["url"],
+            "tiled": ctlog["tiled"],
+            "url": ctlog["monitoring_url"] if ctlog["tiled"] else ctlog["url"],
         }
         for ctlog in upstream_logs_raw
     ]
@@ -1343,7 +1353,7 @@ def publish_ctlogs(*, args, rw_client):
         upstream_log["crlite_enrolled"] = known_log["crlite_enrolled"]
 
         need_update = False
-        for i in ["description", "key", "url", "mmd", "admissible", "operator"]:
+        for i in ["description", "key", "url", "mmd", "admissible", "operator", "tiled"]:
             if upstream_log[i] != known_log.get(i, None):
                 need_update = True
 
