@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +24,6 @@ import (
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 func Test_makeFilenameFromUrl(t *testing.T) {
@@ -310,10 +310,16 @@ func Test_verifyCRL(t *testing.T) {
 	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
 	url, _ := url.Parse("http://test/crl")
 
+	rootPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(rootPath)
+
 	ae := AggregateEngine{
-		saveStorage: storage.NewMockBackend(),
-		issuers:     issuersObj,
-		auditor:     auditor,
+		rootPath: rootPath,
+		issuers:  issuersObj,
+		auditor:  auditor,
 	}
 
 	todayThisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -420,9 +426,9 @@ func Test_crlFetchWorker(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
-		saveStorage: storage.NewMockBackend(),
-		issuers:     issuersObj,
-		auditor:     auditor,
+		rootPath: tmpDir,
+		issuers:  issuersObj,
+		auditor:  auditor,
 	}
 
 	urlChan := make(chan types.IssuerCrlUrls, 16)
@@ -523,9 +529,9 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	auditor := NewCrlAuditor(issuersObj)
 
 	ae := AggregateEngine{
-		saveStorage: storage.NewMockBackend(),
-		issuers:     issuersObj,
-		auditor:     auditor,
+		rootPath: tmpDir,
+		issuers:  issuersObj,
+		auditor:  auditor,
 	}
 
 	ca, caPrivKey := makeCA(t)
@@ -568,5 +574,54 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	assertAuditorReportHasEntries(t, auditor, 1)
 	for _, e := range auditor.GetEntries() {
 		assertEntryUrlAndIssuer(t, &e, issuer, issuersObj, unavailableUrl)
+	}
+}
+
+func Test_SaveRevokedCertificateList(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "Test_SaveRevokedCertificateList")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+
+	ae := AggregateEngine{
+		rootPath: tmpDir,
+		issuers:  issuersObj,
+		auditor:  auditor,
+	}
+
+	issuer := types.NewIssuerFromString("issuerAKI")
+	serials := []types.SerialAndReason{
+		types.SerialAndReason{
+			types.NewSerialFromHex("01"),
+			0,
+		},
+		types.SerialAndReason{
+			types.NewSerialFromHex("02"),
+			255,
+		},
+		types.SerialAndReason{
+			types.NewSerialFromHex("03"),
+			1,
+		},
+	}
+
+	err = ae.StoreRevokedCertificateList(context.TODO(), issuer, serials)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fileBytes, err := ioutil.ReadFile(filepath.Join(tmpDir, issuer.ID()))
+	if err != nil {
+		t.Error(err)
+	}
+
+	expected := []byte("0001\nff02\n0103\n")
+
+	if !bytes.Equal(expected, fileBytes) {
+		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
 	}
 }

@@ -59,14 +59,13 @@ EA==
 -----END CERTIFICATE-----`
 )
 
-func getTestHarness(t *testing.T) (*MockBackend, *MockRemoteCache, CertDatabase) {
-	mockBackend := NewMockBackend()
+func getTestHarness(t *testing.T) (*MockRemoteCache, CertDatabase) {
 	mockCache := NewMockRemoteCache()
 	storageDB, err := NewCertDatabase(mockCache)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
-	return mockBackend, mockCache, storageDB
+	return mockCache, storageDB
 }
 
 func mkExp(s string) types.ExpDate {
@@ -78,7 +77,7 @@ func mkExp(s string) types.ExpDate {
 }
 
 func Test_GetIssuerAndDatesFromCache(t *testing.T) {
-	_, _, storageDB := getTestHarness(t)
+	_, storageDB := getTestHarness(t)
 
 	l, err := storageDB.GetIssuerAndDatesFromCache()
 	if err != nil {
@@ -194,16 +193,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	}
 }
 
-func Test_LogStateFirestoreBackend(t *testing.T) {
-	_, cache, storageDB := getTestHarness(t)
+func Test_LogState(t *testing.T) {
+	cache, storageDB := getTestHarness(t)
 	test_LogState(t, cache, storageDB)
-}
-
-func Test_LogStateNoopBackend(t *testing.T) {
-	mockCache := NewMockRemoteCache()
-	storageDB, err := NewCertDatabase(mockCache)
-	if err != nil {
-		t.Error(err)
-	}
-	test_LogState(t, mockCache, storageDB)
 }
