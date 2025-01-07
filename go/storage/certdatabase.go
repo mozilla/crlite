@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"sync"
 
 	"github.com/bluele/gcache"
 	"github.com/golang/glog"
@@ -16,32 +15,15 @@ import (
 type CertDatabase struct {
 	extCache        RemoteCache
 	knownCertsCache gcache.Cache
-	metaMutex       *sync.RWMutex
-	meta            map[string]*IssuerMetadata
 }
 
 func NewCertDatabase(aExtCache RemoteCache) (CertDatabase, error) {
 	db := CertDatabase{
 		extCache:        aExtCache,
 		knownCertsCache: gcache.New(8 * 1024).ARC().Build(),
-		metaMutex:       &sync.RWMutex{},
-		meta:            make(map[string]*IssuerMetadata),
 	}
 
 	return db, nil
-}
-
-func (db *CertDatabase) GetIssuerMetadata(aIssuer types.Issuer) *IssuerMetadata {
-	db.metaMutex.Lock()
-	defer db.metaMutex.Unlock()
-
-	im, found := db.meta[aIssuer.ID()]
-	if !found {
-		im = NewIssuerMetadata(aIssuer, db.extCache)
-		db.meta[aIssuer.ID()] = im
-	}
-
-	return im
 }
 
 func (db *CertDatabase) GetCTLogsFromCache() ([]types.CTLogState, error) {
@@ -121,18 +103,9 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 
 	serialNum := types.NewSerial(aCert)
 
-	certWasNotKnown, err := knownCerts.Insert(serialNum)
+	_, err := knownCerts.Insert(serialNum)
 	if err != nil {
 		return err
-	}
-
-	if certWasNotKnown {
-		// Store issuer DN and any CRL distribution points.
-		issuerData := db.GetIssuerMetadata(issuer)
-		err := issuerData.Accumulate(aCert)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
