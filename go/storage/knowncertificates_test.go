@@ -30,16 +30,16 @@ func Test_Unknown(t *testing.T) {
 	backend.Data[kc.serialId()] = testStrings
 
 	for _, bi := range testList {
-		if u, _ := kc.WasUnknown(bi); u == true {
+		if u, _ := kc.Insert(bi); u == true {
 			t.Errorf("%v should have been known, but was apparently unknown", bi)
 		}
 	}
 
-	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == false {
+	if u, _ := kc.Insert(types.NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
 	}
 
-	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == true {
+	if u, _ := kc.Insert(types.NewSerialFromHex("05")); u == true {
 		t.Error("5 should now have been known")
 	}
 
@@ -97,7 +97,7 @@ func Test_ExpireAt(t *testing.T) {
 
 	kc := NewKnownCertificates(expDate, testIssuer, backend)
 
-	if u, _ := kc.WasUnknown(types.NewSerialFromHex("05")); u == false {
+	if u, _ := kc.Insert(types.NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
 	}
 

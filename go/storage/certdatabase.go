@@ -121,13 +121,12 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 
 	serialNum := types.NewSerial(aCert)
 
-	// WasUnknown stores the certificate if it was unknown.
-	certWasUnknown, err := knownCerts.WasUnknown(serialNum)
+	certWasNotKnown, err := knownCerts.Insert(serialNum)
 	if err != nil {
 		return err
 	}
 
-	if certWasUnknown {
+	if certWasNotKnown {
 		// Store issuer DN and any CRL distribution points.
 		issuerData := db.GetIssuerMetadata(issuer)
 		err := issuerData.Accumulate(aCert)
