@@ -10,15 +10,15 @@ import (
 
 const kSerials = "serials"
 
-type KnownCertificates struct {
+type SerialCacheWriter struct {
 	expDate   types.ExpDate
 	issuer    types.Issuer
 	cache     RemoteCache
 	expirySet bool
 }
 
-func NewKnownCertificates(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *KnownCertificates {
-	return &KnownCertificates{
+func NewSerialCacheWriter(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *SerialCacheWriter {
+	return &SerialCacheWriter{
 		expDate:   aExpDate,
 		issuer:    aIssuer,
 		cache:     aCache,
@@ -26,17 +26,21 @@ func NewKnownCertificates(aExpDate types.ExpDate, aIssuer types.Issuer, aCache R
 	}
 }
 
-func (kc *KnownCertificates) id(params ...string) string {
+func NewSerialCacheReader(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *SerialCacheWriter {
+	return NewSerialCacheWriter(aExpDate, aIssuer, aCache)
+}
+
+func (kc *SerialCacheWriter) id(params ...string) string {
 	return fmt.Sprintf("%s%s::%s", kc.expDate.ID(), strings.Join(params, ""), kc.issuer.ID())
 }
 
-func (kc *KnownCertificates) serialId(params ...string) string {
+func (kc *SerialCacheWriter) serialId(params ...string) string {
 	return fmt.Sprintf("%s::%s", kSerials, kc.id(params...))
 }
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
-func (kc *KnownCertificates) Insert(aSerial types.Serial) (bool, error) {
+func (kc *SerialCacheWriter) Insert(aSerial types.Serial) (bool, error) {
 	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.BinaryString())
 	if err != nil {
 		return false, err
@@ -55,7 +59,7 @@ func (kc *KnownCertificates) Insert(aSerial types.Serial) (bool, error) {
 	return result, nil
 }
 
-func (kc *KnownCertificates) Count() int64 {
+func (kc *SerialCacheWriter) Count() int64 {
 	count, err := kc.cache.SetCardinality(kc.serialId())
 	if err != nil {
 		glog.Errorf("Couldn't determine count of %s, now at %d: %s", kc.id(), count, err)
@@ -63,7 +67,7 @@ func (kc *KnownCertificates) Count() int64 {
 	return int64(count)
 }
 
-func (kc *KnownCertificates) Known() []types.Serial {
+func (kc *SerialCacheWriter) Known() []types.Serial {
 	// Redis' scan methods regularly provide duplicates. The duplication
 	// happens at this level, pulling from SetToChan, so we make a hash-set
 	// here to de-duplicate when the memory impacts are the most minimal.
@@ -96,7 +100,7 @@ func (kc *KnownCertificates) Known() []types.Serial {
 	return serialList
 }
 
-func (kc *KnownCertificates) setExpiryFlag() {
+func (kc *SerialCacheWriter) setExpiryFlag() {
 	expireTime := kc.expDate.ExpireTime()
 
 	if err := kc.cache.ExpireAt(kc.serialId(), expireTime); err != nil {

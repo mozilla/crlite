@@ -83,7 +83,7 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				}
 
 				// Sharded by expiry date, so this should be fairly small.
-				known := storage.NewKnownCertificates(expDate, tuple.issuer, kw.remoteCache)
+				known := storage.NewSerialCacheReader(expDate, tuple.issuer, kw.remoteCache)
 
 				knownSet := known.Known()
 				knownSetLen := uint64(len(knownSet))
