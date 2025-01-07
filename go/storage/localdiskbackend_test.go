@@ -38,30 +38,6 @@ func (h *LocalDiskTestHarness) cleanup() {
 	h.Remove(h.root)
 }
 
-func Test_KnownCertificateList(t *testing.T) {
-	h := makeLocalDiskHarness(t)
-	defer h.cleanup()
-
-	issuer := types.NewIssuerFromString("issuerAKI")
-	serials := []types.Serial{types.NewSerialFromHex("01"), types.NewSerialFromHex("02"), types.NewSerialFromHex("03")}
-
-	err := h.db.StoreKnownCertificateList(context.TODO(), issuer, serials)
-	if err != nil {
-		t.Error(err)
-	}
-
-	fileBytes, err := ioutil.ReadFile(filepath.Join(h.root, issuer.ID()))
-	if err != nil {
-		t.Error(err)
-	}
-
-	expected := []byte("01\n02\n03\n")
-
-	if !bytes.Equal(expected, fileBytes) {
-		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
-	}
-}
-
 func Test_RevokedCertificateList(t *testing.T) {
 	h := makeLocalDiskHarness(t)
 	defer h.cleanup()

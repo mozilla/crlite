@@ -17,17 +17,6 @@ func NewMockBackend() *MockBackend {
 	}
 }
 
-func (db *MockBackend) StoreKnownCertificateList(_ context.Context, issuer types.Issuer,
-	serials []types.Serial) error {
-	encoded, err := json.Marshal(serials)
-	if err != nil {
-		return err
-	}
-
-	db.store[issuer.ID()] = encoded
-	return nil
-}
-
 func (db *MockBackend) StoreRevokedCertificateList(_ context.Context, issuer types.Issuer,
 	serials []types.SerialAndReason) error {
 	encoded, err := json.Marshal(serials)

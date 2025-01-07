@@ -37,42 +37,6 @@ func makeDirectoryIfNotExist(id string) error {
 	return nil
 }
 
-// Write a line delimited list of serial numbers to a text file. The serial
-// numbers are lowercase hex encoded.
-func (db *LocalDiskBackend) StoreKnownCertificateList(ctx context.Context, issuer types.Issuer,
-	serials []types.Serial) error {
-	path := filepath.Join(db.rootPath, issuer.ID())
-	if err := makeDirectoryIfNotExist(path); err != nil {
-		return err
-	}
-
-	fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, db.perms)
-	if err != nil {
-		return err
-	}
-	defer fd.Close()
-
-	writer := bufio.NewWriter(fd)
-	defer writer.Flush()
-
-	for _, s := range serials {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			_, err := writer.WriteString(s.HexString())
-			if err != nil {
-				return err
-			}
-			err = writer.WriteByte('\n')
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // Write a line delimited list of serial numbers and reason codes to a text
 // file. Each line contains hex encoded binary data. The first (encoded) byte
 // in each line is the reason code. The remaining bytes are the serial number.

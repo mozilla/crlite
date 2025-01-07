@@ -8,8 +8,6 @@ import (
 )
 
 type StorageBackend interface {
-	StoreKnownCertificateList(ctx context.Context, issuer types.Issuer,
-		serials []types.Serial) error
 	StoreRevokedCertificateList(ctx context.Context, issuer types.Issuer,
 		serials []types.SerialAndReason) error
 }
