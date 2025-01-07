@@ -97,7 +97,7 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 		serial := types.NewSerialFromHex("FEEDBEEF")
 
 		kc := storageDB.GetKnownCertificates(expDate, issuer)
-		_, err = kc.WasUnknown(serial)
+		_, err = kc.Insert(serial)
 		if err != nil {
 			t.Error(err)
 		}
@@ -121,7 +121,7 @@ func Test_GetIssuerAndDatesFromCache(t *testing.T) {
 		}
 		serial := types.NewSerialFromHex("BEEF")
 		kc := storageDB.GetKnownCertificates(expDate, issuer)
-		_, err = kc.WasUnknown(serial)
+		_, err = kc.Insert(serial)
 		if err != nil {
 			t.Error(err)
 		}

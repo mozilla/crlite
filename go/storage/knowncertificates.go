@@ -36,7 +36,7 @@ func (kc *KnownCertificates) serialId(params ...string) string {
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial
 // will return false, as it will be known then.
-func (kc *KnownCertificates) WasUnknown(aSerial types.Serial) (bool, error) {
+func (kc *KnownCertificates) Insert(aSerial types.Serial) (bool, error) {
 	result, err := kc.cache.SetInsert(kc.serialId(), aSerial.BinaryString())
 	if err != nil {
 		return false, err
