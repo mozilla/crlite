@@ -1,16 +1,10 @@
 package storage
 
 import (
-	"context"
 	"time"
 
 	"github.com/mozilla/crlite/go"
 )
-
-type StorageBackend interface {
-	StoreRevokedCertificateList(ctx context.Context, issuer types.Issuer,
-		serials []types.SerialAndReason) error
-}
 
 type RemoteCache interface {
 	Exists(key string) (bool, error)

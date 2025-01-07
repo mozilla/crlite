@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,7 +27,6 @@ import (
 	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 const (
@@ -48,7 +48,7 @@ var (
 )
 
 type AggregateEngine struct {
-	saveStorage storage.StorageBackend
+	rootPath string
 
 	issuers *rootprogram.MozIssuers
 	auditor *CrlAuditor
@@ -293,7 +293,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		}
 
 		if anyCrlFailed == false {
-			if err := ae.saveStorage.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
+			if err := ae.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
 				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
 			}
 
@@ -357,6 +357,51 @@ func (ae *AggregateEngine) aggregateCRLs(ctx context.Context, count int64, crlPa
 	wg.Wait()
 }
 
+// Write a line delimited list of serial numbers and reason codes to a text
+// file. Each line contains hex encoded binary data. The first (encoded) byte
+// in each line is the reason code. The remaining bytes are the serial number.
+func (ae *AggregateEngine) StoreRevokedCertificateList(ctx context.Context, issuer types.Issuer,
+	serials []types.SerialAndReason) error {
+
+	// Ensure that the output directory exists
+	err := os.MkdirAll(ae.rootPath, permModeDir)
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(ae.rootPath, issuer.ID())
+
+	fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, permMode)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	writer := bufio.NewWriter(fd)
+	defer writer.Flush()
+
+	for _, s := range serials {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			_, err = writer.WriteString(hex.EncodeToString([]byte{s.Reason}))
+			if err != nil {
+				return err
+			}
+			_, err := writer.WriteString(s.Serial.HexString())
+			if err != nil {
+				return err
+			}
+			err = writer.WriteByte('\n')
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfig) {
 	if strObj == "<path>" {
 		glog.Errorf("Flag %s is not set", confOptionName)
@@ -383,8 +428,6 @@ func main() {
 	}
 
 	engine.PrepareTelemetry("aggregate-crls", ctconfig)
-
-	saveBackend := storage.NewLocalDiskBackend(permMode, *revokedpath)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
@@ -414,9 +457,9 @@ func main() {
 	auditor := NewCrlAuditor(mozIssuers)
 
 	ae := AggregateEngine{
-		saveStorage: saveBackend,
-		issuers:     mozIssuers,
-		auditor:     auditor,
+		rootPath: *revokedpath,
+		issuers:  mozIssuers,
+		auditor:  auditor,
 	}
 
 	issuerCrlMap := make(types.IssuerCrlMap)
