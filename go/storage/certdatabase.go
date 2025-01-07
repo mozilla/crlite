@@ -13,14 +13,14 @@ import (
 )
 
 type CertDatabase struct {
-	extCache        RemoteCache
-	knownCertsCache gcache.Cache
+	extCache           RemoteCache
+	serialCacheWriters gcache.Cache
 }
 
 func NewCertDatabase(aExtCache RemoteCache) (CertDatabase, error) {
 	db := CertDatabase{
-		extCache:        aExtCache,
-		knownCertsCache: gcache.New(8 * 1024).ARC().Build(),
+		extCache:           aExtCache,
+		serialCacheWriters: gcache.New(8 * 1024).ARC().Build(),
 	}
 
 	return db, nil
@@ -99,11 +99,11 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 	aLogURL string, aEntryId int64) error {
 	expDate := types.NewExpDateFromTime(aCert.NotAfter)
 	issuer := types.NewIssuer(aIssuer)
-	knownCerts := db.GetKnownCertificates(expDate, issuer)
+	serialWriter := db.GetSerialCacheWriter(expDate, issuer)
 
-	serialNum := types.NewSerial(aCert)
+	serial := types.NewSerial(aCert)
 
-	_, err := knownCerts.Insert(serialNum)
+	_, err := serialWriter.Insert(serial)
 	if err != nil {
 		return err
 	}
@@ -111,17 +111,17 @@ func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate
 	return nil
 }
 
-func (db *CertDatabase) GetKnownCertificates(aExpDate types.ExpDate,
-	aIssuer types.Issuer) *KnownCertificates {
-	var kc *KnownCertificates
+func (db *CertDatabase) GetSerialCacheWriter(aExpDate types.ExpDate,
+	aIssuer types.Issuer) *SerialCacheWriter {
+	var kc *SerialCacheWriter
 
 	id := aExpDate.ID() + aIssuer.ID()
 
-	cacheObj, err := db.knownCertsCache.GetIFPresent(id)
+	cacheObj, err := db.serialCacheWriters.GetIFPresent(id)
 	if err != nil {
 		if err == gcache.KeyNotFoundError {
-			kc = NewKnownCertificates(aExpDate, aIssuer, db.extCache)
-			err = db.knownCertsCache.Set(id, kc)
+			kc = NewSerialCacheWriter(aExpDate, aIssuer, db.extCache)
+			err = db.serialCacheWriters.Set(id, kc)
 			if err != nil {
 				glog.Fatalf("Couldn't set into the cache expDate=%s issuer=%s from cache: %s",
 					aExpDate, aIssuer.ID(), err)
@@ -131,7 +131,7 @@ func (db *CertDatabase) GetKnownCertificates(aExpDate types.ExpDate,
 				aExpDate, aIssuer.ID(), err)
 		}
 	} else {
-		kc = cacheObj.(*KnownCertificates)
+		kc = cacheObj.(*SerialCacheWriter)
 	}
 
 	if kc == nil {

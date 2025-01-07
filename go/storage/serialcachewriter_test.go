@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func Test_Unknown(t *testing.T) {
+func Test_SerialCacheWriter(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := types.NewIssuerFromString("test issuer")
 
@@ -15,7 +15,7 @@ func Test_Unknown(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	kc := NewKnownCertificates(expDate, testIssuer, backend)
+	kc := NewSerialCacheWriter(expDate, testIssuer, backend)
 
 	testList := []types.Serial{
 		types.NewSerialFromHex("01"),
@@ -53,7 +53,7 @@ func Test_Unknown(t *testing.T) {
 	}
 }
 
-func Test_KnownCertificatesKnown(t *testing.T) {
+func Test_SerialCacheReader(t *testing.T) {
 	backend := NewMockRemoteCache()
 	testIssuer := types.NewIssuerFromString("test issuer")
 
@@ -61,7 +61,7 @@ func Test_KnownCertificatesKnown(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	kc := NewKnownCertificates(expDate, testIssuer, backend)
+	kc := NewSerialCacheReader(expDate, testIssuer, backend)
 
 	testList := []types.Serial{types.NewSerialFromHex("01"), types.NewSerialFromHex("03"), types.NewSerialFromHex("05")}
 	testStrings := make([]string, len(testList))
@@ -95,7 +95,7 @@ func Test_ExpireAt(t *testing.T) {
 	date := time.Date(2004, 01, 20, 4, 22, 19, 44, time.UTC)
 	expDate := types.NewExpDateFromTime(date)
 
-	kc := NewKnownCertificates(expDate, testIssuer, backend)
+	kc := NewSerialCacheWriter(expDate, testIssuer, backend)
 
 	if u, _ := kc.Insert(types.NewSerialFromHex("05")); u == false {
 		t.Error("5 should not have been known")
