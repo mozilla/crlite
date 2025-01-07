@@ -18,11 +18,6 @@ func (db *NoopBackend) noopLoadError() error {
 	return fmt.Errorf("Unable to load from the NoopBackend.")
 }
 
-func (db *NoopBackend) StoreKnownCertificateList(_ context.Context, _ types.Issuer,
-	_ []types.Serial) error {
-	return nil
-}
-
 func (db *NoopBackend) StoreRevokedCertificateList(_ context.Context, _ types.Issuer,
 	_ []types.SerialAndReason) error {
 	return nil
