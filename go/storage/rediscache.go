@@ -114,37 +114,6 @@ func (rc *RedisCache) ExpireAt(key string, aExpTime time.Time) error {
 	return br.Err()
 }
 
-func (rc *RedisCache) ExpireIn(key string, aDuration time.Duration) error {
-	br := rc.client.Expire(key, aDuration)
-	return br.Err()
-}
-
-func (rc *RedisCache) Queue(key string, identifier string) (int64, error) {
-	ir := rc.client.RPush(key, identifier)
-	return ir.Result()
-}
-
-func (rc *RedisCache) BlockingPopCopy(key string, dest string,
-	timeout time.Duration) (string, error) {
-	sr := rc.client.BRPopLPush(key, dest, timeout)
-	return sr.Result()
-}
-
-func (rc *RedisCache) ListRemove(key string, value string) error {
-	ir := rc.client.LRem(key, 1, value)
-	return ir.Err()
-}
-
-func (rc *RedisCache) Pop(key string) (string, error) {
-	sr := rc.client.LPop(key)
-	return sr.Result()
-}
-
-func (rc *RedisCache) QueueLength(key string) (int64, error) {
-	ir := rc.client.LLen(key)
-	return ir.Result()
-}
-
 func (rc *RedisCache) KeysToChan(pattern string, c chan<- string) error {
 	defer close(c)
 	scanres := rc.client.Scan(0, pattern, 0)
@@ -160,15 +129,6 @@ func (rc *RedisCache) KeysToChan(pattern string, c chan<- string) error {
 	}
 
 	return iter.Err()
-}
-
-func (rc *RedisCache) TrySet(k string, v string, life time.Duration) (string, error) {
-	br := rc.client.SetNX(k, v, life)
-	if br.Err() != nil {
-		return "", br.Err()
-	}
-	sr := rc.client.Get(k)
-	return sr.Result()
 }
 
 func shortUrlToLogKey(shortUrl string) string {

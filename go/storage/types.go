@@ -15,13 +15,6 @@ type RemoteCache interface {
 	SetToChan(key string, c chan<- string) error
 	SetCardinality(key string) (int, error)
 	ExpireAt(key string, aExpTime time.Time) error
-	ExpireIn(key string, aDur time.Duration) error
-	Queue(key string, identifier string) (int64, error)
-	Pop(key string) (string, error)
-	QueueLength(key string) (int64, error)
-	BlockingPopCopy(key string, dest string, timeout time.Duration) (string, error)
-	ListRemove(key string, value string) error
-	TrySet(k string, v string, life time.Duration) (string, error)
 	KeysToChan(pattern string, c chan<- string) error
 	StoreLogState(aLogObj *types.CTLogState) error
 	LoadLogState(aLogUrl string) (*types.CTLogState, error)
