@@ -155,6 +155,8 @@ github.com/google/martian v2.1.0+incompatible/go.mod h1:9I4somxYTbIHy5NJKHRl3wXi
 github.com/google/monologue v0.0.0-20190606152607-4b11a32b5934 h1:0+3qDY6030dpAiEdmBqIsz3lg2SgXAvPEEq2sjm5UBk=
 github.com/google/monologue v0.0.0-20190606152607-4b11a32b5934/go.mod h1:6NTfaQoUpg5QmPsCUWLR3ig33FHrKXhTtWzF0DVdmuk=
 github.com/google/pprof v0.0.0-20181206194817-3ea8567a2e57/go.mod h1:zfwlbNMJ+OItoe0UupaVj+oy1omPYYDuagoSzA8v9mc=
+github.com/google/renameio v1.0.1 h1:Lh/jXZmvZxb0BBeSY5VKEfidcbcbenKjZFzM/q0fSeU=
+github.com/google/renameio v1.0.1/go.mod h1:t/HQoYBZSsWSNK35C6CO/TpPLDVWvxOHboWUAweKUpk=
 github.com/google/trillian v1.2.2-0.20190612132142-05461f4df60a/go.mod h1:YPmUVn5NGwgnDUgqlVyFGMTgaWlnSvH7W5p+NdOG8UA=
 github.com/google/trillian-examples v0.0.0-20190603134952-4e75ba15216c/go.mod h1:WgL3XZ3pA8/9cm7yxqWrZE6iZkESB2ItGxy5Fo6k2lk=
 github.com/googleapis/gax-go/v2 v2.0.4/go.mod h1:0Wqv26UfaUD9n4G6kQubkQ+KchISgw+vpHVxEJEs9eg=

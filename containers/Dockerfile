@@ -36,6 +36,8 @@ ENV crlite_persistent /persistent
 ENV crlite_workflow /app/workflow
 ENV crlite_bin /app
 
+ENV certPath /persistent/certdb/
+
 RUN mkdir /processing && chown app /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
 

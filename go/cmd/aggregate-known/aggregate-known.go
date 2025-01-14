@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,8 +39,8 @@ type knownWorkUnit struct {
 }
 
 type knownWorker struct {
-	savePath    string
-	remoteCache storage.RemoteCache
+	savePath string
+	certDB   storage.CertDatabase
 }
 
 func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-chan knownWorkUnit) {
@@ -83,9 +82,10 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				}
 
 				// Sharded by expiry date, so this should be fairly small.
-				known := storage.NewSerialCacheReader(expDate, tuple.issuer, kw.remoteCache)
-
-				knownSet := known.Known()
+				knownSet, err := kw.certDB.ReadSerialsFromStorage(expDate, tuple.issuer)
+				if err != nil {
+					glog.Fatalf("[%s] Could not read serials with expDate=%s: %s", tuple.issuer.ID(), expDate.ID(), err)
+				}
 				knownSetLen := uint64(len(knownSet))
 
 				if knownSetLen == 0 {
@@ -96,22 +96,9 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				}
 
 				serialCount += knownSetLen
-				// Write the common (truncated) expiry date for this collection of serial numbers
-				// as a zero-padded 16 digit hex string. The date is encoded as a unix timestamp.
-				// Expiry date rows are prefixed by "@" to distinguish them from a serial numbers.
-				_, err := writer.WriteString(fmt.Sprintf("@%016x\n", expDate.Unix()))
+				err = storage.WriteSerialList(writer, expDate, tuple.issuer, knownSet)
 				if err != nil {
 					glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
-				}
-				for _, s := range knownSet {
-					_, err := writer.WriteString(s.HexString())
-					if err != nil {
-						glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
-					}
-					err = writer.WriteByte('\n')
-					if err != nil {
-						glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
-					}
 				}
 			}
 			glog.Infof("[%s] %d total known serials for %s (shards=%d)", tuple.issuer.ID(),
@@ -151,7 +138,7 @@ func main() {
 		signal.Stop(sigChan) // Restore default behavior
 	}()
 
-	storageDB, remoteCache := engine.GetConfiguredStorage(ctx, ctconfig)
+	certDB, cache := engine.GetConfiguredStorage(ctx, ctconfig)
 	defer glog.Flush()
 
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)
@@ -171,13 +158,21 @@ func main() {
 
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
 
-	// Save the CT log metadata before pulling known certs. It's OK
-	// if the known certs are a superset of the certs described
-	// by the metadata, but the other way around is dangerous.
-	glog.Infof("Saving CT Log metadata")
-	logList, err := storageDB.GetCTLogsFromCache()
+	glog.Infof("Committing DB changes since last run")
+	commitToken, err := cache.AcquireCommitLock()
+	if err != nil || commitToken == nil {
+		glog.Fatalf("Failed to acquire commit lock: %s", err)
+	}
+	defer cache.ReleaseCommitLock(*commitToken)
+
+	err = certDB.Commit(*commitToken)
 	if err != nil {
-		glog.Fatal(err)
+		glog.Fatalf("Error in commit: %s", err)
+	}
+
+	logList, err := certDB.GetCTLogsFromStorage()
+	if err != nil {
+		glog.Fatalf("Error reading coverage metadata: %s", err)
 	}
 
 	ctLogFD, err := os.OpenFile(*ctlogspath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -192,7 +187,7 @@ func main() {
 	ctLogFD.Close()
 
 	glog.Infof("Listing issuers and their expiration dates...")
-	issuerList, err := storageDB.GetIssuerAndDatesFromCache()
+	issuerList, err := certDB.GetIssuerAndDatesFromStorage()
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -240,8 +235,8 @@ func main() {
 	for t := 0; t < *ctconfig.NumThreads; t++ {
 		wg.Add(1)
 		worker := knownWorker{
-			savePath:    *knownpath,
-			remoteCache: remoteCache,
+			savePath: *knownpath,
+			certDB:   certDB,
 		}
 		go worker.run(ctx, &wg, workChan)
 	}

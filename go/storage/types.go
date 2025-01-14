@@ -20,4 +20,9 @@ type RemoteCache interface {
 	LoadLogState(aLogUrl string) (*types.CTLogState, error)
 	LoadAllLogStates() ([]types.CTLogState, error)
 	Migrate(logData *types.CTLogMetadata) error
+	AcquireCommitLock() (*string, error)
+	ReleaseCommitLock(aToken string)
+	HasCommitLock(aToken string) (bool, error)
+	GetEpoch() (uint64, error)
+	NextEpoch() error
 }

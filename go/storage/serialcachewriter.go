@@ -26,10 +26,6 @@ func NewSerialCacheWriter(aExpDate types.ExpDate, aIssuer types.Issuer, aCache R
 	}
 }
 
-func NewSerialCacheReader(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *SerialCacheWriter {
-	return NewSerialCacheWriter(aExpDate, aIssuer, aCache)
-}
-
 func (kc *SerialCacheWriter) id(params ...string) string {
 	return fmt.Sprintf("%s%s::%s", kc.expDate.ID(), strings.Join(params, ""), kc.issuer.ID())
 }
@@ -59,6 +55,14 @@ func (kc *SerialCacheWriter) Insert(aSerial types.Serial) (bool, error) {
 	return result, nil
 }
 
+func (kc *SerialCacheWriter) Remove(aSerial types.Serial) (bool, error) {
+	// Removing an element of a set may leave the set empty. Redis
+	// automatically deletes empty sets, so assume that we need to reset
+	// the ExpireAt time for this set on the next Insert call.
+	kc.expirySet = false
+	return kc.cache.SetRemove(kc.serialId(), aSerial.BinaryString())
+}
+
 func (kc *SerialCacheWriter) Count() int64 {
 	count, err := kc.cache.SetCardinality(kc.serialId())
 	if err != nil {
@@ -67,7 +71,11 @@ func (kc *SerialCacheWriter) Count() int64 {
 	return int64(count)
 }
 
-func (kc *SerialCacheWriter) Known() []types.Serial {
+func (kc *SerialCacheWriter) Contains(aSerial types.Serial) (bool, error) {
+	return kc.cache.SetContains(kc.serialId(), aSerial.BinaryString())
+}
+
+func (kc *SerialCacheWriter) List() []types.Serial {
 	// Redis' scan methods regularly provide duplicates. The duplication
 	// happens at this level, pulling from SetToChan, so we make a hash-set
 	// here to de-duplicate when the memory impacts are the most minimal.

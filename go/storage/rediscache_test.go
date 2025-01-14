@@ -234,7 +234,7 @@ func expectNilLogState(t *testing.T, rc *RedisCache, url string) {
 	}
 }
 
-func TestRedisLogState(t *testing.T) {
+func Test_RedisLogState(t *testing.T) {
 	t.Parallel()
 	rc := getRedisCache(t)
 	rc.client.Del("log::short_url/location")
@@ -263,4 +263,92 @@ func TestRedisLogState(t *testing.T) {
 
 	expectNilLogState(t, rc, "")
 	expectNilLogState(t, rc, fmt.Sprintf("%s/a", log.ShortURL))
+}
+
+func expectLocked(t *testing.T, rc *RedisCache, aToken *string, aExpected bool) {
+	locked, err := rc.HasCommitLock(*aToken)
+	if err != nil {
+		t.Errorf("Error in HasCommitLock: %v", err)
+	}
+	if aExpected != locked {
+		t.Errorf("Locking error: locked (%t), expected (%t)", locked, aExpected)
+	}
+}
+
+func Test_RedisCommitLock(t *testing.T) {
+	rc := getRedisCache(t)
+
+	invalidToken := "invalid token"
+	// HasCommitLock should return false for invalid tokens
+	expectLocked(t, rc, &invalidToken, false)
+
+	// We should be able to acquire the lock
+	token1, err := rc.AcquireCommitLock()
+	if err != nil {
+		t.Errorf("Error in AcquireCommitLock: %v", err)
+	}
+	if token1 == nil {
+		t.Error("Should have lock")
+	}
+	expectLocked(t, rc, token1, true)
+
+	// The lock should not be re-entrant
+	token2, err := rc.AcquireCommitLock()
+	if err != nil {
+		t.Errorf("Error in AcquireCommitLock: %v", err)
+	}
+	if token2 != nil {
+		t.Error("Lock should not be re-entrant")
+	}
+	expectLocked(t, rc, token1, true)
+
+	// Other tokens should not be able to acquire the lock
+	token3, err := rc.AcquireCommitLock()
+	if err != nil {
+		t.Errorf("Error in AcquireCommitLock: %v", err)
+	}
+	if token3 != nil {
+		t.Error("Should not have acquired lock")
+	}
+	expectLocked(t, rc, token1, true)
+
+	// Other tokens should be able to acquire the lock after we
+	// release it
+	rc.ReleaseCommitLock(*token1)
+	token4, err := rc.AcquireCommitLock()
+	if err != nil {
+		t.Errorf("Error in AcquireCommitLock: %v", err)
+	}
+	if token4 == nil {
+		t.Error("Should have acquired lock")
+	}
+	expectLocked(t, rc, token1, false)
+	expectLocked(t, rc, token4, true)
+
+	// Cleanup
+	rc.ReleaseCommitLock(*token4)
+	expectLocked(t, rc, token4, false)
+}
+
+func Test_RedisEpoch(t *testing.T) {
+	rc := getRedisCache(t)
+
+	epoch, err := rc.GetEpoch()
+	if err != nil {
+		t.Error("Should have gotten epoch")
+	}
+
+	err = rc.NextEpoch()
+	if err != nil {
+		t.Error("Should have incremented epoch")
+	}
+
+	nextEpoch, err := rc.GetEpoch()
+	if err != nil {
+		t.Error("Should have gotten epoch")
+	}
+
+	if nextEpoch != epoch+1 {
+		t.Error("Epoch should have been incremented by 1")
+	}
 }
