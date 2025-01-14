@@ -71,13 +71,13 @@ jobs:
   golang-build-and-test:
     docker:
       # specify the version
-      - image: circleci/golang:1.13
+      - image: cimg/go:1.23
         auth:
           username: ${DOCKER_LOGIN}
           password: ${DOCKER_PASSWORD}
 
 
-    working_directory: /go/src/github.com/mozilla.com/crlite
+    working_directory: /home/circleci/src/github.com/mozilla.com/crlite
     steps:
       - checkout
 
@@ -85,7 +85,7 @@ jobs:
       - run:
           name: Download and build
           command: go get -v -t -d ./...
-          working_directory: /go/src/github.com/mozilla.com/crlite/go
+          working_directory: /home/circleci/src/github.com/mozilla.com/crlite/go
       - run:
           name: gofmt
           command: >
@@ -93,16 +93,16 @@ jobs:
               echo "Go code is not formatted:"; gofmt -d .; exit 1;
             fi
 
-          working_directory: /go/src/github.com/mozilla.com/crlite/go
+          working_directory: /home/circleci/src/github.com/mozilla.com/crlite/go
       - run:
           name: Test
           command: go test -v ./...
-          working_directory: /go/src/github.com/mozilla.com/crlite/go
+          working_directory: /home/circleci/src/github.com/mozilla.com/crlite/go
 
       - run:
           name: Test with race-finder
           command: go test -race -short ./...
-          working_directory: /go/src/github.com/mozilla.com/crlite/go
+          working_directory: /home/circleci/src/github.com/mozilla.com/crlite/go
 
   rust-create-cascade-build-and-test:
     docker:
