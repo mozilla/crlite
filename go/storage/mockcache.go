@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath" // used for glob-like matching in Keys
@@ -16,6 +18,8 @@ type MockRemoteCache struct {
 	Data        map[string][]string
 	Expirations map[string]time.Time
 	Duplicate   int
+	CommitLock  *string
+	Epoch       uint64
 }
 
 func NewMockRemoteCache() *MockRemoteCache {
@@ -75,7 +79,12 @@ func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
 	}
 
 	if idx < count && cmp == 0 {
-		ec.Data[key] = append(ec.Data[key][:idx], ec.Data[key][idx:]...)
+		if count == 1 {
+			delete(ec.Data, key)
+		} else {
+			ec.Data[key][idx] = ec.Data[key][count-1]
+			ec.Data[key] = ec.Data[key][:count-1]
+		}
 		return true, nil
 	}
 
@@ -176,9 +185,43 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, err
 }
 
 func (ec *MockRemoteCache) LoadAllLogStates() ([]types.CTLogState, error) {
-	return nil, fmt.Errorf("Unimplemented")
+	var logStates []types.CTLogState
+	return logStates, nil
 }
 
 func (ec *MockRemoteCache) Migrate(logData *types.CTLogMetadata) error {
+	return nil
+}
+
+func (ec *MockRemoteCache) AcquireCommitLock() (*string, error) {
+	randomBytes := make([]byte, 16)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return nil, err
+	}
+	commitLockToken := base64.URLEncoding.EncodeToString(randomBytes)
+	if ec.CommitLock == nil {
+		ec.CommitLock = &commitLockToken
+		return &commitLockToken, nil
+	}
+	return nil, nil
+}
+
+func (ec *MockRemoteCache) ReleaseCommitLock(aToken string) {
+	hasLock, err := ec.HasCommitLock(aToken)
+	if err != nil && hasLock {
+		ec.CommitLock = nil
+	}
+}
+
+func (ec *MockRemoteCache) HasCommitLock(aToken string) (bool, error) {
+	return ec.CommitLock != nil && *ec.CommitLock == aToken, nil
+}
+
+func (ec *MockRemoteCache) GetEpoch() (uint64, error) {
+	return ec.Epoch, nil
+}
+
+func (ec *MockRemoteCache) NextEpoch() error {
+	ec.Epoch += 1
 	return nil
 }

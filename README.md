@@ -68,7 +68,7 @@ pipenv install
 You can configure via environment variables, or via a config file. Environment variables are specified in the [`/containers/*.properties.example`](https://github.com/mozilla/crlite/tree/main/containers) files. To use a configuration file,  `~/.ct-fetch.ini` (or any file selected on the CLI using `-config`), construct it as so:
 
 ```
-certPath = /ct
+persistentStorage = /persistent
 numThreads = 16
 cacheSize = 128
 ```
@@ -136,11 +136,11 @@ docker run --rm -it \
   crlite:staging-fetch
 ```
 
-The crlite-generate container constructs a new filter. To use local disk, set the `certPath` to `/ctdata` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
+The crlite-generate container constructs a new filter. To use local disk, set the `persistantStorage` to `/persistent` and mount that volume in Docker. You should also mount the volume `/processing` to get the output files:
 
 ```sh
 docker run --rm -it \
-  -e "certPath=/ctdata" \
+  -e "persistentStorage=/persistent" \
   -e "outputRefreshMs=1000" \
   --mount type=bind,src=/tmp/ctlite_data,dst=/ctdata \
   --mount type=bind,src=/tmp/crlite_results,dst=/processing \

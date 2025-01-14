@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,18 @@ import (
 
 const EMPTY_QUEUE string = "redis: nil"
 const NO_EXPIRATION time.Duration = 0
+
+// The commit lock is acquired in aggregate-known before cached serials are
+// written to disk. It is held until aggregate-known is done reading serials
+// from disk. We set a 4 hour expiry on the commit lock in case the
+// aggregate-known process is abruptly terminated. The commit process is
+// fault-tolerant and will not leave persistent storage in a bad state. The
+// lock expiry just ensures that the next aggregate-known process will get a
+// chance to run.
+const COMMIT_LOCK_KEY string = "lock::commit"
+const COMMIT_LOCK_EXPIRATION time.Duration = 4 * time.Hour
+
+const EPOCH_KEY string = "epoch"
 
 type RedisCache struct {
 	client *redis.Client
@@ -224,4 +239,54 @@ func (ec *RedisCache) LoadAllLogStates() ([]types.CTLogState, error) {
 	}
 
 	return ctLogList, nil
+}
+
+func (ec *RedisCache) AcquireCommitLock() (*string, error) {
+	randomBytes := make([]byte, 16)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return nil, err
+	}
+	commitLockToken := base64.URLEncoding.EncodeToString(randomBytes)
+
+	// SETNX is a set-if-not-set primitive. Returns true if commitLockToken
+	// is the new value associated with COMMIT_LOCK_KEY. Returns false or
+	// an error otherwise.
+	set, err := ec.client.SetNX(COMMIT_LOCK_KEY, commitLockToken, COMMIT_LOCK_EXPIRATION).Result()
+	if err != nil || !set {
+		return nil, err
+	}
+	return &commitLockToken, err
+}
+
+func (ec *RedisCache) ReleaseCommitLock(aToken string) {
+	hasLock, err := ec.HasCommitLock(aToken)
+	if err == nil && hasLock {
+		ec.client.Del(COMMIT_LOCK_KEY)
+	}
+}
+
+func (ec *RedisCache) HasCommitLock(aToken string) (bool, error) {
+	lockHolder, err := ec.client.Get(COMMIT_LOCK_KEY).Result()
+	if err == redis.Nil { // COMMIT_LOCK_KEY not set
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return lockHolder == aToken, nil
+}
+
+func (ec *RedisCache) GetEpoch() (uint64, error) {
+	epochStr, err := ec.client.Get(EPOCH_KEY).Result()
+	if err == redis.Nil { // COMMIT_LOCK_KEY not set
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseUint(epochStr, 10, 64)
+}
+
+func (ec *RedisCache) NextEpoch() error {
+	return ec.client.Incr(EPOCH_KEY).Err()
 }

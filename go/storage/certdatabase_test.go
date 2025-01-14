@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"io/ioutil"
 	"net/url"
 	"reflect"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/mozilla/crlite/go"
 )
@@ -57,15 +60,140 @@ Daidl1Taa2zjouW/BTuwmD/8WbTSP4KJpblia+2LtzO6VJV/if7wqXZr4UA0kpTY
 wKo3zx2WdFVsOLYnt/QsOZS8WsdlNR30V/040wPH+F6XNPnTnlw0UxZzt/mnWmeU
 EA==
 -----END CERTIFICATE-----`
+
+	kIssuer1          = "8Rw90Ej3Ttt8RRkrg-WYDS9n7IS03bk5bjP_UXPtaY8="
+	kIssuer2          = "ZkWBotC4nL-Ba_kXaVPx7TpoRSF9uwxEAuufz67J7sQ="
+	kDate1            = "2099-12-31"
+	kDate2            = "2100-01-01"
+	kExpirationFormat = "2006-01-02"
 )
 
 func getTestHarness(t *testing.T) (*MockRemoteCache, CertDatabase) {
+	tmpDir, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Can't create temp dir: %s", err.Error())
+	}
 	mockCache := NewMockRemoteCache()
-	storageDB, err := NewCertDatabase(mockCache)
+	certDB, err := NewCertDatabase(mockCache, tmpDir)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
-	return mockCache, storageDB
+	return mockCache, certDB
+}
+
+func cacheSerial(t *testing.T, db CertDatabase, expDateStr string, issuerStr string, serialStr string) {
+	issuer := types.NewIssuerFromString(issuerStr)
+	expDate, err := types.NewExpDate(expDateStr)
+	if err != nil {
+		t.Error(err)
+	}
+	serial := types.NewSerialFromHex(serialStr)
+
+	kc := db.GetSerialCacheAccessor(expDate, issuer)
+	_, err = kc.Insert(serial)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func isCached(t *testing.T, db CertDatabase, expDateStr string, issuerStr string, serialStr string) bool {
+	issuer := types.NewIssuerFromString(issuerStr)
+	expDate, err := types.NewExpDate(expDateStr)
+	if err != nil {
+		t.Error(err)
+	}
+	serial := types.NewSerialFromHex(serialStr)
+
+	kc := db.GetSerialCacheAccessor(expDate, issuer)
+	cached, err := kc.Contains(serial)
+	if err != nil {
+		t.Error(err)
+	}
+
+	return cached
+}
+
+func expectCached(t *testing.T, db CertDatabase, expDateStr string, issuerStr string, serialStr string, expected bool) {
+	if expected != isCached(t, db, expDateStr, issuerStr, serialStr) {
+		t.Errorf("Expected cache bucket %s::%s to contain serial %s", expDateStr, issuerStr, serialStr)
+	}
+}
+
+func expectCountStored(t *testing.T, db CertDatabase, expDateStr string, issuerStr string, serialStr string, expected uint64) {
+	issuer := types.NewIssuerFromString(issuerStr)
+	expDate, err := types.NewExpDate(expDateStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	storedSerials, err := db.ReadSerialsFromStorage(expDate, issuer)
+	if err != nil {
+		t.Error(err)
+	}
+
+	var count uint64 = 0
+	for i := 0; i < len(storedSerials); i++ {
+		if storedSerials[i].String() == serialStr {
+			count++
+		}
+	}
+
+	if count != expected {
+		t.Errorf("Expected storage bucket %s::%s to contain serial %s exactly %d times", expDateStr, issuerStr, serialStr, expected)
+	}
+}
+
+func expectStored(t *testing.T, db CertDatabase, expDateStr string, issuerStr string, serialStr string, expected bool) {
+	var expectedCount uint64 = 0
+	if expected {
+		expectedCount = 1
+	}
+	expectCountStored(t, db, expDateStr, issuerStr, serialStr, expectedCount)
+}
+
+func expectCacheEmpty(t *testing.T, db CertDatabase) {
+	l, err := db.GetIssuerAndDatesFromCache()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(l) != 0 {
+		t.Error("Cache should be empty")
+	}
+}
+
+func expectStorageEmpty(t *testing.T, db CertDatabase) {
+	l, err := db.GetIssuerAndDatesFromStorage()
+	if err != nil {
+		t.Error(err)
+	}
+	if len(l) != 0 {
+		t.Error("Storage should be empty")
+	}
+}
+
+func expectEqualIssuerDateLists(t *testing.T, list1 []types.IssuerDate, list2 []types.IssuerDate) {
+	strings1 := make([]string, 0)
+	strings2 := make([]string, 0)
+	for i := 0; i < len(list1); i++ {
+		for j := 0; j < len(list1[i].ExpDates); j++ {
+			strings1 = append(strings1, list1[i].ExpDates[j].ID()+"::"+list1[i].Issuer.ID())
+		}
+	}
+	for i := 0; i < len(list2); i++ {
+		for j := 0; j < len(list2[i].ExpDates); j++ {
+			strings2 = append(strings2, list2[i].ExpDates[j].ID()+"::"+list2[i].Issuer.ID())
+		}
+	}
+	sort.Strings(strings1)
+	sort.Strings(strings2)
+	if len(strings1) != len(strings2) {
+		t.Error("Lists are not the same length")
+	}
+	for i := 0; i < len(strings1); i++ {
+		if strings1[i] != strings2[i] {
+			t.Errorf("Lists differ at index %d", i)
+		}
+	}
 }
 
 func mkExp(s string) types.ExpDate {
@@ -76,75 +204,12 @@ func mkExp(s string) types.ExpDate {
 	return d
 }
 
-func Test_GetIssuerAndDatesFromCache(t *testing.T) {
-	_, storageDB := getTestHarness(t)
-
-	l, err := storageDB.GetIssuerAndDatesFromCache()
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l) != 0 {
-		t.Errorf("Should have been empty with an empty DB: %v", l)
-	}
-
-	issuer := types.NewIssuerFromString("Honesty Issuer")
-
-	{
-		expDate, err := types.NewExpDate("2040-02-03-19")
-		if err != nil {
-			t.Error(err)
-		}
-		serial := types.NewSerialFromHex("FEEDBEEF")
-
-		kc := storageDB.GetSerialCacheWriter(expDate, issuer)
-		_, err = kc.Insert(serial)
-		if err != nil {
-			t.Error(err)
-		}
-	}
-
-	l2, err := storageDB.GetIssuerAndDatesFromCache()
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l2) != 1 {
-		t.Errorf("Should have been one issuer: %v", l2)
-	}
-	if len(l2[0].ExpDates) != 1 {
-		t.Errorf("Should have been one expDate %v", l2[0].ExpDates)
-	}
-
-	{
-		expDate, err := types.NewExpDate("2040-02-03")
-		if err != nil {
-			t.Error(err)
-		}
-		serial := types.NewSerialFromHex("BEEF")
-		kc := storageDB.GetSerialCacheWriter(expDate, issuer)
-		_, err = kc.Insert(serial)
-		if err != nil {
-			t.Error(err)
-		}
-	}
-
-	l3, err := storageDB.GetIssuerAndDatesFromCache()
-	if err != nil {
-		t.Error(err)
-	}
-	if len(l3) != 1 {
-		t.Errorf("Should have been one issuer: %v", l3)
-	}
-	if len(l3[0].ExpDates) != 2 {
-		t.Errorf("Should have been two expDates %v", l3[0].ExpDates)
-	}
-}
-
-func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
+func test_LogState(t *testing.T, cache RemoteCache, certDB CertDatabase) {
 	unknownUrl, err := url.Parse("gopher://go.pher")
 	if err != nil {
 		t.Fatalf("URL parse failure")
 	}
-	log, err := storageDB.GetLogState(unknownUrl)
+	log, err := certDB.GetLogState(unknownUrl)
 	if err != nil {
 		t.Errorf("Unknown logs should be OK")
 	}
@@ -156,7 +221,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	if err != nil {
 		t.Fatalf("URL parse failure")
 	}
-	log, err = storageDB.GetLogState(normalUrl)
+	log, err = certDB.GetLogState(normalUrl)
 	if err != nil {
 		t.Errorf("Should not error: %v", err)
 	}
@@ -168,7 +233,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 	}
 
 	log.MaxEntry = 9
-	err = storageDB.SaveLogState(log)
+	err = certDB.SaveLogState(log)
 	if err != nil {
 		t.Errorf("Shouldn't have errored saving %v", err)
 	}
@@ -181,7 +246,7 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 		t.Errorf("Expected the cache to have the exact same log state, %+v %+v", cacheObj, log)
 	}
 
-	updatedLog, err := storageDB.GetLogState(normalUrl)
+	updatedLog, err := certDB.GetLogState(normalUrl)
 	if err != nil {
 		t.Errorf("Should not error: %v", err)
 	}
@@ -194,6 +259,225 @@ func test_LogState(t *testing.T, cache RemoteCache, storageDB CertDatabase) {
 }
 
 func Test_LogState(t *testing.T) {
-	cache, storageDB := getTestHarness(t)
-	test_LogState(t, cache, storageDB)
+	cache, certDB := getTestHarness(t)
+	test_LogState(t, cache, certDB)
+}
+
+func Test_Cache(t *testing.T) {
+	_, certDB := getTestHarness(t)
+
+	expectCacheEmpty(t, certDB)
+
+	expectCached(t, certDB, kDate1, kIssuer1, "01", false)
+	cacheSerial(t, certDB, kDate1, kIssuer1, "01")
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+
+	// insert the same value again to test idempotency
+	cacheSerial(t, certDB, kDate1, kIssuer1, "01")
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+
+	// ensure that one bin can hold multiple values
+	expectCached(t, certDB, kDate1, kIssuer1, "02", false)
+	cacheSerial(t, certDB, kDate1, kIssuer1, "02")
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer1, "02", true)
+
+	// ensure that separate date bins can hold the same values
+	expectCached(t, certDB, kDate2, kIssuer1, "01", false)
+	expectCached(t, certDB, kDate2, kIssuer1, "02", false)
+	cacheSerial(t, certDB, kDate2, kIssuer1, "01")
+	cacheSerial(t, certDB, kDate2, kIssuer1, "02")
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer1, "02", true)
+	expectCached(t, certDB, kDate2, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate2, kIssuer1, "02", true)
+
+	// ensure that separate issuer bins can hold the same values
+	expectCached(t, certDB, kDate1, kIssuer2, "01", false)
+	expectCached(t, certDB, kDate1, kIssuer2, "02", false)
+	cacheSerial(t, certDB, kDate1, kIssuer2, "01")
+	cacheSerial(t, certDB, kDate1, kIssuer2, "02")
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer1, "02", true)
+	expectCached(t, certDB, kDate1, kIssuer2, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer2, "02", true)
+}
+
+func Test_MoveCachedSerialsToStorage(t *testing.T) {
+	_, certDB := getTestHarness(t)
+
+	expectCacheEmpty(t, certDB)
+	expectStorageEmpty(t, certDB)
+
+	cacheSerial(t, certDB, kDate1, kIssuer1, "01")
+	cacheSerial(t, certDB, kDate1, kIssuer1, "02")
+	cacheSerial(t, certDB, kDate1, kIssuer2, "01")
+	cacheSerial(t, certDB, kDate1, kIssuer2, "02")
+	cacheSerial(t, certDB, kDate2, kIssuer1, "01")
+	cacheSerial(t, certDB, kDate2, kIssuer1, "02")
+	cacheSerial(t, certDB, kDate2, kIssuer2, "01")
+	cacheSerial(t, certDB, kDate2, kIssuer2, "02")
+
+	expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer1, "02", true)
+	expectCached(t, certDB, kDate1, kIssuer2, "01", true)
+	expectCached(t, certDB, kDate1, kIssuer2, "02", true)
+	expectCached(t, certDB, kDate2, kIssuer1, "01", true)
+	expectCached(t, certDB, kDate2, kIssuer1, "02", true)
+	expectCached(t, certDB, kDate2, kIssuer2, "01", true)
+	expectCached(t, certDB, kDate2, kIssuer2, "02", true)
+
+	expectStored(t, certDB, kDate1, kIssuer1, "01", false)
+	expectStored(t, certDB, kDate1, kIssuer1, "02", false)
+	expectStored(t, certDB, kDate1, kIssuer2, "01", false)
+	expectStored(t, certDB, kDate1, kIssuer2, "02", false)
+	expectStored(t, certDB, kDate2, kIssuer1, "01", false)
+	expectStored(t, certDB, kDate2, kIssuer1, "02", false)
+	expectStored(t, certDB, kDate2, kIssuer2, "01", false)
+	expectStored(t, certDB, kDate2, kIssuer2, "02", false)
+
+	cachedIssuerDates, err := certDB.GetIssuerAndDatesFromCache()
+	if err != nil {
+		t.Errorf("Could not get issuer-dates from cache: %s", err)
+	}
+
+	err = certDB.moveCachedSerialsToStorage()
+	if err != nil {
+		t.Errorf("Could not move cached serials to storage: %s", err)
+	}
+
+	storedIssuerDates, err := certDB.GetIssuerAndDatesFromStorage()
+	if err != nil {
+		t.Errorf("Could not get issuer-dates from storage: %s", err)
+	}
+
+	expectEqualIssuerDateLists(t, cachedIssuerDates, storedIssuerDates)
+
+	expectCached(t, certDB, kDate1, kIssuer1, "01", false)
+	expectCached(t, certDB, kDate1, kIssuer1, "02", false)
+	expectCached(t, certDB, kDate1, kIssuer2, "01", false)
+	expectCached(t, certDB, kDate1, kIssuer2, "02", false)
+	expectCached(t, certDB, kDate2, kIssuer1, "01", false)
+	expectCached(t, certDB, kDate2, kIssuer1, "02", false)
+	expectCached(t, certDB, kDate2, kIssuer2, "01", false)
+	expectCached(t, certDB, kDate2, kIssuer2, "02", false)
+
+	expectStored(t, certDB, kDate1, kIssuer1, "01", true)
+	expectStored(t, certDB, kDate1, kIssuer1, "02", true)
+	expectStored(t, certDB, kDate1, kIssuer2, "01", true)
+	expectStored(t, certDB, kDate1, kIssuer2, "02", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "01", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "02", true)
+	expectStored(t, certDB, kDate2, kIssuer2, "01", true)
+	expectStored(t, certDB, kDate2, kIssuer2, "02", true)
+}
+
+func Test_MoveCachedSerialsToStorageIdempotent(t *testing.T) {
+	_, certDB := getTestHarness(t)
+
+	expectCacheEmpty(t, certDB)
+	expectStorageEmpty(t, certDB)
+
+	// Repeatedly cache the same serial and move it to storage
+	for i := 0; i < 4; i++ {
+		cacheSerial(t, certDB, kDate1, kIssuer1, "01")
+		expectCached(t, certDB, kDate1, kIssuer1, "01", true)
+		expectStored(t, certDB, kDate1, kIssuer1, "01", i > 0)
+
+		certDB.moveCachedSerialsToStorage()
+		expectCached(t, certDB, kDate1, kIssuer1, "01", false)
+		expectStored(t, certDB, kDate1, kIssuer1, "01", true)
+	}
+
+	// Only one copy of the serial should be in storage
+	expectCountStored(t, certDB, kDate1, kIssuer1, "01", 1)
+}
+
+func Test_Commit(t *testing.T) {
+	cache, certDB := getTestHarness(t)
+
+	cacheSerial(t, certDB, kDate1, kIssuer1, "01")
+	cacheSerial(t, certDB, kDate2, kIssuer1, "01")
+
+	epoch, err := cache.GetEpoch()
+	if err != nil || epoch != 0 {
+		t.Error("Unexpected epoch")
+	}
+
+	err = certDB.Commit("bad token")
+	if err == nil {
+		t.Error("Commit should require the commit lock")
+	}
+
+	token, err := cache.AcquireCommitLock()
+	if err != nil || token == nil {
+		t.Error("Should have acquired commit lock")
+	}
+
+	err = certDB.Commit(*token)
+	if err != nil {
+		t.Errorf("Commit should have succeeded %v", err)
+	}
+
+	expectStored(t, certDB, kDate1, kIssuer1, "01", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "01", true)
+
+	epoch, err = cache.GetEpoch()
+	if err != nil || epoch != 1 {
+		t.Error("Unexpected epoch")
+	}
+
+	cacheSerial(t, certDB, kDate1, kIssuer1, "02")
+	cacheSerial(t, certDB, kDate2, kIssuer1, "02")
+
+	err = certDB.Commit(*token)
+	if err != nil {
+		t.Errorf("Commit should have succeeded %v", err)
+	}
+
+	expectStored(t, certDB, kDate1, kIssuer1, "01", true)
+	expectStored(t, certDB, kDate1, kIssuer1, "02", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "01", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "02", true)
+
+	epoch, err = cache.GetEpoch()
+	if err != nil || epoch != 2 {
+		t.Error("Unexpected epoch")
+	}
+
+	err = cache.NextEpoch()
+	err = certDB.Commit(*token)
+	if err == nil {
+		t.Error("Should have failed with epoch error")
+	}
+
+	cache.ReleaseCommitLock(*token)
+}
+
+func Test_RemoveExpiredSerialsFromStorage(t *testing.T) {
+	_, certDB := getTestHarness(t)
+
+	before := "2222-01-01"
+	now := "3333-01-01"
+	after := "4444-01-01"
+
+	expectCacheEmpty(t, certDB)
+	expectStorageEmpty(t, certDB)
+
+	cacheSerial(t, certDB, before, kIssuer1, "01")
+	cacheSerial(t, certDB, after, kIssuer1, "02")
+
+	certDB.moveCachedSerialsToStorage()
+
+	expectStored(t, certDB, before, kIssuer1, "01", true)
+	expectStored(t, certDB, after, kIssuer1, "02", true)
+
+	expiry, err := time.Parse(kExpirationFormat, now)
+	if err != nil {
+		t.Error("Failed to parse expiry")
+	}
+	certDB.removeExpiredSerialsFromStorage(expiry)
+
+	expectStored(t, certDB, before, kIssuer1, "01", false)
+	expectStored(t, certDB, after, kIssuer1, "02", true)
 }

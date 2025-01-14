@@ -596,16 +596,16 @@ func Test_SaveRevokedCertificateList(t *testing.T) {
 	issuer := types.NewIssuerFromString("issuerAKI")
 	serials := []types.SerialAndReason{
 		types.SerialAndReason{
-			types.NewSerialFromHex("01"),
-			0,
+			Serial: types.NewSerialFromHex("01"),
+			Reason: 0,
 		},
 		types.SerialAndReason{
-			types.NewSerialFromHex("02"),
-			255,
+			Serial: types.NewSerialFromHex("02"),
+			Reason: 255,
 		},
 		types.SerialAndReason{
-			types.NewSerialFromHex("03"),
-			1,
+			Serial: types.NewSerialFromHex("03"),
+			Reason: 1,
 		},
 	}
 

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"github.com/google/certificate-transparency-go/x509"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -140,6 +142,27 @@ func (s *Serial) UnmarshalJSON(data []byte) error {
 	b, err := hex.DecodeString(string(data[1 : len(data)-1]))
 	s.serial = b
 	return err
+}
+
+type SerialList []Serial
+
+func (s SerialList) Len() int           { return len(s) }
+func (s SerialList) Less(i, j int) bool { return bytes.Compare(s[i].serial, s[j].serial) < 0 }
+func (s SerialList) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s SerialList) Dedup() SerialList {
+	if len(s) < 2 {
+		return s
+	}
+	sort.Sort(s)
+	end := 1
+	for i := 1; i < len(s); i++ {
+		if bytes.Compare(s[i].serial, s[i-1].serial) == 0 {
+			continue
+		}
+		s[end] = s[i]
+		end++
+	}
+	return s[:end]
 }
 
 // A serial number with a revocation reason code
@@ -278,15 +301,6 @@ func NewSerialFromHex(s string) Serial {
 func NewSerialFromBinaryString(s string) (Serial, error) {
 	bytes := []byte(s)
 	return NewSerialFromBytes(bytes), nil
-}
-
-type IssuerAndDate struct {
-	ExpDate ExpDate
-	Issuer  Issuer
-}
-
-func (t *IssuerAndDate) String() string {
-	return fmt.Sprintf("%s/%s", t.ExpDate.ID(), t.Issuer.ID())
 }
 
 type ExpDate struct {
