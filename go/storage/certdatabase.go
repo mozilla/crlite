@@ -425,6 +425,7 @@ func (db *CertDatabase) moveCachedSerialsToStorage() error {
 		// We'll process the expiry shards in parallel. There are only a
 		// few thousand shards per issuer, and goroutines are cheap, so
 		// we don't need to worry about spinning up too many workers.
+		glog.Infof("[%s] Moving %d expiry bins to storage.", issuer.ID(), len(issuerDate.ExpDates))
 		errChan := make(chan error, len(issuerDate.ExpDates))
 		var wg sync.WaitGroup
 		wg.Add(len(issuerDate.ExpDates))
