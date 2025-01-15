@@ -8,6 +8,7 @@ import (
 	"path/filepath" // used for glob-like matching in Keys
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -15,6 +16,7 @@ import (
 )
 
 type MockRemoteCache struct {
+	mu          sync.Mutex
 	Data        map[string][]string
 	Expirations map[string]time.Time
 	Duplicate   int
@@ -30,7 +32,8 @@ func NewMockRemoteCache() *MockRemoteCache {
 	}
 }
 
-func (ec *MockRemoteCache) CleanupExpiry() {
+func (ec *MockRemoteCache) cleanupExpiry() {
+	// ec.mu must be held
 	now := time.Now()
 	for key, timestamp := range ec.Expirations {
 		if timestamp.Before(now) {
@@ -41,6 +44,8 @@ func (ec *MockRemoteCache) CleanupExpiry() {
 }
 
 func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -66,7 +71,7 @@ func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
 }
 
 func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
-	ec.CleanupExpiry()
+	ec.cleanupExpiry()
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -92,7 +97,9 @@ func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
 }
 
 func (ec *MockRemoteCache) SetContains(key string, entry string) (bool, error) {
-	ec.CleanupExpiry()
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	ec.cleanupExpiry()
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -112,13 +119,17 @@ func (ec *MockRemoteCache) SetContains(key string, entry string) (bool, error) {
 }
 
 func (ec *MockRemoteCache) SetList(key string) ([]string, error) {
-	ec.CleanupExpiry()
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	ec.cleanupExpiry()
 	return ec.Data[key], nil
 }
 
 func (ec *MockRemoteCache) SetToChan(key string, c chan<- string) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	defer close(c)
-	ec.CleanupExpiry()
+	ec.cleanupExpiry()
 	for i := 0; i < ec.Duplicate+1; i++ {
 		for _, v := range ec.Data[key] {
 			c <- v
@@ -128,21 +139,29 @@ func (ec *MockRemoteCache) SetToChan(key string, c chan<- string) error {
 }
 
 func (ec *MockRemoteCache) SetCardinality(key string) (int, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	return len(ec.Data[key]), nil
 }
 
 func (ec *MockRemoteCache) Exists(key string) (bool, error) {
-	ec.CleanupExpiry()
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	ec.cleanupExpiry()
 	_, ok := ec.Data[key]
 	return ok, nil
 }
 
 func (ec *MockRemoteCache) ExpireAt(key string, expTime time.Time) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	ec.Expirations[key] = expTime
 	return nil
 }
 
 func (ec *MockRemoteCache) KeysToChan(pattern string, c chan<- string) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	defer close(c)
 
 	for key := range ec.Data {
@@ -159,6 +178,8 @@ func (ec *MockRemoteCache) KeysToChan(pattern string, c chan<- string) error {
 }
 
 func (ec *MockRemoteCache) StoreLogState(log *types.CTLogState) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	encoded, err := json.Marshal(log)
 	if err != nil {
 		return err
@@ -169,6 +190,8 @@ func (ec *MockRemoteCache) StoreLogState(log *types.CTLogState) error {
 }
 
 func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	data, ok := ec.Data[shortUrl]
 	if !ok {
 		return nil, fmt.Errorf("Log state not found")
@@ -185,15 +208,21 @@ func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, err
 }
 
 func (ec *MockRemoteCache) LoadAllLogStates() ([]types.CTLogState, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	var logStates []types.CTLogState
 	return logStates, nil
 }
 
 func (ec *MockRemoteCache) Migrate(logData *types.CTLogMetadata) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	return nil
 }
 
 func (ec *MockRemoteCache) AcquireCommitLock() (*string, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	randomBytes := make([]byte, 16)
 	if _, err := rand.Read(randomBytes); err != nil {
 		return nil, err
@@ -207,21 +236,29 @@ func (ec *MockRemoteCache) AcquireCommitLock() (*string, error) {
 }
 
 func (ec *MockRemoteCache) ReleaseCommitLock(aToken string) {
-	hasLock, err := ec.HasCommitLock(aToken)
-	if err != nil && hasLock {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	hasLock := ec.CommitLock != nil && *ec.CommitLock == aToken
+	if hasLock {
 		ec.CommitLock = nil
 	}
 }
 
 func (ec *MockRemoteCache) HasCommitLock(aToken string) (bool, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	return ec.CommitLock != nil && *ec.CommitLock == aToken, nil
 }
 
 func (ec *MockRemoteCache) GetEpoch() (uint64, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	return ec.Epoch, nil
 }
 
 func (ec *MockRemoteCache) NextEpoch() error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	ec.Epoch += 1
 	return nil
 }
