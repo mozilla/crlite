@@ -55,12 +55,16 @@ func (kc *SerialCacheWriter) Insert(aSerial types.Serial) (bool, error) {
 	return result, nil
 }
 
-func (kc *SerialCacheWriter) Remove(aSerial types.Serial) (bool, error) {
+func (kc *SerialCacheWriter) RemoveMany(aSerials []types.Serial) error {
 	// Removing an element of a set may leave the set empty. Redis
 	// automatically deletes empty sets, so assume that we need to reset
 	// the ExpireAt time for this set on the next Insert call.
 	kc.expirySet = false
-	return kc.cache.SetRemove(kc.serialId(), aSerial.BinaryString())
+	serialStrings := make([]string, len(aSerials))
+	for i := 0; i < len(aSerials); i++ {
+		serialStrings[i] = aSerials[i].BinaryString()
+	}
+	return kc.cache.SetRemove(kc.serialId(), serialStrings)
 }
 
 func (kc *SerialCacheWriter) Count() int64 {

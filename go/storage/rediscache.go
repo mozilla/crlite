@@ -80,10 +80,28 @@ func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 	return added == 1, err
 }
 
-func (rc *RedisCache) SetRemove(key string, entry string) (bool, error) {
-	ir := rc.client.SRem(key, entry)
-	removed, err := ir.Result()
-	return removed > 0, err
+func (rc *RedisCache) SetRemove(key string, entries []string) error {
+	batchSize := 1024
+	for batchStart := 0; batchStart < len(entries); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(entries) {
+			batchEnd = len(entries)
+		}
+		batch := entries[batchStart:batchEnd]
+		_, err := rc.client.Pipelined(func(pipe redis.Pipeliner) error {
+			for _, entry := range batch {
+				err := pipe.SRem(key, entry).Err()
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (rc *RedisCache) SetContains(key string, entry string) (bool, error) {
