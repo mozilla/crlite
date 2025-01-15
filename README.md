@@ -13,7 +13,7 @@ There are also useful end-user tools for querying CRLite: [moz_crlite_query](htt
 
 CRLite is designed to run in Kubernetes, with the following services:
 
-1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/main/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs into Redis and Google Firestore
+1. [`containers/crlite-fetch`](https://github.com/mozilla/crlite/tree/main/containers/crlite-fetch), a constantly-running task that downloads from Certificate Transparency logs.
 1. [`containers/crlite-generate`](https://github.com/mozilla/crlite/tree/main/containers/crlite-generate), a periodic (cron) job that produces a CRLite filter from the data in Redis and uploads the artifacts into Google Cloud Storage
 1. [`containers/crlite-publish`](https://github.com/mozilla/crlite/tree/main/containers/crlite-publish), a periodic (cron) job that publishes the results of a `crlite-generate` run to a Kinto instance.
 1. [`containers/crlite-signoff`](https://github.com/mozilla/crlite/tree/main/containers/crlite-signoff), a periodic (cron) job that verifies and approves data `crlite-publish` placed in a Kinto instance.
@@ -24,9 +24,9 @@ There are scripts in [`containers/`](https://github.com/mozilla/crlite/tree/main
 ### Storage
 Storage consists of these parts:
 
-1. Redis, e.g. Google Cloud Memorystore, for certificate metadata (CRL DPs, serial numbers, expirations, issuers), used in filter generation.
+1. Redis, e.g. Google Cloud Memorystore, for ingestion of certificate metadata (serial numbers, expirations, issuers), used in filter generation.
+1. A local disk, for persistent storage of certificate metadata and CRLs. This is defined in [`containers/crl-storage-claim.yaml`](https://github.com/mozilla/crlite/blob/main/containers/crl-storage-claim.yaml).
 1. Google Cloud Storage, for storage of the artifacts when a job is completed.
-1. A local persistent disk, for persistent storage of downloaded CRLs. This is defined in [`containers/crl-storage-claim.yaml`](https://github.com/mozilla/crlite/blob/main/containers/crl-storage-claim.yaml).
 
 
 ### Information Flow
@@ -52,7 +52,7 @@ The keys used into the CRLite data structure consist of the SHA256 digest of the
 
 ## Local Installation
 
-It's possible to run the tools locally, though you will need local instances of Redis and Firestore. First, install the tools and their dependencies
+It's possible to run the tools locally, though you will need a local instance of Redis. First, install the tools and their dependencies
 
 ```sh
 go install -u github.com/mozilla/crlite/go/cmd/ct-fetch
@@ -68,7 +68,7 @@ pipenv install
 You can configure via environment variables, or via a config file. Environment variables are specified in the [`/containers/*.properties.example`](https://github.com/mozilla/crlite/tree/main/containers) files. To use a configuration file,  `~/.ct-fetch.ini` (or any file selected on the CLI using `-config`), construct it as so:
 
 ```
-persistentStorage = /persistent
+certPath = /persistent/certdb/
 numThreads = 16
 cacheSize = 128
 ```
@@ -112,8 +112,6 @@ If you need to proxy the connection, perhaps via SSH, set the `HTTPS_PROXY` to s
 
 [`test-via-docker.sh`](https://github.com/mozilla/crlite/tree/main/test-via-docker.sh) executes a complete "run", syncing with CT and producing a filter. It's configured using a series of environment variables.
 
-Note that since all data is stored in Redis, a robust backup for the Redis information is warranted to avoid expensive resynchronization.
-
 ### Starting the Local Dependencies
 
 Redis can be provided in a variety of ways, easiest is probably the Redis docker distribution. For whatever reason, I have the
@@ -131,7 +129,6 @@ The crlite-fetch container runs forever, fetching CT updates:
 
 ```sh
 docker run --rm -it \
-  -e "FIRESTORE_EMULATOR_HOST=my_ip_address:8403" \
   -e "outputRefreshMs=1000" \
   crlite:staging-fetch
 ```
@@ -155,7 +152,7 @@ To run in a remote container, such as a Kubernetes pod, you'll need to make sure
 ## Tools
 
 *`ct-fetch`*
-Downloads all CT entries' certificates to a Firestore instance and collects their metadata.
+Downloads all CT entry issuer-serial pairs, and associated metadata, to local persistent storage.
 
 *`aggregate-crls`*
 Obtains all CRLs defined in all CT entries' certificates, verifies them, and collates their results
