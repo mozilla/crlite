@@ -2,8 +2,8 @@ package storage
 
 import (
 	"io/ioutil"
-	"os"
 	"net/url"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -336,7 +336,10 @@ func Test_MoveCachedSerialsToStorageIdempotent(t *testing.T) {
 		expectCached(t, certDB, kDate1, kIssuer1, "01", true)
 		expectStored(t, certDB, kDate1, kIssuer1, "01", i > 0)
 
-		certDB.moveCachedSerialsToStorage()
+		err := certDB.moveCachedSerialsToStorage()
+		if err != nil {
+			t.Errorf("Failed to move cached serials to storage: %s", err)
+		}
 		expectCached(t, certDB, kDate1, kIssuer1, "01", false)
 		expectStored(t, certDB, kDate1, kIssuer1, "01", true)
 	}
@@ -398,6 +401,10 @@ func Test_Commit(t *testing.T) {
 	}
 
 	err = cache.NextEpoch()
+	if err != nil {
+		t.Error("Should have incremented cache epoch")
+	}
+
 	err = certDB.Commit(*token)
 	if err == nil {
 		t.Error("Should have failed with epoch error")
@@ -419,7 +426,10 @@ func Test_RemoveExpiredSerialsFromStorage(t *testing.T) {
 	cacheSerial(t, certDB, before, kIssuer1, "01")
 	cacheSerial(t, certDB, after, kIssuer2, "02")
 
-	certDB.moveCachedSerialsToStorage()
+	err := certDB.moveCachedSerialsToStorage()
+	if err != nil {
+		t.Errorf("Failed to move cached serials to storage: %s", err)
+	}
 
 	expectStored(t, certDB, before, kIssuer1, "01", true)
 	expectStored(t, certDB, after, kIssuer2, "02", true)

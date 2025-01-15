@@ -156,7 +156,7 @@ func (s SerialList) Dedup() SerialList {
 	sort.Sort(s)
 	end := 1
 	for i := 1; i < len(s); i++ {
-		if bytes.Compare(s[i].serial, s[i-1].serial) == 0 {
+		if bytes.Equal(s[i].serial, s[i-1].serial) {
 			continue
 		}
 		s[end] = s[i]

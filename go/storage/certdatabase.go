@@ -393,7 +393,10 @@ func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpD
 		return err
 	}
 
-	t.CloseAtomicallyReplace()
+	err = t.CloseAtomicallyReplace()
+	if err != nil {
+		return err
+	}
 
 	// It's now safe to remove cachedSerials from the cache.
 	cacheWriter := db.GetSerialCacheAccessor(aExpDate, aIssuer)
@@ -515,29 +518,43 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 		return err
 	}
 
-	epochFD, err := renameio.TempFile("", db.epochFile())
+	err = ctLogFD.CloseAtomicallyReplace()
 	if err != nil {
 		return err
+	}
+
+	err = db.removeExpiredSerialsFromStorage(time.Now())
+	if err != nil {
+		return err
+	}
+
+	// The data on disk is in a good state and we just have to increment
+	// the cache and storage epochs. We can ignore some errors here as long
+	// as the end result is that the cache is one epoch ahead of storage.
+	epochFD, err := renameio.TempFile("", db.epochFile())
+	if err != nil {
+		glog.Warningf("Failed to increment epochs: %s", err)
+		return nil
 	}
 	defer epochFD.Cleanup()
 
 	writer := bufio.NewWriter(epochFD)
 	_, err = writer.WriteString(fmt.Sprintf("%v\n", cacheEpoch))
 	if err != nil {
-		return err
+		glog.Warningf("Failed to increment epochs: %s", err)
+		return nil
 	}
 	writer.Flush()
 
 	err = db.cache.NextEpoch()
 	if err != nil {
-		return err
+		glog.Warningf("Failed to increment epochs: %s", err)
+		return nil
 	}
 
-	epochFD.CloseAtomicallyReplace()
-	ctLogFD.CloseAtomicallyReplace()
-
-	err = db.removeExpiredSerialsFromStorage(time.Now())
+	err = epochFD.CloseAtomicallyReplace()
 	if err != nil {
+		// This is the one case where we get inconsistent epochs.
 		return err
 	}
 
