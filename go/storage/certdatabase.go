@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -423,8 +424,21 @@ func (db *CertDatabase) moveCachedSerialsToStorage() error {
 		if err != nil {
 			return err
 		}
+		// We'll process the expiry shards in parallel. There are only a
+		// few thousand shards per issuer, and goroutines are cheap, so
+		// we don't need to worry about spinning up too many workers.
+		errChan := make(chan error, len(issuerDate.ExpDates))
+		var wg sync.WaitGroup
+		wg.Add(len(issuerDate.ExpDates))
 		for _, expDate := range issuerDate.ExpDates {
-			err = db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer)
+			go func(expDate types.ExpDate) {
+				errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer)
+				wg.Done()
+			}(expDate)
+		}
+		wg.Wait()
+		close(errChan)
+		for err := range errChan {
 			if err != nil {
 				return err
 			}
