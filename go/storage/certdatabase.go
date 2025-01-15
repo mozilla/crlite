@@ -25,6 +25,10 @@ const (
 	permModeDir = 0755
 )
 
+func serialListExpiryLine(aExpDate types.ExpDate) string {
+	return fmt.Sprintf("@%016x", aExpDate.Unix())
+}
+
 func WriteSerialList(w io.Writer, aExpDate types.ExpDate, aIssuer types.Issuer, aSerials []types.Serial) error {
 	writer := bufio.NewWriter(w)
 	defer writer.Flush()
@@ -32,7 +36,11 @@ func WriteSerialList(w io.Writer, aExpDate types.ExpDate, aIssuer types.Issuer, 
 	// Write the expiry date for this collection of serial numbers as a unix
 	// timestamp encoded as a zero-padded 16 digit hex string. The expiry
 	// date is prefixed by "@" to distinguish it from a serial number.
-	_, err := writer.WriteString(fmt.Sprintf("@%016x\n", aExpDate.Unix()))
+	_, err := writer.WriteString(serialListExpiryLine(aExpDate))
+	if err != nil {
+		return err
+	}
+	err = writer.WriteByte('\n')
 	if err != nil {
 		return err
 	}
@@ -126,15 +134,16 @@ func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]types.IssuerDate, error)
 func (db *CertDatabase) GetIssuerAndDatesFromStorage() ([]types.IssuerDate, error) {
 	// The storage directory has the following structure:
 	// storageDir
-	//    ├─ issuer::<issuer id 1>
-	//        ├─ serials::<date 1>::<issuer id 1>
-	//        ├─ serials::<date 2>::<issuer id 1>
-	//        ...
-	//    ├─ issuer::<issuer id 2>
-	//        ├─ serials::<date 1>::<issuer id 2>
-	//        ├─ serials::<date 2>::<issuer id 2>
-	//        ...
-	//    ...
+	//  ├─ serials
+	//      ├─ issuer::<issuer id 1>
+	//          ├─ serials::<date 1>::<issuer id 1>
+	//          ├─ serials::<date 2>::<issuer id 1>
+	//          ...
+	//      ├─ issuer::<issuer id 2>
+	//          ├─ serials::<date 1>::<issuer id 2>
+	//          ├─ serials::<date 2>::<issuer id 2>
+	//          ...
+	//      ...
 	//
 	allChan := make(chan string)
 	go func() {
@@ -145,10 +154,11 @@ func (db *CertDatabase) GetIssuerAndDatesFromStorage() ([]types.IssuerDate, erro
 		}
 		for _, issuerDir := range issuerDirs {
 			issuerName := issuerDir.Name()
+			issuerDirFull := filepath.Join(db.serialsDir(), issuerName)
 			if !(issuerDir.IsDir() && strings.HasPrefix(issuerName, "issuer::")) {
 				continue
 			}
-			serialFiles, err := os.ReadDir(filepath.Join(db.serialsDir(), issuerName))
+			serialFiles, err := os.ReadDir(issuerDirFull)
 			if err != nil {
 				glog.Fatal(err)
 			}
@@ -171,15 +181,17 @@ func (db *CertDatabase) removeExpiredSerialsFromStorage(t time.Time) error {
 	}
 	for _, issuerDir := range issuerDirs {
 		issuerName := issuerDir.Name()
+		issuerDirFull := filepath.Join(db.serialsDir(), issuerName)
 		if !(issuerDir.IsDir() && strings.HasPrefix(issuerName, "issuer::")) {
 			continue
 		}
-		serialFiles, err := os.ReadDir(filepath.Join(db.serialsDir(), issuerName))
+		serialFiles, err := os.ReadDir(issuerDirFull)
 		if err != nil {
 			return err
 		}
 		for _, serialFile := range serialFiles {
 			name := serialFile.Name()
+			serialFileFull := filepath.Join(issuerDirFull, name)
 			parts := strings.Split(name, "::")
 			if len(parts) != 3 {
 				glog.Warningf("Unexpected serial file name: %s", name)
@@ -191,8 +203,17 @@ func (db *CertDatabase) removeExpiredSerialsFromStorage(t time.Time) error {
 				continue
 			}
 			if expDate.IsExpiredAt(t) {
-				os.Remove(filepath.Join(filepath.Join(db.serialsDir(), issuerName), name))
+				os.Remove(serialFileFull)
 			}
+		}
+		// If the issuerDir is now empty, remove it
+		serialFiles, err = os.ReadDir(issuerDirFull)
+		if err != nil {
+			return err
+		}
+		if len(serialFiles) == 0 {
+			os.Remove(issuerDirFull)
+			continue
 		}
 	}
 	return nil
@@ -324,7 +345,7 @@ func (db *CertDatabase) ReadSerialsFromStorage(aExpDate types.ExpDate, aIssuer t
 	// The first line encodes the expiry date of the serials in the file
 	if scanner.Scan() {
 		line := scanner.Text()
-		expectedExpiryLine := fmt.Sprintf("@%016x", aExpDate.Unix())
+		expectedExpiryLine := serialListExpiryLine(aExpDate)
 		if line != expectedExpiryLine {
 			return nil, fmt.Errorf("Unexpected expiry line. Found '%s', expected '%s'", line, expectedExpiryLine)
 		}

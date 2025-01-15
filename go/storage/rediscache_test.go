@@ -292,23 +292,13 @@ func Test_RedisCommitLock(t *testing.T) {
 	}
 	expectLocked(t, rc, token1, true)
 
-	// The lock should not be re-entrant
+	// The lock should be exclusive
 	token2, err := rc.AcquireCommitLock()
 	if err != nil {
 		t.Errorf("Error in AcquireCommitLock: %v", err)
 	}
 	if token2 != nil {
-		t.Error("Lock should not be re-entrant")
-	}
-	expectLocked(t, rc, token1, true)
-
-	// Other tokens should not be able to acquire the lock
-	token3, err := rc.AcquireCommitLock()
-	if err != nil {
-		t.Errorf("Error in AcquireCommitLock: %v", err)
-	}
-	if token3 != nil {
-		t.Error("Should not have acquired lock")
+		t.Error("Lock should be exclusive")
 	}
 	expectLocked(t, rc, token1, true)
 

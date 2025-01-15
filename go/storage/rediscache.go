@@ -278,7 +278,7 @@ func (ec *RedisCache) HasCommitLock(aToken string) (bool, error) {
 
 func (ec *RedisCache) GetEpoch() (uint64, error) {
 	epochStr, err := ec.client.Get(EPOCH_KEY).Result()
-	if err == redis.Nil { // COMMIT_LOCK_KEY not set
+	if err == redis.Nil { // EPOCH_KEY not set
 		return 0, nil
 	}
 	if err != nil {
