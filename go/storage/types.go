@@ -9,7 +9,7 @@ import (
 type RemoteCache interface {
 	Exists(key string) (bool, error)
 	SetInsert(key string, aEntry string) (bool, error)
-	SetRemove(key string, entry string) (bool, error)
+	SetRemove(key string, aEntries []string) error
 	SetContains(key string, aEntry string) (bool, error)
 	SetList(key string) ([]string, error)
 	SetToChan(key string, c chan<- string) error

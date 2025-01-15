@@ -401,11 +401,9 @@ func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpD
 
 	// It's now safe to remove cachedSerials from the cache.
 	cacheWriter := db.GetSerialCacheAccessor(aExpDate, aIssuer)
-	for _, serial := range cachedSerials {
-		_, err = cacheWriter.Remove(serial)
-		if err != nil {
-			glog.Warningf("Failed to remove serial from cache: %s", err)
-		}
+	err = cacheWriter.RemoveMany(cachedSerials)
+	if err != nil {
+		glog.Warningf("Failed to remove serial from cache: %s", err)
 	}
 
 	return nil

@@ -96,12 +96,9 @@ func Test_RedisInsertion(t *testing.T) {
 		t.Errorf("This serial should have been saved")
 	}
 
-	removed, err := rc.SetRemove("key", "FADEC00DEAD00DEAF00CAFE0")
+	err = rc.SetRemove("key", []string{"FADEC00DEAD00DEAF00CAFE0"})
 	if err != nil {
 		t.Error(err)
-	}
-	if removed == false {
-		t.Error("Should have been removed")
 	}
 
 	shouldBeRemoved, err := rc.SetContains("key", "FADEC00DEAD00DEAF00CAFE0")

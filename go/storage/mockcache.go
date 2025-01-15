@@ -70,8 +70,9 @@ func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
 	return true, nil
 }
 
-func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
-	ec.cleanupExpiry()
+func (ec *MockRemoteCache) setRemove(key string, entry string) error {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
 	count := len(ec.Data[key])
 
 	idx := sort.Search(count, func(i int) bool {
@@ -90,10 +91,23 @@ func (ec *MockRemoteCache) SetRemove(key string, entry string) (bool, error) {
 			ec.Data[key][idx] = ec.Data[key][count-1]
 			ec.Data[key] = ec.Data[key][:count-1]
 		}
-		return true, nil
+		return nil
 	}
 
-	return false, nil
+	return nil
+}
+
+func (ec *MockRemoteCache) SetRemove(key string, entries []string) error {
+	for _, entry := range entries {
+		err := ec.setRemove(key, entry)
+		if err != nil {
+			return err
+		}
+	}
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	ec.cleanupExpiry()
+	return nil
 }
 
 func (ec *MockRemoteCache) SetContains(key string, entry string) (bool, error) {
