@@ -340,6 +340,7 @@ func (db *CertDatabase) ReadSerialsFromStorage(aExpDate types.ExpDate, aIssuer t
 	if err != nil {
 		return nil, err
 	}
+	defer fd.Close()
 
 	scanner := bufio.NewScanner(fd)
 
@@ -455,6 +456,7 @@ func (db *CertDatabase) getStorageEpoch() (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer fd.Close()
 	scanner := bufio.NewScanner(fd)
 	if scanner.Scan() {
 		return strconv.ParseUint(scanner.Text(), 10, 64)
