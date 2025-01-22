@@ -80,6 +80,34 @@ func NewCertDatabase(aCache RemoteCache, aStorageDir string) (CertDatabase, erro
 	return db, nil
 }
 
+func (db *CertDatabase) EnsureCacheIsConsistent() error {
+	storageEpoch, err := db.getStorageEpoch()
+	if err != nil {
+		return err
+	}
+
+	cacheEpoch, err := db.cache.GetEpoch()
+	if err != nil {
+		return err
+	}
+
+	if cacheEpoch == storageEpoch+1 || (cacheEpoch == 0 && storageEpoch == 0) {
+		return nil
+	}
+
+	// The epochs are inconsistent, so we'll reset the cached log states
+	// based on what's in storage. This ensures that the ct-fetch process
+	// downloads a portion of each log that is contiguous with what's
+	// already in storage.
+	logStates, err := db.GetCTLogsFromStorage()
+	if err != nil {
+		return err
+	}
+
+	return db.cache.Restore(storageEpoch+1, logStates)
+
+}
+
 func (db *CertDatabase) GetIssuerAndDatesFromChannel(reader <-chan string) ([]types.IssuerDate, error) {
 	// The channel entries are strings of the form "serials::<date>::<issuer id>".
 	// We gather these by issuer to obtain a list of the form

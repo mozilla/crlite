@@ -148,6 +148,52 @@ func expectEqualIssuerDateLists(t *testing.T, list1 []types.IssuerDate, list2 []
 	}
 }
 
+func expectCacheEpoch(t *testing.T, cache RemoteCache, expected uint64) {
+	epoch, err := cache.GetEpoch()
+	if err != nil || epoch != expected {
+		t.Errorf("Expected epoch %d got %d", expected, epoch)
+	}
+}
+
+func logStatesEqual(a *types.CTLogState, b *types.CTLogState) bool {
+	// Ignores LastUpdateTime
+	return a.LogID == b.LogID &&
+		a.MMD == b.MMD &&
+		a.ShortURL == b.ShortURL &&
+		a.MinEntry == b.MinEntry &&
+		a.MaxEntry == b.MaxEntry &&
+		a.MinTimestamp == b.MinTimestamp &&
+		a.MaxTimestamp == b.MaxTimestamp
+}
+
+func expectCachedLogState(t *testing.T, cache RemoteCache, logUrl string, logState *types.CTLogState) {
+	cachedLogState, err := cache.LoadLogState(logUrl)
+	if err != nil {
+		t.Errorf("Error getting log state: %s", err)
+	}
+	if !logStatesEqual(cachedLogState, logState) {
+		t.Errorf("Expected cached log state to equal expected log state %v %v", cachedLogState, logState)
+	}
+}
+
+func expectStoredLogState(t *testing.T, certDB CertDatabase, logUrl string, logState *types.CTLogState) {
+	storedLogStates, err := certDB.GetCTLogsFromStorage()
+	if err != nil {
+		t.Errorf("Error getting log state: %s", err)
+	}
+	for _, storedLogState := range storedLogStates {
+		if storedLogState.ShortURL == logUrl {
+			if !logStatesEqual(&storedLogState, logState) {
+				t.Errorf("Expected stored log state to equal expected log state %v %v", storedLogState, logState)
+			}
+			return
+		}
+	}
+	if logState != nil {
+		t.Errorf("Did not find matching log state")
+	}
+}
+
 func mkExp(s string) types.ExpDate {
 	d, err := types.NewExpDate(s)
 	if err != nil {
@@ -450,4 +496,63 @@ func Test_RemoveExpiredSerialsFromStorage(t *testing.T) {
 	if len(dirs) != 1 {
 		t.Error("Expected one issuer directory")
 	}
+}
+
+func Test_EnsureCacheIsConsistent(t *testing.T) {
+	cache, certDB := getTestHarness(t)
+
+	logState := types.CTLogState{
+		LogID:          "szRxVrR4eNrC0aUI0PD7gVznDV4Ihwvq1xELJwoQ9qQ=",
+		MMD:            86400,
+		ShortURL:       "ct.example.org/v1",
+		MinEntry:       0,
+		MaxEntry:       0,
+		MinTimestamp:   0,
+		MaxTimestamp:   0,
+		LastUpdateTime: time.Now(),
+	}
+
+	err := cache.StoreLogState(&logState)
+	if err != nil {
+		t.Error("Should have stored log state")
+	}
+
+	expectCacheEpoch(t, cache, 0)
+	expectCachedLogState(t, cache, logState.ShortURL, &logState)
+
+	token, err := cache.AcquireCommitLock()
+	if err != nil || token == nil {
+		t.Error("Should have acquired commit lock")
+	}
+	err = certDB.Commit(*token)
+	if err != nil {
+		t.Errorf("Commit should have succeeded %v", err)
+	}
+	cache.ReleaseCommitLock(*token)
+
+	expectCacheEpoch(t, cache, 1)
+	expectCachedLogState(t, cache, logState.ShortURL, &logState)
+	expectStoredLogState(t, certDB, logState.ShortURL, &logState)
+
+	// put the cache in a bad state so that the consistency check fails
+	badLogState := logState
+	badLogState.MinEntry = 9999
+	err = cache.Restore(31415, []types.CTLogState{badLogState})
+	if err != nil {
+		t.Error("Should have modified cache")
+	}
+	expectCacheEpoch(t, cache, 31415)
+	expectCachedLogState(t, cache, logState.ShortURL, &badLogState)
+
+	err = certDB.EnsureCacheIsConsistent()
+	if err != nil {
+		t.Error("Should have restored cache epoch")
+	}
+
+	if logStatesEqual(&badLogState, &logState) {
+		t.Error("Can't ensure that log states were restored")
+	}
+
+	expectCacheEpoch(t, cache, 1)
+	expectCachedLogState(t, cache, logState.ShortURL, &logState)
 }
