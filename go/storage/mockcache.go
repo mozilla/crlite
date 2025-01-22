@@ -199,14 +199,14 @@ func (ec *MockRemoteCache) StoreLogState(log *types.CTLogState) error {
 		return err
 	}
 
-	ec.Data[log.ShortURL] = []string{string(encoded)}
+	ec.Data["log::"+log.ShortURL] = []string{string(encoded)}
 	return nil
 }
 
 func (ec *MockRemoteCache) LoadLogState(shortUrl string) (*types.CTLogState, error) {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
-	data, ok := ec.Data[shortUrl]
+	data, ok := ec.Data["log::"+shortUrl]
 	if !ok {
 		return nil, fmt.Errorf("Log state not found")
 	}
@@ -225,6 +225,15 @@ func (ec *MockRemoteCache) LoadAllLogStates() ([]types.CTLogState, error) {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
 	var logStates []types.CTLogState
+	for key, value := range ec.Data {
+		if strings.HasPrefix(key, "log::") {
+			var log types.CTLogState
+			if err := json.Unmarshal([]byte(value[0]), &log); err != nil {
+				return nil, err
+			}
+			logStates = append(logStates, log)
+		}
+	}
 	return logStates, nil
 }
 
@@ -274,5 +283,26 @@ func (ec *MockRemoteCache) NextEpoch() error {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
 	ec.Epoch += 1
+	return nil
+}
+
+func (ec *MockRemoteCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) error {
+	ec.mu.Lock()
+	ec.Epoch = aEpoch
+	ec.mu.Unlock()
+
+	for key, _ := range ec.Data {
+		if strings.HasPrefix(key, "log::") {
+			delete(ec.Data, key)
+		}
+	}
+
+	for _, logState := range aLogStates {
+		err := ec.StoreLogState(&logState)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

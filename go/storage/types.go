@@ -25,4 +25,5 @@ type RemoteCache interface {
 	HasCommitLock(aToken string) (bool, error)
 	GetEpoch() (uint64, error)
 	NextEpoch() error
+	Restore(aEpoch uint64, aLogStates []types.CTLogState) error
 }

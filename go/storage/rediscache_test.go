@@ -339,3 +339,62 @@ func Test_RedisEpoch(t *testing.T) {
 		t.Error("Epoch should have been incremented by 1")
 	}
 }
+
+func Test_RedisRestore(t *testing.T) {
+	rc := getRedisCache(t)
+
+	logState := types.CTLogState{
+		LogID:          "szRxVrR4eNrC0aUI0PD7gVznDV4Ihwvq1xELJwoQ9qQ=",
+		MMD:            86400,
+		ShortURL:       "ct.example.org/v1",
+		MinEntry:       0,
+		MaxEntry:       0,
+		MinTimestamp:   0,
+		MaxTimestamp:   0,
+		LastUpdateTime: time.Now(),
+	}
+
+	otherLogState := types.CTLogState{
+		LogID:          "tpj13e9osHbErk6uYPSZMMR-4ODf3TGGIoDWSVGA1hU=",
+		MMD:            86400,
+		ShortURL:       "ct.example.com/v1",
+		MinEntry:       0,
+		MaxEntry:       0,
+		MinTimestamp:   0,
+		MaxTimestamp:   0,
+		LastUpdateTime: time.Now(),
+	}
+
+	// Put an entry in the cache to test that logs that are
+	// not passed to `Restore` are removed.
+	err := rc.StoreLogState(&otherLogState)
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = rc.LoadLogState(otherLogState.ShortURL)
+	if err != nil {
+		t.Errorf("Entry for %s should be present", otherLogState.ShortURL)
+	}
+
+	storedEpoch := uint64(31415)
+	err = rc.Restore(storedEpoch, []types.CTLogState{logState})
+	if err != nil {
+		t.Error("Should have modified cache")
+	}
+
+	epoch, err := rc.GetEpoch()
+	if err != nil || epoch != storedEpoch {
+		t.Errorf("Expected epoch %d", storedEpoch)
+	}
+
+	_, err = rc.LoadLogState(logState.ShortURL)
+	if err != nil {
+		t.Errorf("Entry for %s should be present", logState.ShortURL)
+	}
+
+	_, err = rc.LoadLogState(otherLogState.ShortURL)
+	if err == nil {
+		t.Errorf("Entry for %s should not be present", otherLogState.ShortURL)
+	}
+}

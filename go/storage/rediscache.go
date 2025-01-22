@@ -308,3 +308,37 @@ func (ec *RedisCache) GetEpoch() (uint64, error) {
 func (ec *RedisCache) NextEpoch() error {
 	return ec.client.Incr(EPOCH_KEY).Err()
 }
+
+func (ec *RedisCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) error {
+	commitToken, err := ec.AcquireCommitLock()
+	if err != nil || commitToken == nil {
+		return fmt.Errorf("Failed to acquire commit lock: %s", err)
+	}
+	defer ec.ReleaseCommitLock(*commitToken)
+
+	logKeys, err := ec.client.Keys("log::*").Result()
+	if err != nil {
+		return err
+	}
+
+	for _, logKey := range logKeys {
+		err = ec.client.Del(logKey).Err()
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, logState := range aLogStates {
+		err := ec.StoreLogState(&logState)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = ec.client.Set(EPOCH_KEY, aEpoch, NO_EXPIRATION).Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
