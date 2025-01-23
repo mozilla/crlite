@@ -977,6 +977,11 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	err := storageDB.EnsureCacheIsConsistent()
+	if err != nil {
+		glog.Errorf("Could not recover cache: %s", err)
+		os.Exit(1)
+	}
 
 	engine.PrepareTelemetry("ct-fetch", ctconfig)
 
