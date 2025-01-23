@@ -138,7 +138,7 @@ func main() {
 		signal.Stop(sigChan) // Restore default behavior
 	}()
 
-	certDB, cache := engine.GetConfiguredStorage(ctx, ctconfig)
+	certDB, cache := engine.GetConfiguredStorage(ctx, ctconfig, false)
 	defer glog.Flush()
 
 	checkPathArg(*enrolledpath, "enrolledpath", ctconfig)

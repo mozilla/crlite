@@ -26,7 +26,7 @@ func getTestHarness(t *testing.T) (*MockRemoteCache, CertDatabase) {
 		t.Fatalf("Can't create temp dir: %s", err.Error())
 	}
 	mockCache := NewMockRemoteCache()
-	certDB, err := NewCertDatabase(mockCache, tmpDir)
+	certDB, err := NewCertDatabase(mockCache, tmpDir, false)
 	if err != nil {
 		t.Fatalf("Can't find DB: %s", err.Error())
 	}
