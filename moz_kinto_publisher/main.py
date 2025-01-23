@@ -60,7 +60,7 @@ CHANNELS = [
         max_filter_age_days=10,
         supported_version=130,
         mimetype="application/octet-stream",
-        enabled=True,
+        enabled=False,
     ),
     Channel(
         slug=CHANNEL_EXPERIMENTAL,
