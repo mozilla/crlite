@@ -18,18 +18,16 @@ extern crate sha2;
 extern crate stderrlog;
 extern crate x509_parser;
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
 use clubcard_crlite::{CRLiteClubcard, CRLiteStatus};
 use der_parser::oid;
 use log::*;
-use rust_cascade::Cascade;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::fmt::Display;
 use std::io::prelude::Write;
-use std::io::{BufReader, Read};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,34 +44,11 @@ const PROD_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.mozilla.
 const PROD_URL: &str =
     "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/";
 
-const COVERAGE_SERIALIZATION_VERSION: u8 = 1;
-const COVERAGE_V1_ENTRY_BYTES: usize = 48;
-
-const ENROLLMENT_SERIALIZATION_VERSION: u8 = 1;
-const ENROLLMENT_V1_ENTRY_BYTES: usize = 32;
-
 #[rustfmt::skip]
 const OID_SCT_EXTENSION: &der_parser::Oid = &oid!(1.3.6.1.4.1.11129.2.4.2);
 
-type CRLiteKey = Vec<u8>;
-type DERCert = Vec<u8>;
-type EnrollmentKey = Vec<u8>;
 type IssuerDN = Vec<u8>;
-type IssuerSPKIHash = Vec<u8>;
-type LogID = Vec<u8>;
-
-fn crlite_key(issuer_spki_hash: &[u8; 32], serial: &[u8]) -> CRLiteKey {
-    let mut key = issuer_spki_hash.to_vec();
-    key.extend_from_slice(serial);
-    key
-}
-
-fn enrollment_key(issuer_dn: &[u8], issuer_spki: &[u8]) -> EnrollmentKey {
-    let mut hasher = Sha256::new();
-    hasher.update(issuer_dn);
-    hasher.update(issuer_spki);
-    hasher.finalize().to_vec()
-}
+type DERCert = Vec<u8>;
 
 #[derive(Debug)]
 enum Status {
@@ -97,14 +72,6 @@ impl<T: Display> From<T> for CRLiteDBError {
     }
 }
 
-#[allow(non_snake_case)]
-#[derive(Deserialize)]
-struct CRLiteCoverage {
-    logID: String,
-    maxTimestamp: u64,
-    minTimestamp: u64,
-}
-
 #[derive(Deserialize)]
 struct CertRevCollection {
     data: Vec<CertRevRecord>,
@@ -114,8 +81,6 @@ struct CertRevCollection {
 #[derive(Deserialize)]
 struct CertRevRecord {
     attachment: CertRevRecordAttachment,
-    coverage: Option<Vec<CRLiteCoverage>>,
-    enrolledIssuers: Option<Vec<String>>,
     incremental: bool,
     channel: Option<CRLiteFilterChannel>,
 }
@@ -123,36 +88,8 @@ struct CertRevRecord {
 #[derive(Deserialize)]
 struct CertRevRecordAttachment {
     hash: String,
+    filename: String,
     location: String,
-    size: u64,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct CTLogsCollection {
-    data: Vec<CTLogRecord>,
-}
-
-impl CTLogsCollection {
-    fn encode(&self) -> Result<Vec<u8>, CRLiteDBError> {
-        bincode::serialize(&self)
-            .map_err(|_| CRLiteDBError::from("could not serialize CTLogsCollection"))
-    }
-
-    fn from_bincode(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        bincode::deserialize(bytes)
-            .map_err(|_| CRLiteDBError::from("could not deserialize bincoded CTLogsCollection"))
-    }
-
-    fn get_log_metadata(&self, log_id: &str) -> Option<&CTLogRecord> {
-        self.data.iter().find(|&record| record.logID == log_id)
-    }
-}
-
-#[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
-struct CTLogRecord {
-    logID: String,
-    description: String,
 }
 
 fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
@@ -174,31 +111,12 @@ fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
     Ok(())
 }
 
-fn update_ct_logs(db_dir: &Path, base_url: &str) -> Result<(), CRLiteDBError> {
-    let ct_logs_path = db_dir.join("crlite.logs");
-    let ct_logs_records: CTLogsCollection =
-        reqwest::blocking::get(base_url.to_owned() + "ct-logs/records")
-            .map_err(|_| CRLiteDBError::from("could not fetch remote settings collection"))?
-            .json()
-            .map_err(CRLiteDBError::from)?;
-    std::fs::write(&ct_logs_path, &ct_logs_records.encode()?)?;
-    Ok(())
-}
-
 fn update_db(
     db_dir: &Path,
     attachment_url: &str,
     base_url: &str,
     channel: &CRLiteFilterChannel,
 ) -> Result<(), CRLiteDBError> {
-    let filter_path = db_dir.join("crlite.filter");
-    let stash_path = db_dir.join("crlite.stash");
-    let enrollment_path = db_dir.join("crlite.enrollment");
-    let coverage_path = db_dir.join("crlite.coverage");
-
-    info!("Fetching ct-logs records from remote settings {}", base_url);
-    update_ct_logs(db_dir, base_url)?;
-
     info!(
         "Fetching cert-revocations records from remote settings {}",
         base_url
@@ -209,121 +127,66 @@ fn update_db(
             .json()
             .map_err(|_| CRLiteDBError::from("could not read remote settings data"))?;
 
-    let (stashes, full_filters): (Vec<&CertRevRecord>, Vec<&CertRevRecord>) = cert_rev_records
+    let filters: Vec<&CertRevRecord> = cert_rev_records
         .data
         .iter()
         .filter(|x| x.channel.unwrap_or_default() == *channel)
-        .partition(|x| x.incremental);
+        .collect();
 
-    if full_filters.len() != 1 {
+    if filters.iter().filter(|x| !x.incremental).count() != 1 {
         return Err(CRLiteDBError::from(
             "number of full filters found in remote settings is not 1",
         ));
     }
 
-    let full_filter = full_filters[0];
+    let expected_filenames: HashSet<OsString> = filters
+        .iter()
+        .map(|x| x.attachment.filename.clone().into())
+        .collect();
 
-    let mut filter_needs_update = true;
-    let mut stash_needs_update = true;
-
-    // Skip filter update if existing filter has expected sha256 hash.
-    if filter_path.exists() {
-        let expected_digest = hex::decode(&full_filter.attachment.hash)
-            .map_err(|_| CRLiteDBError::from("full filter digest corrupted"))?;
-        let mut hasher = Sha256::new();
-        hasher.update(std::fs::read(&filter_path)?);
-        if expected_digest == hasher.finalize().as_slice() {
-            filter_needs_update = false;
+    // Remove any filter or delta files that are not listed in the collection
+    for dir_entry in std::fs::read_dir(db_dir)? {
+        let Ok(dir_entry) = dir_entry else { continue };
+        let dir_entry_path = dir_entry.path();
+        let extension = dir_entry_path
+            .extension()
+            .and_then(|os_str| os_str.to_str());
+        if (extension == Some("delta") || extension == Some("filter"))
+            && !expected_filenames.contains(&dir_entry.file_name())
+        {
+            info!("Removing {:?}", dir_entry.file_name());
+            let _ = std::fs::remove_file(dir_entry_path);
         }
     }
 
-    // Skip stash update if the filter is fresh and the stash on disk has the expected size.
-    // (We can't easily check the provided hashes since we concatenate stashes on disk.)
-    let expected_stash_size = stashes.iter().fold(0, |x, y| x + y.attachment.size);
-    let stash_metadata = std::fs::metadata(&stash_path);
-    if !filter_needs_update
-        && stash_path.exists()
-        && stash_metadata.is_ok()
-        && stash_metadata.unwrap().len() == expected_stash_size
-    {
-        stash_needs_update = false
-    }
-
-    if !filter_needs_update {
-        info!("Filter is up to date");
-    } else {
-        let enrolled_issuers = match &full_filter.enrolledIssuers {
-            Some(enrolled_issuers) => enrolled_issuers,
-            _ => return Err(CRLiteDBError::from("missing enrollment data")),
-        };
-
-        let mut enrollment_bytes = vec![ENROLLMENT_SERIALIZATION_VERSION];
-        for b64_issuer_id in enrolled_issuers {
-            let issuer_id = match base64::decode(b64_issuer_id) {
-                Ok(issuer_id) if issuer_id.len() == 32 => issuer_id,
-                _ => return Err(CRLiteDBError::from("malformed enrollment data")),
-            };
-            enrollment_bytes.extend_from_slice(&issuer_id);
-        }
-
-        let coverage = match &full_filter.coverage {
-            Some(coverage) => coverage,
-            _ => return Err(CRLiteDBError::from("missing coverage data")),
-        };
-
-        let mut coverage_bytes = vec![COVERAGE_SERIALIZATION_VERSION];
-        for entry in coverage {
-            let log_id = match base64::decode(&entry.logID) {
-                Ok(log_id) if log_id.len() == 32 => log_id,
-                _ => return Err(CRLiteDBError::from("malformed coverage data")),
-            };
-            coverage_bytes.extend_from_slice(&log_id);
-            coverage_bytes.extend_from_slice(&entry.minTimestamp.to_le_bytes());
-            coverage_bytes.extend_from_slice(&entry.maxTimestamp.to_le_bytes());
-        }
-
-        let full_filter_url = format!("{}{}", attachment_url, full_filter.attachment.location);
-        info!("Fetching filter from {}", full_filter_url);
-        let filter_bytes = &reqwest::blocking::get(full_filter_url)
-            .map_err(|_| CRLiteDBError::from("could not fetch full filter"))?
-            .bytes()
-            .map_err(|_| CRLiteDBError::from("could not read full filter"))?;
-
-        let expected_digest = hex::decode(&full_filter.attachment.hash)
-            .map_err(|_| CRLiteDBError::from("full filter digest corrupted"))?;
-        let mut hasher = Sha256::new();
-        hasher.update(filter_bytes);
-        if expected_digest != hasher.finalize().as_slice() {
-            return Err(CRLiteDBError::from("full filter digest mismatch"));
-        }
-
-        std::fs::write(&enrollment_path, &enrollment_bytes)?;
-        std::fs::write(&coverage_path, &coverage_bytes)?;
-        std::fs::write(&filter_path, filter_bytes)?;
-    }
-
-    if !stash_needs_update {
-        info!("Stash is up to date");
-    } else {
-        let mut stash_bytes = vec![];
-        let mut hasher = Sha256::new();
-        for entry in stashes {
-            let stash_url = format!("{}{}", attachment_url, entry.attachment.location);
-            info!("Fetching {}", stash_url);
-            let stash = &reqwest::blocking::get(stash_url)
-                .map_err(|_| CRLiteDBError::from("could not fetch stash"))?
-                .bytes()
-                .map_err(|_| CRLiteDBError::from("could not read stash"))?;
-            hasher.update(stash);
-            let digest = hasher.finalize_reset();
-            match hex::decode(&entry.attachment.hash) {
-                Ok(expected_digest) if expected_digest == digest.as_slice() => (),
-                _ => return Err(CRLiteDBError::from("stash digest mismatch")),
+    for filter in filters {
+        let expected_digest = hex::decode(&filter.attachment.hash)
+            .map_err(|_| CRLiteDBError::from("filter digest corrupted"))?;
+        let path = db_dir.join(filter.attachment.filename.clone());
+        if path.exists() {
+            let digest = Sha256::digest(std::fs::read(&path)?);
+            if expected_digest == digest.as_slice() {
+                info!("Found existing copy of {}", filter.attachment.filename);
+                continue;
             }
-            stash_bytes.extend_from_slice(stash);
         }
 
-        std::fs::write(&stash_path, &stash_bytes)?;
+        let filter_url = format!("{}{}", attachment_url, filter.attachment.location);
+        info!(
+            "Fetching {} from {}",
+            filter.attachment.filename, filter_url
+        );
+        let filter_bytes = &reqwest::blocking::get(filter_url)
+            .map_err(|_| CRLiteDBError::from("could not fetch filter"))?
+            .bytes()
+            .map_err(|_| CRLiteDBError::from("could not read filter"))?;
+
+        let digest = Sha256::digest(filter_bytes);
+        if expected_digest != digest.as_slice() {
+            return Err(CRLiteDBError::from("filter digest mismatch"));
+        }
+
+        std::fs::write(&path, filter_bytes)?;
     }
 
     Ok(())
@@ -344,7 +207,6 @@ fn get_sct_ids_and_timestamps(cert: &X509Certificate) -> Vec<([u8; 32], u64)> {
 }
 
 enum Filter {
-    Cascade(Cascade),
     Clubcard(CRLiteClubcard),
 }
 
@@ -352,9 +214,6 @@ impl Filter {
     fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
         if let Ok(clubcard) = CRLiteClubcard::from_bytes(bytes) {
             return Ok(Filter::Clubcard(clubcard));
-        }
-        if let Ok(Some(cascade)) = Cascade::from_bytes(bytes.to_vec()) {
-            return Ok(Filter::Cascade(cascade));
         }
         Err(CRLiteDBError::from("could not load filter"))
     }
@@ -366,13 +225,6 @@ impl Filter {
         timestamps: &[([u8; 32], u64)],
     ) -> Status {
         match self {
-            Filter::Cascade(cascade) => {
-                let crlite_key = crlite_key(issuer_spki_hash, serial);
-                match cascade.has(crlite_key) {
-                    true => Status::Revoked,
-                    false => Status::Good,
-                }
-            }
             Filter::Clubcard(clubcard) => {
                 let crlite_key = clubcard_crlite::CRLiteKey::new(issuer_spki_hash, serial);
                 match clubcard.contains(&crlite_key, timestamps.iter().map(|(x, y)| (x, *y))) {
@@ -387,34 +239,25 @@ impl Filter {
 }
 
 struct CRLiteDB {
-    filter: Filter,
-    stash: Stash,
-    coverage: Coverage,
-    enrollment: Enrollment,
+    filters: Vec<Filter>,
     intermediates: Intermediates,
-    ct_logs: CTLogsCollection,
 }
 
 impl CRLiteDB {
     fn load(db_dir: &Path) -> Result<Self, CRLiteDBError> {
-        let filter_path = db_dir.join("crlite.filter");
-        let stash_path = db_dir.join("crlite.stash");
-        let enrollment_path = db_dir.join("crlite.enrollment");
-        let coverage_path = db_dir.join("crlite.coverage");
         let intermediates_path = db_dir.join("crlite.intermediates");
-        let ct_logs_path = db_dir.join("crlite.logs");
 
-        let filter_bytes = std::fs::read(filter_path)?;
-        let filter = Filter::from_bytes(&filter_bytes)?;
-
-        let stash_bytes = std::fs::read(stash_path)?;
-        let stash = Stash::from_bytes(&stash_bytes)?;
-
-        let coverage_bytes = std::fs::read(coverage_path)?;
-        let coverage = Coverage::from_bytes(&coverage_bytes)?;
-
-        let enrollment_bytes = std::fs::read(enrollment_path)?;
-        let enrollment = Enrollment::from_bytes(&enrollment_bytes)?;
+        let mut filters = vec![];
+        for dir_entry in std::fs::read_dir(db_dir)? {
+            let Ok(dir_entry) = dir_entry else { continue };
+            let dir_entry_path = dir_entry.path();
+            let extension = dir_entry_path
+                .extension()
+                .and_then(|os_str| os_str.to_str());
+            if extension == Some("delta") || extension == Some("filter") {
+                filters.push(Filter::from_bytes(&std::fs::read(dir_entry_path)?)?);
+            }
+        }
 
         // If db_dir is the security_state directory of a firefox profile,
         // then it will have all of the files except for crlite.intermediates.
@@ -428,26 +271,13 @@ impl CRLiteDB {
         let intermediates_bytes = std::fs::read(intermediates_path)?;
         let intermediates = Intermediates::from_bincode(&intermediates_bytes)?;
 
-        // Likewise for the CT log list
-        let ct_logs = if ct_logs_path.exists() {
-            let ct_logs_bytes = std::fs::read(ct_logs_path)?;
-            CTLogsCollection::from_bincode(&ct_logs_bytes)?
-        } else {
-            Default::default()
-        };
-
         Ok(CRLiteDB {
-            filter,
-            stash,
-            coverage,
-            enrollment,
+            filters,
             intermediates,
-            ct_logs,
         })
     }
 
     pub fn query(&self, cert: &X509Certificate) -> Status {
-        let issuer_dn = &cert.tbs_certificate.issuer;
         let serial = cert.tbs_certificate.raw_serial();
 
         debug!("Issuer DN: {}", cert.tbs_certificate.issuer);
@@ -458,14 +288,9 @@ impl CRLiteDB {
             _ => return Status::NotEnrolled,
         };
 
-        let mut hasher = Sha256::new();
-        hasher.update(issuer_spki);
-        let issuer_spki_hash: [u8; 32] = hasher.finalize().into();
+        let issuer_spki_hash: [u8; 32] = Sha256::digest(issuer_spki).into();
 
         debug!("Issuer SPKI hash: {}", hex::encode(issuer_spki_hash));
-
-        let enrollment_key = enrollment_key(issuer_dn.as_raw(), issuer_spki);
-        debug!("Issuer enrollment key: {}", base64::encode(&enrollment_key));
 
         // An expired certificate, even if enrolled and covered, might
         // not be included in the filter.
@@ -473,148 +298,29 @@ impl CRLiteDB {
             return Status::Expired;
         }
 
-        if self.stash.has(&issuer_spki_hash, serial) {
-            return Status::Revoked;
-        }
+        let mut maybe_good = false;
+        let mut covered = false;
 
-        match self.filter {
-            Filter::Cascade(_) => {
-                // Cascades do not contain their own enrollment and coverage metadata, so we need
-                // to check enrollment and coverage first.
-                if !self.enrollment.contains(&enrollment_key) {
-                    return Status::NotEnrolled;
-                }
-
-                if !self.coverage.contains(cert, &self.ct_logs) {
-                    return Status::NotCovered;
-                }
-            }
-            Filter::Clubcard(_) => {
-                // Clubcards contain their own coverage metadata, so we don't need to query coverage
-                // here. But this will output some useful debugging information.
-                let _ = self.coverage.contains(cert, &self.ct_logs);
+        let issuer_spki_hash = Sha256::digest(issuer_spki);
+        for filter in &self.filters {
+            match filter.has(
+                issuer_spki_hash.as_ref(),
+                serial,
+                &get_sct_ids_and_timestamps(cert),
+            ) {
+                Status::Revoked => return Status::Revoked,
+                Status::Good => maybe_good = true,
+                Status::NotEnrolled => covered = true,
+                _ => (),
             }
         }
-
-        self.filter
-            .has(&issuer_spki_hash, serial, &get_sct_ids_and_timestamps(cert))
-    }
-}
-
-struct Stash(HashMap<IssuerSPKIHash, HashSet<CRLiteKey>>);
-impl Stash {
-    fn has(&self, issuer_spki_hash: &[u8], serial: &[u8]) -> bool {
-        self.0
-            .get(issuer_spki_hash)
-            .map_or(false, |x| x.contains(serial))
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        let mut reader = BufReader::new(bytes);
-        let mut stash = HashMap::new();
-        while let Ok(num_serials) = reader.read_u32::<LittleEndian>() {
-            let issuer_spki_hash_len = reader.read_u8()?;
-            let mut issuer_spki_hash = vec![0; issuer_spki_hash_len as usize];
-            reader.read_exact(&mut issuer_spki_hash)?;
-            let serials = stash.entry(issuer_spki_hash).or_insert_with(HashSet::new);
-            for _ in 0..num_serials {
-                let serial_len = reader.read_u8()?;
-                let mut serial = vec![0; serial_len as usize];
-                reader.read_exact(&mut serial)?;
-                let _ = serials.insert(serial);
-            }
+        if maybe_good {
+            return Status::Good;
         }
-        Ok(Stash(stash))
-    }
-}
-
-struct Coverage(HashMap<LogID, (u64, u64)>);
-impl Coverage {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        let mut reader = BufReader::new(bytes);
-        if (bytes.len() - 1) % COVERAGE_V1_ENTRY_BYTES != 0 {
-            return Err(CRLiteDBError::from("truncated CRLite coverage file"));
+        if covered {
+            return Status::NotEnrolled;
         }
-        let count = (bytes.len() - 1) / COVERAGE_V1_ENTRY_BYTES;
-        match reader.read_u8() {
-            Ok(COVERAGE_SERIALIZATION_VERSION) => (),
-            _ => return Err(CRLiteDBError::from("unknown CRLite coverage version")),
-        }
-        let mut coverage = HashMap::new();
-        for _ in 0..count {
-            let mut coverage_entry = [0u8; COVERAGE_V1_ENTRY_BYTES];
-            match reader.read_exact(&mut coverage_entry) {
-                Ok(()) => (),
-                _ => return Err(CRLiteDBError::from("truncated CRLite coverage file")),
-            };
-            let log_id = &coverage_entry[0..32];
-            let min_timestamp = match (&coverage_entry[32..40]).read_u64::<LittleEndian>() {
-                Ok(value) => value,
-                _ => return Err(CRLiteDBError::from("truncated CRLite coverage file")),
-            };
-            let max_timestamp = match (&coverage_entry[40..48]).read_u64::<LittleEndian>() {
-                Ok(value) => value,
-                _ => return Err(CRLiteDBError::from("truncated CRLite coverage file")),
-            };
-            coverage.insert(log_id.to_vec(), (min_timestamp, max_timestamp));
-        }
-        Ok(Coverage(coverage))
-    }
-
-    fn contains(&self, cert: &X509Certificate, ct_logs: &CTLogsCollection) -> bool {
-        let sct_ids_and_timestamps = get_sct_ids_and_timestamps(cert);
-        for (id, timestamp) in sct_ids_and_timestamps.iter() {
-            let log_id_b64 = base64::encode(id);
-            let log_name = match ct_logs.get_log_metadata(&log_id_b64) {
-                Some(log_meta) => &log_meta.description,
-                None => &log_id_b64,
-            };
-            if let Some((min, max)) = self.0.get(id.as_ref()) {
-                if min <= timestamp && timestamp <= max {
-                    debug!(
-                        "SCT from {} at {} is in observed interval [{}, {}].",
-                        log_name, timestamp, min, max
-                    );
-                    return true;
-                }
-                debug!(
-                    "SCT from {} at {} is outside observed interval [{}, {}].",
-                    log_name, timestamp, min, max
-                );
-            } else {
-                debug!("SCT from non-enrolled {} at {}.", log_name, timestamp);
-            }
-        }
-        false
-    }
-}
-
-struct Enrollment(HashSet<EnrollmentKey>);
-impl Enrollment {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        let mut enrollment = HashSet::new();
-        let mut reader = BufReader::new(bytes);
-        match reader.read_u8() {
-            Ok(ENROLLMENT_SERIALIZATION_VERSION) => (),
-            _ => return Err(CRLiteDBError::from("unknown CRLite enrollment version")),
-        }
-        if (bytes.len() - 1) % ENROLLMENT_V1_ENTRY_BYTES != 0 {
-            return Err(CRLiteDBError::from("truncted CRLite enrollment file"));
-        }
-        let enrollment_count = (bytes.len() - 1) / ENROLLMENT_V1_ENTRY_BYTES;
-        for _ in 0..enrollment_count {
-            let mut enrollment_entry = [0u8; ENROLLMENT_V1_ENTRY_BYTES];
-            match reader.read_exact(&mut enrollment_entry) {
-                Ok(()) => (),
-                _ => return Err(CRLiteDBError::from("truncted CRLite enrollment file")),
-            };
-            enrollment.insert(enrollment_entry.to_vec());
-        }
-        Ok(Enrollment(enrollment))
-    }
-
-    fn contains(&self, enrollment_key: &[u8]) -> bool {
-        self.0.contains(enrollment_key)
+        Status::NotCovered
     }
 }
 
@@ -851,7 +557,7 @@ struct Cli {
     update: Option<RemoteSettingsInstance>,
 
     /// CRLite filter channel
-    #[clap(long, value_enum, default_value = "all")]
+    #[clap(long, value_enum, default_value = "experimental-deltas")]
     channel: CRLiteFilterChannel,
 
     /// CRLite directory e.g. <firefox profile>/security_state/.
@@ -869,11 +575,9 @@ struct Cli {
 #[derive(clap::ValueEnum, Copy, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum CRLiteFilterChannel {
-    #[default]
     All,
-    Specified,
-    Priority,
     Experimental,
+    #[default]
     #[serde(rename = "experimental+deltas")]
     ExperimentalDeltas,
 }
@@ -929,19 +633,11 @@ fn main() {
         }
     }
 
-    if !(args.db.join("crlite.filter").exists()
-        && args.db.join("crlite.stash").exists()
-        && args.db.join("crlite.enrollment").exists()
-        && args.db.join("crlite.coverage").exists())
-    {
-        error!("CRLite DB is incomplete. Use --update [prod | stage] to populate");
-        std::process::exit(1);
-    }
-
     let db = match CRLiteDB::load(&args.db) {
         Ok(db) => db,
         Err(e) => {
             error!("Error loading CRLite DB: {}", e.message);
+            error!("Use --update [prod | stage] to populate DB.");
             std::process::exit(1);
         }
     };
