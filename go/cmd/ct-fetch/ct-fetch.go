@@ -976,7 +976,7 @@ func main() {
 	// Seed random for clock jitter
 	rand.Seed(time.Now().UnixNano())
 
-	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig)
+	storageDB, _ := engine.GetConfiguredStorage(ctx, ctconfig, true)
 	err := storageDB.EnsureCacheIsConsistent()
 	if err != nil {
 		glog.Errorf("Could not recover cache: %s", err)

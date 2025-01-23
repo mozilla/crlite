@@ -16,7 +16,7 @@ import (
 	"github.com/mozilla/crlite/go/telemetry"
 )
 
-func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (storage.CertDatabase, storage.RemoteCache) {
+func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig, roStorage bool) (storage.CertDatabase, storage.RemoteCache) {
 	var err error
 	var storageDB storage.CertDatabase
 
@@ -30,7 +30,7 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig) (stora
 		glog.Fatalf("Unable to configure Redis cache for host %v", *ctconfig.RedisHost)
 	}
 
-	storageDB, err = storage.NewCertDatabase(remoteCache, *ctconfig.CertPath)
+	storageDB, err = storage.NewCertDatabase(remoteCache, *ctconfig.CertPath, roStorage)
 	if err != nil {
 		glog.Fatalf("Unable to construct cache and/or persistent storage: %v", err)
 	}

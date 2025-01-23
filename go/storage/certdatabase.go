@@ -60,21 +60,26 @@ func WriteSerialList(w io.Writer, aExpDate types.ExpDate, aIssuer types.Issuer, 
 }
 
 type CertDatabase struct {
-	cache          RemoteCache
-	cacheAccessors gcache.Cache
-	storageDir     string
+	cache           RemoteCache
+	cacheAccessors  gcache.Cache
+	storageDir      string
+	readOnlyStorage bool
 }
 
-func NewCertDatabase(aCache RemoteCache, aStorageDir string) (CertDatabase, error) {
+func NewCertDatabase(aCache RemoteCache, aStorageDir string, aReadOnlyStorage bool) (CertDatabase, error) {
 	db := CertDatabase{
-		cache:          aCache,
-		cacheAccessors: gcache.New(8 * 1024).ARC().Build(),
-		storageDir:     aStorageDir,
+		cache:           aCache,
+		cacheAccessors:  gcache.New(8 * 1024).ARC().Build(),
+		storageDir:      aStorageDir,
+		readOnlyStorage: aReadOnlyStorage,
 	}
 
-	err := os.MkdirAll(db.serialsDir(), permModeDir)
-	if err != nil {
-		return db, err
+	_, err := os.Stat(db.serialsDir())
+	if os.IsNotExist(err) && !aReadOnlyStorage {
+		err := os.MkdirAll(db.serialsDir(), permModeDir)
+		if err != nil {
+			return db, err
+		}
 	}
 
 	return db, nil
@@ -517,6 +522,10 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 	// The epoch value in storage must be one less than the epoch value in
 	// cache (unless this is the first time that Commit() has been called,
 	// in which case both epochs will be equal to 0).
+
+	if db.readOnlyStorage {
+		return fmt.Errorf("Cannot commit serials to read-only storage")
+	}
 
 	hasLock, err := db.cache.HasCommitLock(aProofOfLock)
 	if err != nil {
