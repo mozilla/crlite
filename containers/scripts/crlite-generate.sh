@@ -55,12 +55,6 @@ ${workflow}/2-generate_mlbf ${ID} \
               --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
               --statsd-host ${statsdHost} \
               --reason-set all \
-              --filter-type cascade
-
-${workflow}/2-generate_mlbf ${ID} \
-              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
-              --statsd-host ${statsdHost} \
-              --reason-set all \
               --filter-type clubcard
 
 if [ "x${DoNotUpload}x" == "xx" ] ; then

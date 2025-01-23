@@ -68,30 +68,15 @@ def main():
 
     runIdPath = args.results_path[0].resolve()
 
-    ensureFileOrAbort(runIdPath, Path("mlbf/filter"))
-
-    for path, dirs, files in os.walk(runIdPath / "mlbf"):
-        localFolder = Path(path)
-        remoteFolder = localFolder.relative_to(runIdPath.parent)
-        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
-        # Add a copy to /latest
-        subFolder = localFolder.relative_to(runIdPath / "mlbf")
-        uploadFiles(files, localFolder, Path("latest") / subFolder, bucket, args=args)
-
-    for path, dirs, files in os.walk(runIdPath / "mlbf-specified"):
-        localFolder = Path(path)
-        remoteFolder = localFolder.relative_to(runIdPath.parent)
-        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
-
-    for path, dirs, files in os.walk(runIdPath / "mlbf-priority"):
-        localFolder = Path(path)
-        remoteFolder = localFolder.relative_to(runIdPath.parent)
-        uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+    ensureFileOrAbort(runIdPath, Path("clubcard-all/filter"))
 
     for path, dirs, files in os.walk(runIdPath / "clubcard-all"):
         localFolder = Path(path)
         remoteFolder = localFolder.relative_to(runIdPath.parent)
         uploadFiles(files, localFolder, remoteFolder, bucket, args=args)
+        # Add a copy to /latest
+        subFolder = localFolder.relative_to(runIdPath / "clubcard-all")
+        uploadFiles(files, localFolder, Path("latest") / subFolder, bucket, args=args)
 
     sentinel = bucket.blob(str(Path(runIdPath.name) / "completed"))
     log.info(f"Saving 'completed' marker to {sentinel.name}")
