@@ -38,6 +38,7 @@ import settings
 CHANNEL_ALL = "all"
 CHANNEL_EXPERIMENTAL = "experimental"
 CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
+CHANNEL_DEFAULT = "default"
 
 Channel = namedtuple(
     "Channel",
@@ -75,6 +76,18 @@ CHANNELS = [
         slug=CHANNEL_EXPERIMENTAL_DELTAS,
         dir="clubcard-all",
         max_filter_age_days=20,
+        delta_filename="filter.delta",
+        supported_version=133,
+        # The metadata in clubcards produced by clubcard-crlite version 0.3.*
+        # is somewhat compressible, so set a mimetype that encourages our CDN to use
+        # compression (see: https://cloud.google.com/cdn/docs/dynamic-compression).
+        mimetype="application/x-protobuf",
+        enabled=True,
+    ),
+    Channel(
+        slug=CHANNEL_DEFAULT,
+        dir="clubcard-all",
+        max_filter_age_days=45,
         delta_filename="filter.delta",
         supported_version=133,
         # The metadata in clubcards produced by clubcard-crlite version 0.3.*

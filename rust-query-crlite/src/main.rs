@@ -557,7 +557,7 @@ struct Cli {
     update: Option<RemoteSettingsInstance>,
 
     /// CRLite filter channel
-    #[clap(long, value_enum, default_value = "experimental-deltas")]
+    #[clap(long, value_enum, default_value = "default")]
     channel: CRLiteFilterChannel,
 
     /// CRLite directory e.g. <firefox profile>/security_state/.
@@ -577,9 +577,10 @@ struct Cli {
 enum CRLiteFilterChannel {
     All,
     Experimental,
-    #[default]
     #[serde(rename = "experimental+deltas")]
     ExperimentalDeltas,
+    #[default]
+    Default,
 }
 
 #[derive(Clone, clap::ArgEnum)]
