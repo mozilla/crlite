@@ -703,9 +703,9 @@ def clear_crlite_filters(*, rw_client, noop, channel):
         )
 
 
-def clear_crlite_stashes(*, rw_client, noop, channel):
+def clear_crlite_deltas(*, rw_client, noop, channel):
     if noop:
-        log.info("Would clean up CRLite stashes, but no-op set")
+        log.info("Would clean up CRLite deltas, but no-op set")
         return
     existing_records = rw_client.get_records(
         collection=settings.KINTO_CRLITE_COLLECTION
@@ -713,12 +713,12 @@ def clear_crlite_stashes(*, rw_client, noop, channel):
     existing_records = [
         x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
     ]
-    existing_stashes = filter(lambda x: x["incremental"] is True, existing_records)
-    for stash in existing_stashes:
-        log.info(f"Cleaning up stale stash record {stash['id']}.")
+    existing_deltas = filter(lambda x: x["incremental"] is True, existing_records)
+    for delta in existing_deltas:
+        log.info(f"Cleaning up stale delta record {delta['id']}.")
         rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION,
-            id=stash["id"],
+            id=delta["id"],
         )
 
 
@@ -785,83 +785,18 @@ def publish_crlite_record(
 
 
 def publish_crlite_main_filter(
-    *, rw_client, filter_path, filename, timestamp, ctlogs, intermediates, noop, channel
+    *, rw_client, filter_path, filename, timestamp, noop, channel
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
     identifier = f"{record_time}Z-full"
 
-    # The ct-logs.json file tells us which CT logs the ct-fetch process
-    # monitored. For each log, it lists
-    #   (1) the contiguous range of indices of Merkle tree leaves that
-    #       ct-fetch downloaded,
-    #   (2) the earliest and latest timestamps on those Merkle tree
-    #       leaves, and
-    #   (3) the maximum merge delay (MMD).
-    #
-    # Intuitively, "coverage" should reflect the [MinEntry, MaxEntry] range.
-    # However, certificates only include timestamps, not indices, and
-    # timestamps do not increase monotonically with leaf index.
-    #
-    # The timestamp in an embedded SCT is a promise from a log that it will
-    # assign an index in the next MMD window. So if
-    #   timestamp(Cert A) + MMD <= timestamp(Cert B)
-    # then
-    #   index(Cert A) < index(Cert B).
-    #
-    # It follows that a certificate has an index in [MinEntry, MaxEntry] if
-    #   MinTimestamp + MMD <= timestamp(certificate) <= MaxTimestamp - MMD
-    #
-    # In the event that MinEntry = 0, we can refine this to
-    #   0 <= timestamp(certificate) <= MaxTimestamp - MMD
-    #
-    coverage = []
-    for ctlog in ctlogs:
-        if ctlog["LogID"] == "":
-            # This indicates the metadata for this log was produced by an
-            # old version of ct-fetch. It will get updated in a future run
-            # if the log is still enrolled.
-            continue
-
-        if ctlog["MinEntry"] == 0:
-            # MinTimestamp is guaranteed to be the smallest timestamp
-            # in the log.
-            minTimeCovered = ctlog["MinTimestamp"]
-        else:
-            minTimeCovered = ctlog["MinTimestamp"] + ctlog["MMD"]
-
-        maxTimeCovered = ctlog["MaxTimestamp"] - ctlog["MMD"]
-
-        if minTimeCovered >= maxTimeCovered:
-            # No certificates are unambiguously covered.
-            continue
-
-        coverage += [
-            {
-                "logID": ctlog["LogID"],
-                "minTimestamp": minTimeCovered,
-                "maxTimestamp": maxTimeCovered,
-            }
-        ]
-
-    enrolledIssuers = set()
-    for issuer in intermediates:
-        uid = base64.urlsafe_b64decode(issuer["uniqueID"])
-        enrolledIssuers.add(base64.b64encode(uid).decode("utf-8"))
-    enrolledIssuers = list(enrolledIssuers)
-
-    # clubcard filters already contain the coverage and enrolledIssuer
-    # metadata
-    if "clubcard" in channel.dir:
-        coverage = []
-        enrolledIssuers = []
-
     attributes = {
         "details": {"name": identifier},
         "incremental": False,
         "effectiveTimestamp": record_epoch_time_ms,
-        "coverage": coverage,
-        "enrolledIssuers": enrolledIssuers,
+        "coverage": [],  # legacy attribute
+        "enrolledIssuers": [],  # legacy attribute
     }
 
     log.info(f"Publishing full filter {filter_path} {timestamp}")
@@ -875,8 +810,8 @@ def publish_crlite_main_filter(
     )
 
 
-def publish_crlite_stash(
-    *, rw_client, stash_path, filename, timestamp, previous_id, noop, channel
+def publish_crlite_delta(
+    *, rw_client, delta_path, filename, timestamp, previous_id, noop, channel
 ):
     record_time = timestamp.isoformat(timespec="seconds")
     record_epoch_time_ms = math.floor(timestamp.timestamp() * 1000)
@@ -890,12 +825,12 @@ def publish_crlite_stash(
     }
 
     log.info(
-        f"Publishing incremental filter {stash_path} {timestamp} previous={previous_id}"
+        f"Publishing incremental filter {delta_path} {timestamp} previous={previous_id}"
     )
     return publish_crlite_record(
         rw_client=rw_client,
         attributes=attributes,
-        attachment_path=stash_path,
+        attachment_path=delta_path,
         attachment_name=filename,
         channel=channel,
         noop=noop,
@@ -923,10 +858,6 @@ def crlite_verify_record_consistency(*, existing_records, channel):
         if not ("id" in r and "incremental" in r and "attachment" in r):
             raise ConsistencyException(f"Malformed record {r}.")
         if r["incremental"] and not "parent" in r:
-            raise ConsistencyException(f"Malformed record {r}.")
-        if not r["incremental"] and not "coverage" in r:
-            raise ConsistencyException(f"Malformed record {r}.")
-        if not r["incremental"] and not "enrolledIssuers" in r:
             raise ConsistencyException(f"Malformed record {r}.")
 
     # There must be exactly 1 full filter in the existing records.
@@ -1109,69 +1040,11 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
         timeout=timedelta(minutes=5),
     )
 
-    if not tasks["clear_all"]:
-        # We might upload a stash. But if the stashes are too big, we'll set
-        # the `clear_all` flag and upload a full filter instead.
-        new_stash_paths = []
-        for run_id in tasks["upload"]:
-            run_id_path = args.download_path / Path(run_id)
-            run_id_path.mkdir(parents=True, exist_ok=True)
-            stash_path = run_id_path / Path("stash")
-            workflow.download_and_retry_from_google_cloud(
-                args.filter_bucket,
-                f"{run_id}/{channel.dir}/{channel.delta_filename}",
-                stash_path,
-                timeout=timedelta(minutes=5),
-            )
-            new_stash_paths.append(stash_path)
-
-        existing_stash_size = sum(
-            x["attachment"]["size"] for x in existing_records if x["incremental"]
-        )
-        update_stash_size = sum(
-            stash_path.stat().st_size for stash_path in new_stash_paths
-        )
-
-        total_stash_size = existing_stash_size + update_stash_size
-        full_filter_size = filter_path.stat().st_size
-
-        # Legacy stash files are completely uncompressed, so if they grow too
-        # large we should publish a full filter. Clubcard-based delta updates
-        # on the other hand can compress as well or better than full filters.
-        if (
-            channel.delta_filename == "filter.stash"
-            and total_stash_size > full_filter_size
-        ):
-            tasks["clear_all"] = True
-        else:
-            log.info(f"Total stash size: {total_stash_size} bytes")
-            log.info(f"New filter size: {full_filter_size} bytes")
-
     if tasks["clear_all"]:
         log.info(f"Uploading a full filter based on {final_run_id}.")
 
         clear_crlite_filters(rw_client=rw_client, noop=args.noop, channel=channel)
-        clear_crlite_stashes(rw_client=rw_client, noop=args.noop, channel=channel)
-
-        ctlogs_path = args.download_path / Path(final_run_id) / Path("ct-logs.json")
-        workflow.download_and_retry_from_google_cloud(
-            args.filter_bucket,
-            f"{final_run_id}/ct-logs.json",
-            ctlogs_path,
-            timeout=timedelta(minutes=5),
-        )
-        with open(ctlogs_path, "r") as f:
-            ctlogs = json.load(f)
-
-        enrolled_path = args.download_path / Path(final_run_id) / Path("enrolled.json")
-        workflow.download_and_retry_from_google_cloud(
-            args.filter_bucket,
-            f"{final_run_id}/enrolled.json",
-            enrolled_path,
-            timeout=timedelta(minutes=5),
-        )
-        with open(enrolled_path, "r") as f:
-            intermediates = json.load(f)
+        clear_crlite_deltas(rw_client=rw_client, noop=args.noop, channel=channel)
 
         assert filter_path.is_file(), "Missing local copy of filter"
         publish_crlite_main_filter(
@@ -1179,22 +1052,27 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
             filename=f"{final_run_id}-{channel.slug}.filter",
             rw_client=rw_client,
             timestamp=published_run_db.get_run_timestamp(final_run_id),
-            ctlogs=ctlogs,
-            intermediates=intermediates,
             channel=channel,
             noop=args.noop,
         )
         rv = final_run_id
 
     else:
-        log.info("Uploading stashes.")
+        log.info("Uploading deltas.")
         previous_id = existing_records[-1]["id"]
-
-        for run_id, stash_path in zip(tasks["upload"], new_stash_paths):
-            assert stash_path.is_file(), "Missing local copy of stash"
-
-            previous_id = publish_crlite_stash(
-                stash_path=stash_path,
+        for run_id in tasks["upload"]:
+            run_id_path = args.download_path / Path(run_id)
+            run_id_path.mkdir(parents=True, exist_ok=True)
+            delta_path = run_id_path / Path("delta")
+            workflow.download_and_retry_from_google_cloud(
+                args.filter_bucket,
+                f"{run_id}/{channel.dir}/{channel.delta_filename}",
+                delta_path,
+                timeout=timedelta(minutes=5),
+            )
+            assert delta_path.is_file(), "Missing local copy of delta"
+            previous_id = publish_crlite_delta(
+                delta_path=delta_path,
                 filename=f"{run_id}-{channel.slug}.{channel.delta_filename}",
                 rw_client=rw_client,
                 previous_id=previous_id,
@@ -1439,7 +1317,7 @@ def main():
                 clear_crlite_filters(
                     noop=args.noop, channel=channel, rw_client=rw_client
                 )
-                clear_crlite_stashes(
+                clear_crlite_deltas(
                     noop=args.noop, channel=channel, rw_client=rw_client
                 )
 
