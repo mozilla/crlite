@@ -5,7 +5,7 @@ require (
 	github.com/go-redis/redis v6.15.5+incompatible
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/google/certificate-transparency-go v1.1.0
-	github.com/google/renameio v1.0.1 // indirect
+	github.com/google/renameio v1.0.1
 	github.com/gopherjs/gopherjs v0.0.0-20190915194858-d3ddacdb130f // indirect
 	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
 	github.com/hashicorp/go-metrics v0.5.3
@@ -16,7 +16,7 @@ require (
 	github.com/onsi/gomega v1.7.0 // indirect
 	github.com/smartystreets/assertions v1.0.1 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
-	golang.org/x/net v0.23.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	gopkg.in/ini.v1 v1.48.0
 )
 
