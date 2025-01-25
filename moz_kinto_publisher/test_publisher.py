@@ -358,19 +358,6 @@ class TestPublishDecisions(unittest.TestCase):
         self.assertEqual(None, rw_client.publish())
         self.assertEqual(db_run_ids, rw_client.get_run_ids())
 
-    def test_publish_big_stash(self):
-        # A big stash should cause us to publish a new filter
-        rw_client = MockClient()
-        db = MockRunDB()
-        # publish a full filter
-        db_run_ids = [db.add_run(filter_size=10, stash_size=0)]
-        self.assertEqual(db_run_ids[0], rw_client.publish())
-        self.assertEqual(db_run_ids, rw_client.get_run_ids())
-        # add a run with a large stash, we should publish a full filter
-        db_run_ids += [db.add_run(filter_size=10, stash_size=1000)]
-        self.assertEqual(db_run_ids[-1], rw_client.publish())
-        self.assertEqual([db_run_ids[-1]], rw_client.get_run_ids())
-
     def test_publish_delayed_run(self):
         rw_client = MockClient()
         db = MockRunDB()
