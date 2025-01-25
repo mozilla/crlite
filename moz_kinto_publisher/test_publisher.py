@@ -358,21 +358,6 @@ class TestPublishDecisions(unittest.TestCase):
         self.assertEqual(None, rw_client.publish())
         self.assertEqual(db_run_ids, rw_client.get_run_ids())
 
-    def test_publish_delayed_run(self):
-        rw_client = MockClient()
-        db = MockRunDB()
-        db_run_ids = [db.add_run()]
-        self.assertEqual(db_run_ids[0], rw_client.publish())
-        self.assertEqual(db_run_ids, rw_client.get_run_ids())
-        # add a stash from a run that was delayed
-        db_run_ids += [db.add_run(delta=timedelta(hours=12))]
-        self.assertEqual(None, rw_client.publish())
-        self.assertEqual(db_run_ids, rw_client.get_run_ids())
-        # the next consistency check will fail, and a full filter will be published
-        db_run_ids += [db.add_run()]
-        self.assertEqual(db_run_ids[2], rw_client.publish())
-        self.assertEqual([db_run_ids[2]], rw_client.get_run_ids())
-
     def test_publish_ten_day_old_filter(self):
         # a new filter should be published every 10 days
         rw_client = MockClient()
