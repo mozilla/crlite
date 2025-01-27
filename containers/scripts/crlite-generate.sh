@@ -57,6 +57,12 @@ ${workflow}/2-generate_mlbf ${ID} \
               --reason-set all \
               --filter-type clubcard
 
+${workflow}/2-generate_mlbf ${ID} \
+              --filter-bucket ${crlite_filter_bucket:-crlite_filters_staging} \
+              --statsd-host ${statsdHost} \
+              --reason-set priority \
+              --filter-type clubcard
+
 if [ "x${DoNotUpload}x" == "xx" ] ; then
   echo "uploading mlbf"
   ${workflow}/3-upload_mlbf_to_storage ${ID} \

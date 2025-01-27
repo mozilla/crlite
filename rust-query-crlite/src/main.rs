@@ -581,6 +581,7 @@ enum CRLiteFilterChannel {
     ExperimentalDeltas,
     #[default]
     Default,
+    Compat,
 }
 
 #[derive(Clone, clap::ArgEnum)]
