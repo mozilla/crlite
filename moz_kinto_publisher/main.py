@@ -914,6 +914,7 @@ def crlite_verify_record_consistency(*, existing_records, channel):
     if maxHeight != len(existing_records) - 1:
         raise ConsistencyException(f"Multiple filter descendents: {full_filters}")
 
+
 def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check, channel):
     # The runs should be complete.
     for r in identifiers_to_check:
@@ -931,6 +932,7 @@ def crlite_verify_run_id_consistency(*, run_db, identifiers_to_check, channel):
     for x, y in zip(ts, ts[1:]):
         if x > y:
             raise ConsistencyException(f"Out-of-order timestamp: {ts}")
+
 
 def crlite_determine_publish(*, existing_records, run_db, channel):
     assert len(run_db) > 0, "There must be run identifiers"
