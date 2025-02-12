@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	permModeDir = 0755
+	permModeDir           = 0755
+	kMoveSerialsBatchSize = 1000
 )
 
 func serialListExpiryLine(aExpDate types.ExpDate) string {
@@ -456,24 +457,27 @@ func (db *CertDatabase) moveCachedSerialsToStorage() error {
 		if err != nil {
 			return err
 		}
-		// We'll process the expiry shards in parallel. There are only a
-		// few thousand shards per issuer, and goroutines are cheap, so
-		// we don't need to worry about spinning up too many workers.
-		glog.Infof("[%s] Moving %d expiry bins to storage.", issuer.ID(), len(issuerDate.ExpDates))
-		errChan := make(chan error, len(issuerDate.ExpDates))
-		var wg sync.WaitGroup
-		wg.Add(len(issuerDate.ExpDates))
-		for _, expDate := range issuerDate.ExpDates {
-			go func(expDate types.ExpDate) {
-				errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer)
-				wg.Done()
-			}(expDate)
-		}
-		wg.Wait()
-		close(errChan)
-		for err := range errChan {
-			if err != nil {
-				return err
+		batchSize := kMoveSerialsBatchSize
+		for start := 0; start < len(issuerDate.ExpDates); start += batchSize {
+			if start+batchSize > len(issuerDate.ExpDates) {
+				batchSize = len(issuerDate.ExpDates) - start
+			}
+			glog.Infof("[%s] Moving %d expiry bins to storage.", issuer.ID(), batchSize)
+			errChan := make(chan error, batchSize)
+			var wg sync.WaitGroup
+			wg.Add(batchSize)
+			for i := start; i < start+batchSize; i++ {
+				go func(expDate types.ExpDate) {
+					errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer)
+					wg.Done()
+				}(issuerDate.ExpDates[i])
+			}
+			wg.Wait()
+			close(errChan)
+			for err := range errChan {
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
