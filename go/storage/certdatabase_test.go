@@ -394,6 +394,38 @@ func Test_MoveCachedSerialsToStorageIdempotent(t *testing.T) {
 	expectCountStored(t, certDB, kDate1, kIssuer1, "01", 1)
 }
 
+func Test_MoveManyCachedSerialsToStorage(t *testing.T) {
+	_, certDB := getTestHarness(t)
+
+	expiryBase, _ := time.Parse(kExpirationFormat, "2050-01-01")
+
+	// Add a large number of cache entries with distinct expiry dates.
+	// This will exercise the batching behavior in moveCachedSerialsToStorage.
+	count := kMoveSerialsBatchSize + 17
+	for i := 0; i < count; i++ {
+		expiry := expiryBase.Add(time.Duration(i*24) * time.Hour)
+		cacheSerial(t, certDB, expiry.Format(kExpirationFormat), kIssuer1, "01")
+	}
+
+	err := certDB.moveCachedSerialsToStorage()
+	if err != nil {
+		t.Errorf("Could not move cached serials to storage: %s", err)
+	}
+
+	// Check the end points of the batches
+	expiry := expiryBase.Add((0 * 24) * time.Hour)
+	expectStored(t, certDB, expiry.Format(kExpirationFormat), kIssuer1, "01", true)
+
+	expiry = expiryBase.Add(((kMoveSerialsBatchSize - 1) * 24) * time.Hour)
+	expectStored(t, certDB, expiry.Format(kExpirationFormat), kIssuer1, "01", true)
+
+	expiry = expiryBase.Add((kMoveSerialsBatchSize * 24) * time.Hour)
+	expectStored(t, certDB, expiry.Format(kExpirationFormat), kIssuer1, "01", true)
+
+	expiry = expiryBase.Add((kMoveSerialsBatchSize + 16) * 24 * time.Hour)
+	expectStored(t, certDB, expiry.Format(kExpirationFormat), kIssuer1, "01", true)
+}
+
 func Test_Commit(t *testing.T) {
 	cache, certDB := getTestHarness(t)
 
