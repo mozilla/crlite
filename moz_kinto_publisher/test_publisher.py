@@ -9,7 +9,7 @@ import workflow
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DEFAULT_CHANNEL = [x for x in main.CHANNELS if x.slug == main.CHANNEL_ALL][0]
+DEFAULT_CHANNEL = [x for x in main.CHANNELS if x.slug == main.CHANNEL_DEFAULT][0]
 
 
 def date(time):
@@ -23,7 +23,7 @@ class MockRunDB(main.PublishedRunDB):
         os.mkdir(Path("db"))
         main.PublishedRunDB.__init__(self, workflow.kTestBucket + ":" + str(Path()))
 
-    def next_run_id(self, delta=timedelta(hours=6)):
+    def next_run_id(self, delta=timedelta(hours=12)):
         # reset the run counter when the clock rolls over
         if date(self.time) != date(self.time + delta):
             self.run_ctr = 0
@@ -33,7 +33,7 @@ class MockRunDB(main.PublishedRunDB):
         return run_id
 
     def add_run(
-        self, *, completed=True, delta=timedelta(hours=6), filter_size=0, stash_size=0
+        self, *, completed=True, delta=timedelta(hours=12), filter_size=0, stash_size=0
     ):
         run_id = self.next_run_id(delta)
         rundir = Path("db") / run_id
@@ -358,18 +358,20 @@ class TestPublishDecisions(unittest.TestCase):
         self.assertEqual(None, rw_client.publish())
         self.assertEqual(db_run_ids, rw_client.get_run_ids())
 
-    def test_publish_ten_day_old_filter(self):
+    def test_publish_old_filter(self):
         # a new filter should be published every 10 days
         rw_client = MockClient()
         db = MockRunDB()
         run_id = db.add_run()
         start = db.time
         self.assertEqual(run_id, rw_client.publish())
-        while db.time - start + timedelta(hours=6) < timedelta(days=10):
+        while db.time - start + timedelta(hours=12) < timedelta(
+            days=DEFAULT_CHANNEL.max_filter_age_days
+        ):
             db.add_run()
             self.assertEqual(None, rw_client.publish())
-        # A new filter should be published after 10 days
-        run_id = db.add_run(delta=timedelta(hours=6))
+        # A new full filter should get published
+        run_id = db.add_run(delta=timedelta(hours=12))
         self.assertEqual(run_id, rw_client.publish())
         self.assertEqual([run_id], rw_client.get_run_ids())
 
