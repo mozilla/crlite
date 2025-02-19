@@ -35,8 +35,6 @@ import settings
 # are removed from remote settings.
 #
 # NOTE: Channel names cannot contain underscores.
-CHANNEL_ALL = "all"
-CHANNEL_EXPERIMENTAL = "experimental"
 CHANNEL_EXPERIMENTAL_DELTAS = "experimental+deltas"
 CHANNEL_DEFAULT = "default"
 CHANNEL_COMPAT = "compat"
@@ -56,24 +54,6 @@ Channel = namedtuple(
 
 CHANNELS = [
     Channel(
-        slug=CHANNEL_ALL,
-        dir="mlbf",
-        delta_filename="filter.stash",
-        max_filter_age_days=10,
-        supported_version=130,
-        mimetype="application/octet-stream",
-        enabled=False,
-    ),
-    Channel(
-        slug=CHANNEL_EXPERIMENTAL,
-        dir="clubcard-all",
-        delta_filename="filter.stash",
-        max_filter_age_days=10,
-        supported_version=132,
-        mimetype="application/octet-stream",
-        enabled=False,
-    ),
-    Channel(
         slug=CHANNEL_EXPERIMENTAL_DELTAS,
         dir="clubcard-all",
         max_filter_age_days=20,
@@ -83,7 +63,7 @@ CHANNELS = [
         # is somewhat compressible, so set a mimetype that encourages our CDN to use
         # compression (see: https://cloud.google.com/cdn/docs/dynamic-compression).
         mimetype="application/x-protobuf",
-        enabled=True,
+        enabled=False,
     ),
     Channel(
         slug=CHANNEL_DEFAULT,
@@ -718,7 +698,7 @@ def clear_crlite_filters(*, rw_client, noop, channel):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
+        x for x in existing_records if x.get("channel", CHANNEL_DEFAULT) == channel.slug
     ]
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
@@ -737,7 +717,7 @@ def clear_crlite_deltas(*, rw_client, noop, channel):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
+        x for x in existing_records if x.get("channel", CHANNEL_DEFAULT) == channel.slug
     ]
     existing_deltas = filter(lambda x: x["incremental"] is True, existing_records)
     for delta in existing_deltas:
@@ -771,16 +751,9 @@ def publish_crlite_record(
     #   await FilterExpressions.eval(expression, context)
     # See https://remote-settings.readthedocs.io/en/latest/target-filters.html
     # for the expression syntax and the definition of env.
-    if channel.slug == CHANNEL_ALL:
-        # Users on Firefox < 130 don't have the security.pki.crlite_channel
-        # pref, but we assign them to this channel by default.
-        attributes[
-            "filter_expression"
-        ] = f"env.version|versionCompare('130.!') < 0 || '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
-    else:
-        attributes[
-            "filter_expression"
-        ] = f"env.version|versionCompare('{channel.supported_version}.!') >= 0 && '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    attributes[
+        "filter_expression"
+    ] = f"env.version|versionCompare('{channel.supported_version}.!') >= 0 && '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
 
     record = rw_client.create_record(
         collection=settings.KINTO_CRLITE_COLLECTION,
@@ -873,7 +846,7 @@ def crlite_verify_record_consistency(*, existing_records, channel):
     # record["details"]["name"], which is a "YYYY-MM-DDTHH:MM:SS+00:00Z"
     # timestamp.
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
+        x for x in existing_records if x.get("channel", CHANNEL_DEFAULT) == channel.slug
     ]
 
     # It's OK if there are no records yet.
@@ -1013,7 +986,7 @@ def publish_crlite(*, args, rw_client, channel, timeout=timedelta(minutes=5)):
         collection=settings.KINTO_CRLITE_COLLECTION
     )
     existing_records = [
-        x for x in existing_records if x.get("channel", CHANNEL_ALL) == channel.slug
+        x for x in existing_records if x.get("channel", CHANNEL_DEFAULT) == channel.slug
     ]
     # Sort existing_records for crlite_verify_record_consistency,
     # which gets called in crlite_determine_publish.
