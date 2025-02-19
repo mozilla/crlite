@@ -40,7 +40,10 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig, roStor
 
 func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsConf := metrics.DefaultConfig(utilName)
+	metricsConf.EnableHostname = false
+	metricsConf.EnableHostnameLabel = false
 	metricsConf.EnableRuntimeMetrics = false
+	metricsConf.EnableServiceLabel = false
 
 	if len(*ctconfig.StatsDHost) > 0 {
 		metricsSink, err := metrics.NewStatsdSink(fmt.Sprintf("%s:%d", *ctconfig.StatsDHost, *ctconfig.StatsDPort))
