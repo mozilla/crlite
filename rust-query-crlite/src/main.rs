@@ -575,8 +575,6 @@ struct Cli {
 #[derive(clap::ValueEnum, Copy, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum CRLiteFilterChannel {
-    All,
-    Experimental,
     #[serde(rename = "experimental+deltas")]
     ExperimentalDeltas,
     #[default]
