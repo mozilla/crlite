@@ -42,7 +42,7 @@ const STAGE_URL: &str =
 
 const PROD_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.mozilla.net/";
 const PROD_URL: &str =
-    "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/";
+    "https://firefox.settings.services.mozilla.com/v1/buckets/security-state-staging/collections/";
 
 #[rustfmt::skip]
 const OID_SCT_EXTENSION: &der_parser::Oid = &oid!(1.3.6.1.4.1.11129.2.4.2);
