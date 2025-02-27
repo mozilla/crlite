@@ -202,6 +202,7 @@ func main() {
 	workChan := make(chan knownWorkUnit, count)
 	for _, iObj := range issuerList {
 		if !mozIssuers.IsIssuerInProgram(iObj.Issuer) {
+			glog.Infof("Skipping unknown issuer: %s", iObj.Issuer.ID())
 			continue
 		}
 
