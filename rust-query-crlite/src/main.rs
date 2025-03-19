@@ -33,6 +33,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use x509_parser::prelude::*;
 
+use base64::prelude::*;
+use base64::{engine::general_purpose::URL_SAFE, Engine as _};
+
 const ICA_LIST_URL: &str =
     "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport";
 
@@ -290,7 +293,8 @@ impl CRLiteDB {
 
         let issuer_spki_hash: [u8; 32] = Sha256::digest(issuer_spki).into();
 
-        debug!("Issuer SPKI hash: {}", hex::encode(issuer_spki_hash));
+        debug!("Issuer SPKI hash: {}", URL_SAFE.encode(issuer_spki_hash));
+
 
         // An expired certificate, even if enrolled and covered, might
         // not be included in the filter.
