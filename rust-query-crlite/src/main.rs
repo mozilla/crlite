@@ -33,8 +33,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use x509_parser::prelude::*;
 
+use base64::engine::general_purpose::URL_SAFE;
 use base64::prelude::*;
-use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 
 const ICA_LIST_URL: &str =
     "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport";
@@ -296,7 +296,6 @@ impl CRLiteDB {
 
         debug!("Issuer SPKI hash: {}", URL_SAFE.encode(issuer_spki_hash));
 
-
         // An expired certificate, even if enrolled and covered, might
         // not be included in the filter.
         if !cert.tbs_certificate.validity.is_valid() {
@@ -508,6 +507,16 @@ fn query_https_addr(
     }
 }
 
+fn query_cert_pem_or_der_bytes(db: &CRLiteDB, input: &[u8]) -> Result<Status, CRLiteDBError> {
+    let der_cert = match pem::parse(input) {
+        Ok(pem_cert) => pem_cert.contents,
+        _ => input.to_vec(),
+    };
+    X509Certificate::from_der(&der_cert)
+        .map(|(_, cert)| db.query(&cert))
+        .map_err(|_| CRLiteDBError::from("could not parse certificate"))
+}
+
 fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBError> {
     let mut found_revoked_certs = false;
     for file in files {
@@ -525,27 +534,43 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
                 continue;
             }
         };
-        let der_cert = match pem::parse(&input) {
-            Ok(pem_cert) => pem_cert.contents,
-            _ => input,
-        };
-        if let Ok((_, cert)) = X509Certificate::from_der(&der_cert) {
-            let status = db.query(&cert);
-            match status {
-                Status::Expired => warn!("{} {:?}", file.display(), status),
-                Status::Good => info!("{} {:?}", file.display(), status),
-                Status::NotCovered => warn!("{} {:?}", file.display(), status),
-                Status::NotEnrolled => warn!("{} {:?}", file.display(), status),
-                Status::Revoked => {
-                    found_revoked_certs = true;
-                    error!("{} {:?}", file.display(), status);
-                }
+        match query_cert_pem_or_der_bytes(db, &input) {
+            Ok(Status::Revoked) => {
+                found_revoked_certs = true;
+                error!("{} {:?}", file.display(), Status::Revoked);
+            }
+            Ok(status) => warn!("{} {:?}", file.display(), status),
+            Err(e) => {
+                warn!("Query error: {:?}", e);
+                continue;
             }
         }
     }
     match found_revoked_certs {
         true => Ok(CmdResult::SomeRevoked),
         false => Ok(CmdResult::NoneRevoked),
+    }
+}
+
+fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
+    let cert_bytes = &reqwest::blocking::get(format!("https://crt.sh/?d={id}"))
+        .map_err(|_| CRLiteDBError::from("could not fetch crt.sh item"))?
+        .bytes()
+        .map_err(|_| CRLiteDBError::from("could not read crt.sh item"))?;
+
+    match query_cert_pem_or_der_bytes(db, cert_bytes) {
+        Ok(Status::Revoked) => {
+            error!("{} {:?}", id, Status::Revoked);
+            Ok(CmdResult::SomeRevoked)
+        }
+        Ok(status) => {
+            warn!("{} {:?}", id, status);
+            Ok(CmdResult::NoneRevoked)
+        }
+        Err(e) => {
+            warn!("Query error: {:?}", e);
+            Err(e)
+        }
     }
 }
 
@@ -603,6 +628,8 @@ enum Subcommand {
     Signoff { host_file_url: String },
     /// Query DER or PEM encoded certificates from one or more files.
     X509 { files: Vec<PathBuf> },
+    /// Query a certificate by its crt.sh id
+    Crtsh { id: String },
 }
 
 #[derive(PartialEq)]
@@ -654,6 +681,7 @@ fn main() {
             query_https_hosts(&db, &hosts)
         }
         Subcommand::X509 { ref files } => query_certs(&db, files),
+        Subcommand::Crtsh { ref id } => query_crtsh_id(&db, id),
     };
 
     match result {
