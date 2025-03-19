@@ -588,3 +588,62 @@ func Test_EnsureCacheIsConsistent(t *testing.T) {
 	expectCacheEpoch(t, cache, 1)
 	expectCachedLogState(t, cache, logState.ShortURL, &logState)
 }
+
+func Test_PreIssuerAlias(t *testing.T) {
+	issuer1 := types.NewIssuerFromString(kIssuer1)
+	issuer2 := types.NewIssuerFromString(kIssuer2)
+
+	cache, certDB := getTestHarness(t)
+
+	expectCacheEmpty(t, certDB)
+	expectStorageEmpty(t, certDB)
+
+	cacheSerial(t, certDB, kDate1, kIssuer1, "11")
+	cacheSerial(t, certDB, kDate1, kIssuer2, "12")
+	cacheSerial(t, certDB, kDate2, kIssuer2, "22")
+
+	err := certDB.moveCachedSerialsToStorage()
+	if err != nil {
+		t.Errorf("Could not move cached serials to storage: %s", err)
+	}
+
+	expectCached(t, certDB, kDate1, kIssuer1, "11", false)
+	expectCached(t, certDB, kDate1, kIssuer2, "12", false)
+	expectCached(t, certDB, kDate2, kIssuer2, "22", false)
+
+	expectStored(t, certDB, kDate1, kIssuer1, "11", true)
+	expectStored(t, certDB, kDate1, kIssuer2, "12", true)
+	expectStored(t, certDB, kDate2, kIssuer2, "22", true)
+
+	// We did not store serials "12" or "22" under kIssuer1. However if we
+	// add kIssuer2 as an alias for kIssuer1, then it will appear as if we
+	// did.
+	expectStored(t, certDB, kDate1, kIssuer1, "12", false)
+	expectStored(t, certDB, kDate2, kIssuer1, "22", false)
+
+	certDB.AddPreIssuerAlias(issuer2, issuer1)
+
+	token, err := cache.AcquireCommitLock()
+	if err != nil || token == nil {
+		t.Error("Should have acquired commit lock")
+	}
+
+	err = certDB.Commit(*token)
+	if err != nil {
+		t.Errorf("Commit should have succeeded %v", err)
+	}
+
+	cache.ReleaseCommitLock(*token)
+
+	// The serials stored under kIssuer2 has been copied
+	expectStored(t, certDB, kDate1, kIssuer1, "12", true)
+	expectStored(t, certDB, kDate1, kIssuer2, "12", true)
+	expectStored(t, certDB, kDate2, kIssuer1, "22", true)
+	expectStored(t, certDB, kDate2, kIssuer2, "22", true)
+
+	// We still have the serial stored under kIssuer1
+	expectStored(t, certDB, kDate1, kIssuer1, "11", true)
+
+	// Serials stored under kIssuer1 are not copied to kIssuer2
+	expectStored(t, certDB, kDate1, kIssuer2, "11", false)
+}
