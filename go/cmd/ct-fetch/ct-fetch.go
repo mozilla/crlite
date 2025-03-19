@@ -414,10 +414,53 @@ func (ld *LogSyncEngine) insertCTWorker() {
 			continue
 		}
 
-		issuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
+		preIssuerOrIssuingCert, err := x509.ParseCertificate(ep.LogEntry.Chain[0].Data)
 		if err != nil {
 			glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
 			continue
+		}
+
+		// RFC 6962 allows a precertificate to be signed by "a
+		// special-purpose [...] Precertificate Signing Certificate
+		// [that is] certified by the (root or intermediate) CA
+		// certificate that will ultimately sign the end-entity". In
+		// this case, the certificate that will issue the final cert is
+		// the second entry in the chain (ep.LogEntry.Chain[1]).
+		var issuingCert *x509.Certificate
+		if types.IsPreIssuer(preIssuerOrIssuingCert) {
+			if !precert {
+				glog.Errorf("[%s] X509LogEntry issuer precertificate signing EKU: index: %d", ep.LogMeta.URL, ep.LogEntry.Index)
+				continue
+			}
+
+			if len(ep.LogEntry.Chain) < 2 {
+				glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+					ep.LogMeta.URL, precert, ep.LogEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+				continue
+			}
+
+			issuingCert, err = x509.ParseCertificate(ep.LogEntry.Chain[1].Data)
+			if err != nil {
+				glog.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", ep.LogMeta.URL, ep.LogEntry.Index, err)
+				continue
+			}
+
+			// Bug 1955023 - This program previously failed to
+			// handle precertificate signing certificates. This
+			// caused some serial numbers to be stored in the bin
+			// labeled "issuer::<precertificate issuer id>" rather
+			// than "issuer::<issuer id>". Adding a preissuer alias
+			// causes CertDatabase to merge entries from
+			// "issuer::<precertificate issuer id>" into
+			// "issuer::<issuer id>" in future commits.
+			issuer := types.NewIssuer(issuingCert)
+			preissuer := types.NewIssuer(preIssuerOrIssuingCert)
+			err = ld.database.AddPreIssuerAlias(preissuer, issuer)
+			if err != nil {
+				glog.Warningf("[%s] Failed to add preissuer alias. index: %d, issuer=%+v", ep.LogMeta.URL, ep.LogEntry.Index, cert.Issuer)
+			}
+		} else {
+			issuingCert = preIssuerOrIssuingCert
 		}
 
 		err = ld.database.Store(cert, issuingCert, ep.LogMeta.URL, ep.LogEntry.Index)

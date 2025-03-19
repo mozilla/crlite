@@ -398,3 +398,31 @@ func Test_RedisRestore(t *testing.T) {
 		t.Errorf("Entry for %s should not be present", otherLogState.ShortURL)
 	}
 }
+
+func Test_RedisPreIssuerAlias(t *testing.T) {
+	rc := getRedisCache(t)
+	issuer1 := types.NewIssuerFromString(kIssuer1)
+	issuer2 := types.NewIssuerFromString(kIssuer2)
+	aliases, err := rc.GetPreIssuerAliases(issuer1)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(aliases) != 0 {
+		t.Errorf("Expected 0 alias, found %d", len(aliases))
+	}
+	err = rc.AddPreIssuerAlias(issuer1, issuer2)
+	if err != nil {
+		t.Error(err)
+	}
+	aliases, err = rc.GetPreIssuerAliases(issuer1)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(aliases) != 1 {
+		t.Errorf("Expected 1 alias, found %d", len(aliases))
+	}
+	if kIssuer2 != aliases[0].ID() {
+		t.Errorf("Expected alias %s, found %s", kIssuer2, aliases[0].ID())
+	}
+	rc.client.FlushDB()
+}
