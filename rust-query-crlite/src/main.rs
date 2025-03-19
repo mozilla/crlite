@@ -284,6 +284,7 @@ impl CRLiteDB {
         let serial = cert.tbs_certificate.raw_serial();
 
         debug!("Issuer DN: {}", cert.tbs_certificate.issuer);
+        debug!("Subject DN: {}", cert.tbs_certificate.subject);
         debug!("Serial number: {}", hex::encode(serial));
 
         let issuer_spki = match self.intermediates.lookup_issuer_spki(cert) {
