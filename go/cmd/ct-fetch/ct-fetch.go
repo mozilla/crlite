@@ -429,7 +429,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		var issuingCert *x509.Certificate
 		if types.IsPreIssuer(preIssuerOrIssuingCert) {
 			if !precert {
-				glog.Errorf("[%s] X509LogEntry issuer precertificate signing EKU: index: %d", ep.LogMeta.URL, ep.LogEntry.Index)
+				glog.Errorf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", ep.LogMeta.URL, ep.LogEntry.Index)
 				continue
 			}
 
