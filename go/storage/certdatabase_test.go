@@ -15,6 +15,7 @@ import (
 const (
 	kIssuer1          = "8Rw90Ej3Ttt8RRkrg-WYDS9n7IS03bk5bjP_UXPtaY8="
 	kIssuer2          = "ZkWBotC4nL-Ba_kXaVPx7TpoRSF9uwxEAuufz67J7sQ="
+	kIssuer3          = "unLMj_QBNe_Q7to-eIcm3DJAgrMoPWPkEwFZMsbRY7k="
 	kDate1            = "2099-12-31"
 	kDate2            = "2100-01-01"
 	kExpirationFormat = "2006-01-02"
