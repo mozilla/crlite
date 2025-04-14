@@ -1116,7 +1116,7 @@ def publish_ctlogs(*, args, rw_client):
     upstream_logs = [
         {
             "admissible": ctlog["admissible"],
-            "crlite_enrolled": False,
+            "crlite_enrolled": True,
             "description": ctlog["description"],
             "key": ctlog["key"],
             "logID": ctlog["log_id"],
