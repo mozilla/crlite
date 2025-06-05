@@ -251,6 +251,7 @@ impl CRLiteDB {
         let intermediates_path = db_dir.join("crlite.intermediates");
 
         let mut filters = vec![];
+        let mut most_recent_time = None;
         for dir_entry in std::fs::read_dir(db_dir)? {
             let Ok(dir_entry) = dir_entry else { continue };
             let dir_entry_path = dir_entry.path();
@@ -258,12 +259,28 @@ impl CRLiteDB {
                 .extension()
                 .and_then(|os_str| os_str.to_str());
             if extension == Some("delta") || extension == Some("filter") {
-                filters.push(Filter::from_bytes(&std::fs::read(dir_entry_path)?)?);
+                filters.push(Filter::from_bytes(&std::fs::read(&dir_entry_path)?)?);
+                if let Ok(metadata) = std::fs::metadata(&dir_entry_path) {
+                    if let Ok(modified) = metadata.modified() {
+                        most_recent_time = Some(
+                            most_recent_time
+                                .map_or(modified, |t: std::time::SystemTime| t.max(modified)),
+                        );
+                    }
+                }
             }
         }
 
         if filters.is_empty() {
             error!("No CRLite filters found. All results will indicate NotCovered. Use --update to download filters.");
+        } else if let Some(time) = most_recent_time {
+            if let Ok(duration) = std::time::SystemTime::now().duration_since(time) {
+                info!(
+                    "Loaded {} CRLite filter(s), most recent was downloaded: {} hours ago",
+                    filters.len(),
+                    duration.as_secs() / 1440
+                );
+            }
         }
 
         // If db_dir is the security_state directory of a firefox profile,
