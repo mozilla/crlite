@@ -27,6 +27,39 @@ import (
 )
 
 func Test_makeFilenameFromUrl(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "Test_makeFilenameFromUrlTest")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	checkOpenable := func(t *testing.T, tmpDir, crlUrl string) {
+		url, _ := url.Parse(crlUrl)
+
+		path := filepath.Join(tmpDir, makeFilenameFromUrl(*url))
+
+		_, err := os.OpenFile(path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			t.Errorf("Could not open file: %s", err)
+		}
+	}
+
+	for _, url := range []string{
+		"http://example.com/",
+		"http://example.com/?",
+		"http://example.com/?abc",
+		"http://example.com/crl/",
+		"http://example.com/crl/?",
+		"http://example.com/crl/?abc",
+		"http://example.com/~crl/",
+		"http://example.com/~crl/?",
+		"http://example.com/~crl/?abc",
+	} {
+		checkOpenable(t, tmpDir, url)
+	}
+}
+
+func Test_makeFilenameFromUrlCollisions(t *testing.T) {
 	names := make(map[string]bool)
 
 	checkCollision := func(t *testing.T, list []string, db map[string]bool) {
