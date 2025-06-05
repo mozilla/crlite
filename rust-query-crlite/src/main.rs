@@ -262,6 +262,10 @@ impl CRLiteDB {
             }
         }
 
+        if filters.is_empty() {
+            error!("No CRLite filters found. All results will indicate NotCovered. Use --update to download filters.");
+        }
+
         // If db_dir is the security_state directory of a firefox profile,
         // then it will have all of the files except for crlite.intermediates.
         // It might be useful to inspect a firefox profile without updating
