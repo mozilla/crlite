@@ -278,7 +278,7 @@ impl CRLiteDB {
                 info!(
                     "Loaded {} CRLite filter(s), most recent was downloaded: {} hours ago",
                     filters.len(),
-                    duration.as_secs() / 1440
+                    duration.as_secs() / 3600
                 );
             }
         }
