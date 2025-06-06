@@ -210,15 +210,25 @@ fn get_sct_ids_and_timestamps(cert: &X509Certificate) -> Vec<([u8; 32], u64)> {
 }
 
 enum Filter {
-    Clubcard(CRLiteClubcard),
+    Clubcard((/* filename */ String, CRLiteClubcard)),
 }
 
 impl Filter {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        if let Ok(clubcard) = CRLiteClubcard::from_bytes(bytes) {
-            return Ok(Filter::Clubcard(clubcard));
+    fn from_file(file: &PathBuf) -> Result<Self, CRLiteDBError> {
+        let name = file
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        if let Ok(clubcard) = CRLiteClubcard::from_bytes(&std::fs::read(file)?) {
+            return Ok(Filter::Clubcard((name.into(), clubcard)));
         }
         Err(CRLiteDBError::from("could not load filter"))
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Filter::Clubcard((name, _)) => name,
+        }
     }
 
     fn has(
@@ -228,7 +238,7 @@ impl Filter {
         timestamps: &[([u8; 32], u64)],
     ) -> Status {
         match self {
-            Filter::Clubcard(clubcard) => {
+            Filter::Clubcard((_, clubcard)) => {
                 let crlite_key = clubcard_crlite::CRLiteKey::new(issuer_spki_hash, serial);
                 match clubcard.contains(&crlite_key, timestamps.iter().map(|(x, y)| (x, *y))) {
                     CRLiteStatus::Good => Status::Good,
@@ -259,7 +269,7 @@ impl CRLiteDB {
                 .extension()
                 .and_then(|os_str| os_str.to_str());
             if extension == Some("delta") || extension == Some("filter") {
-                filters.push(Filter::from_bytes(&std::fs::read(&dir_entry_path)?)?);
+                filters.push(Filter::from_file(&dir_entry_path)?);
                 if let Ok(metadata) = std::fs::metadata(&dir_entry_path) {
                     if let Ok(modified) = metadata.modified() {
                         most_recent_time = Some(
@@ -270,6 +280,10 @@ impl CRLiteDB {
                 }
             }
         }
+
+        // Sort the filters by name so that (when trace level output is enabled)
+        // individual results are sorted chronologically.
+        filters.sort_by_key(|x| x.name().to_string());
 
         if filters.is_empty() {
             error!("No CRLite filters found. All results will indicate NotCovered. Use --update to download filters.");
@@ -328,11 +342,13 @@ impl CRLiteDB {
 
         let issuer_spki_hash = Sha256::digest(issuer_spki);
         for filter in &self.filters {
-            match filter.has(
+            let one_filter_result = filter.has(
                 issuer_spki_hash.as_ref(),
                 serial,
                 &get_sct_ids_and_timestamps(cert),
-            ) {
+            );
+            trace!("{}: {:?}", filter.name(), one_filter_result);
+            match one_filter_result {
                 Status::Revoked => return Status::Revoked,
                 Status::Good => maybe_good = true,
                 Status::NotEnrolled => covered = true,
