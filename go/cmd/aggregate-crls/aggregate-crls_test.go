@@ -38,10 +38,11 @@ func Test_makeFilenameFromUrl(t *testing.T) {
 
 		path := filepath.Join(tmpDir, makeFilenameFromUrl(*url))
 
-		_, err := os.OpenFile(path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			t.Errorf("Could not open file: %s", err)
 		}
+		f.Close()
 	}
 
 	for _, url := range []string{
