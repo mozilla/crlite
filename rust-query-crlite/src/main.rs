@@ -574,9 +574,9 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
         match query_cert_pem_or_der_bytes(db, &input) {
             Ok(Status::Revoked) => {
                 found_revoked_certs = true;
-                error!("{} {:?}", file.display(), Status::Revoked);
+                info!("{} {:?}", file.display(), Status::Revoked);
             }
-            Ok(status) => warn!("{} {:?}", file.display(), status),
+            Ok(status) => info!("{} {:?}", file.display(), status),
             Err(e) => {
                 warn!("Query error: {:?}", e);
                 continue;
@@ -597,11 +597,11 @@ fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
 
     match query_cert_pem_or_der_bytes(db, cert_bytes) {
         Ok(Status::Revoked) => {
-            error!("{} {:?}", id, Status::Revoked);
+            info!("{} {:?}", id, Status::Revoked);
             Ok(CmdResult::SomeRevoked)
         }
         Ok(status) => {
-            warn!("{} {:?}", id, status);
+            info!("{} {:?}", id, status);
             Ok(CmdResult::NoneRevoked)
         }
         Err(e) => {
