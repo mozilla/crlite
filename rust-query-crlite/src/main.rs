@@ -98,7 +98,7 @@ struct CertRevRecordAttachment {
 fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
     let intermediates_path = int_dir.join("crlite.intermediates");
 
-    info!("Fetching {}", ICA_LIST_URL);
+    debug!("Fetching {}", ICA_LIST_URL);
     let intermediates_bytes = &reqwest::blocking::get(ICA_LIST_URL)
         .map_err(|_| CRLiteDBError::from("could not fetch CCADB report"))?
         .bytes()
@@ -120,7 +120,7 @@ fn update_db(
     base_url: &str,
     channel: &CRLiteFilterChannel,
 ) -> Result<(), CRLiteDBError> {
-    info!(
+    debug!(
         "Fetching cert-revocations records from remote settings {}",
         base_url
     );
@@ -157,7 +157,7 @@ fn update_db(
         if (extension == Some("delta") || extension == Some("filter"))
             && !expected_filenames.contains(&dir_entry.file_name())
         {
-            info!("Removing {:?}", dir_entry.file_name());
+            debug!("Removing {:?}", dir_entry.file_name());
             let _ = std::fs::remove_file(dir_entry_path);
         }
     }
@@ -169,13 +169,13 @@ fn update_db(
         if path.exists() {
             let digest = Sha256::digest(std::fs::read(&path)?);
             if expected_digest == digest.as_slice() {
-                info!("Found existing copy of {}", filter.attachment.filename);
+                debug!("Found existing copy of {}", filter.attachment.filename);
                 continue;
             }
         }
 
         let filter_url = format!("{}{}", attachment_url, filter.attachment.location);
-        info!(
+        debug!(
             "Fetching {} from {}",
             filter.attachment.filename, filter_url
         );
@@ -516,11 +516,11 @@ fn query_https_addr(
     debug!("Loaded certificate from {}", host);
     let status = db.query(&cert);
     match status {
-        Status::Expired => warn!("{} {:?}", host, status),
+        Status::Expired => info!("{} {:?}", host, status),
         Status::Good => info!("{} {:?}", host, status),
-        Status::NotCovered => warn!("{} {:?}", host, status),
-        Status::NotEnrolled => warn!("{} {:?}", host, status),
-        Status::Revoked => error!("{} {:?}", host, status),
+        Status::NotCovered => info!("{} {:?}", host, status),
+        Status::NotEnrolled => info!("{} {:?}", host, status),
+        Status::Revoked => info!("{} {:?}", host, status),
     }
     match status {
         Status::Revoked => Ok(CmdResult::SomeRevoked),
@@ -604,7 +604,7 @@ fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
 #[derive(Parser)]
 struct Cli {
     /// Download a new CRLite filter and associated metadata from Firefox Remote Settings.
-    #[clap(long, arg_enum)]
+    #[clap(long, value_enum)]
     update: Option<RemoteSettingsInstance>,
 
     /// CRLite filter channel
@@ -612,12 +612,16 @@ struct Cli {
     channel: CRLiteFilterChannel,
 
     /// CRLite directory e.g. <firefox profile>/security_state/.
-    #[clap(short, long, parse(from_os_str), default_value = "./crlite_db/")]
+    #[clap(short, long, default_value = "./crlite_db/")]
     db: PathBuf,
 
-    /// Verbosity. -v => warning, -vv => info, -vvv => debug.
-    #[clap(short = 'v', parse(from_occurrences))]
-    verbose: usize,
+    /// Silence all output.
+    #[clap(short = 'q')]
+    quiet: bool,
+
+    /// Include debug output in logs.
+    #[clap(short = 'v', action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[clap(subcommand)]
     command: Subcommand,
@@ -633,7 +637,7 @@ enum CRLiteFilterChannel {
     Compat,
 }
 
-#[derive(Clone, clap::ArgEnum)]
+#[derive(clap::ValueEnum, Clone)]
 enum RemoteSettingsInstance {
     Prod,
     Stage,
@@ -664,7 +668,8 @@ fn main() {
 
     stderrlog::new()
         .module(module_path!())
-        .verbosity(args.verbose)
+        .quiet(args.quiet)
+        .verbosity(std::cmp::min(4, (args.verbose + 2).into()))
         .init()
         .unwrap();
 

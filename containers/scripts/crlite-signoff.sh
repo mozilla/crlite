@@ -34,7 +34,7 @@ then
   exit 1;
 fi
 
-if ! "${RUST_QUERY_CRLITE}" -vvv --db "${OUTPUT}" --update "${INSTANCE}" signoff "${crlite_verify_host_file_urls}"
+if ! "${RUST_QUERY_CRLITE}" -v --db "${OUTPUT}" --update "${INSTANCE}" signoff "${crlite_verify_host_file_urls}"
 then
   echo "Verification domains test failed"
   exit 1;
