@@ -42,7 +42,7 @@ var (
 	auditpath    = flag.String("auditpath", "<path>", "output JSON audit report")
 	ctconfig     = config.NewCTConfig()
 
-	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\./]`)
+	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\.]`)
 
 	allowableAgeOfLocalCRL, _ = time.ParseDuration("336h")
 )
@@ -56,6 +56,9 @@ type AggregateEngine struct {
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
 	filename := fmt.Sprintf("%s-%s", crlUrl.Hostname(), path.Base(crlUrl.Path))
+	if len(crlUrl.RawQuery) > 0 {
+		filename = fmt.Sprintf("%s-%s", filename, crlUrl.RawQuery)
+	}
 	filename = strings.ToLower(filename)
 	filename = illegalPath.ReplaceAllString(filename, "")
 
