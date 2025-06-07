@@ -98,7 +98,7 @@ struct CertRevRecordAttachment {
 fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
     let intermediates_path = int_dir.join("crlite.intermediates");
 
-    info!("Fetching {}", ICA_LIST_URL);
+    debug!("Fetching {}", ICA_LIST_URL);
     let intermediates_bytes = &reqwest::blocking::get(ICA_LIST_URL)
         .map_err(|_| CRLiteDBError::from("could not fetch CCADB report"))?
         .bytes()
@@ -120,7 +120,7 @@ fn update_db(
     base_url: &str,
     channel: &CRLiteFilterChannel,
 ) -> Result<(), CRLiteDBError> {
-    info!(
+    debug!(
         "Fetching cert-revocations records from remote settings {}",
         base_url
     );
@@ -157,7 +157,7 @@ fn update_db(
         if (extension == Some("delta") || extension == Some("filter"))
             && !expected_filenames.contains(&dir_entry.file_name())
         {
-            info!("Removing {:?}", dir_entry.file_name());
+            debug!("Removing {:?}", dir_entry.file_name());
             let _ = std::fs::remove_file(dir_entry_path);
         }
     }
@@ -169,13 +169,13 @@ fn update_db(
         if path.exists() {
             let digest = Sha256::digest(std::fs::read(&path)?);
             if expected_digest == digest.as_slice() {
-                info!("Found existing copy of {}", filter.attachment.filename);
+                debug!("Found existing copy of {}", filter.attachment.filename);
                 continue;
             }
         }
 
         let filter_url = format!("{}{}", attachment_url, filter.attachment.location);
-        info!(
+        debug!(
             "Fetching {} from {}",
             filter.attachment.filename, filter_url
         );
@@ -210,15 +210,25 @@ fn get_sct_ids_and_timestamps(cert: &X509Certificate) -> Vec<([u8; 32], u64)> {
 }
 
 enum Filter {
-    Clubcard(CRLiteClubcard),
+    Clubcard((/* filename */ String, CRLiteClubcard)),
 }
 
 impl Filter {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        if let Ok(clubcard) = CRLiteClubcard::from_bytes(bytes) {
-            return Ok(Filter::Clubcard(clubcard));
+    fn from_file(file: &PathBuf) -> Result<Self, CRLiteDBError> {
+        let name = file
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        if let Ok(clubcard) = CRLiteClubcard::from_bytes(&std::fs::read(file)?) {
+            return Ok(Filter::Clubcard((name.into(), clubcard)));
         }
         Err(CRLiteDBError::from("could not load filter"))
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Filter::Clubcard((name, _)) => name,
+        }
     }
 
     fn has(
@@ -228,7 +238,7 @@ impl Filter {
         timestamps: &[([u8; 32], u64)],
     ) -> Status {
         match self {
-            Filter::Clubcard(clubcard) => {
+            Filter::Clubcard((_, clubcard)) => {
                 let crlite_key = clubcard_crlite::CRLiteKey::new(issuer_spki_hash, serial);
                 match clubcard.contains(&crlite_key, timestamps.iter().map(|(x, y)| (x, *y))) {
                     CRLiteStatus::Good => Status::Good,
@@ -259,7 +269,7 @@ impl CRLiteDB {
                 .extension()
                 .and_then(|os_str| os_str.to_str());
             if extension == Some("delta") || extension == Some("filter") {
-                filters.push(Filter::from_bytes(&std::fs::read(&dir_entry_path)?)?);
+                filters.push(Filter::from_file(&dir_entry_path)?);
                 if let Ok(metadata) = std::fs::metadata(&dir_entry_path) {
                     if let Ok(modified) = metadata.modified() {
                         most_recent_time = Some(
@@ -270,6 +280,10 @@ impl CRLiteDB {
                 }
             }
         }
+
+        // Sort the filters by name so that (when trace level output is enabled)
+        // individual results are sorted chronologically.
+        filters.sort_by_key(|x| x.name().to_string());
 
         if filters.is_empty() {
             error!("No CRLite filters found. All results will indicate NotCovered. Use --update to download filters.");
@@ -328,11 +342,13 @@ impl CRLiteDB {
 
         let issuer_spki_hash = Sha256::digest(issuer_spki);
         for filter in &self.filters {
-            match filter.has(
+            let one_filter_result = filter.has(
                 issuer_spki_hash.as_ref(),
                 serial,
                 &get_sct_ids_and_timestamps(cert),
-            ) {
+            );
+            trace!("{}: {:?}", filter.name(), one_filter_result);
+            match one_filter_result {
                 Status::Revoked => return Status::Revoked,
                 Status::Good => maybe_good = true,
                 Status::NotEnrolled => covered = true,
@@ -516,11 +532,11 @@ fn query_https_addr(
     debug!("Loaded certificate from {}", host);
     let status = db.query(&cert);
     match status {
-        Status::Expired => warn!("{} {:?}", host, status),
+        Status::Expired => info!("{} {:?}", host, status),
         Status::Good => info!("{} {:?}", host, status),
-        Status::NotCovered => warn!("{} {:?}", host, status),
-        Status::NotEnrolled => warn!("{} {:?}", host, status),
-        Status::Revoked => error!("{} {:?}", host, status),
+        Status::NotCovered => info!("{} {:?}", host, status),
+        Status::NotEnrolled => info!("{} {:?}", host, status),
+        Status::Revoked => info!("{} {:?}", host, status),
     }
     match status {
         Status::Revoked => Ok(CmdResult::SomeRevoked),
@@ -558,9 +574,9 @@ fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBEr
         match query_cert_pem_or_der_bytes(db, &input) {
             Ok(Status::Revoked) => {
                 found_revoked_certs = true;
-                error!("{} {:?}", file.display(), Status::Revoked);
+                info!("{} {:?}", file.display(), Status::Revoked);
             }
-            Ok(status) => warn!("{} {:?}", file.display(), status),
+            Ok(status) => info!("{} {:?}", file.display(), status),
             Err(e) => {
                 warn!("Query error: {:?}", e);
                 continue;
@@ -581,11 +597,11 @@ fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
 
     match query_cert_pem_or_der_bytes(db, cert_bytes) {
         Ok(Status::Revoked) => {
-            error!("{} {:?}", id, Status::Revoked);
+            info!("{} {:?}", id, Status::Revoked);
             Ok(CmdResult::SomeRevoked)
         }
         Ok(status) => {
-            warn!("{} {:?}", id, status);
+            info!("{} {:?}", id, status);
             Ok(CmdResult::NoneRevoked)
         }
         Err(e) => {
@@ -604,7 +620,7 @@ fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
 #[derive(Parser)]
 struct Cli {
     /// Download a new CRLite filter and associated metadata from Firefox Remote Settings.
-    #[clap(long, arg_enum)]
+    #[clap(long, value_enum)]
     update: Option<RemoteSettingsInstance>,
 
     /// CRLite filter channel
@@ -612,12 +628,16 @@ struct Cli {
     channel: CRLiteFilterChannel,
 
     /// CRLite directory e.g. <firefox profile>/security_state/.
-    #[clap(short, long, parse(from_os_str), default_value = "./crlite_db/")]
+    #[clap(short, long, default_value = "./crlite_db/")]
     db: PathBuf,
 
-    /// Verbosity. -v => warning, -vv => info, -vvv => debug.
-    #[clap(short = 'v', parse(from_occurrences))]
-    verbose: usize,
+    /// Silence all output.
+    #[clap(short = 'q')]
+    quiet: bool,
+
+    /// Include debug output in logs.
+    #[clap(short = 'v', action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[clap(subcommand)]
     command: Subcommand,
@@ -626,14 +646,12 @@ struct Cli {
 #[derive(clap::ValueEnum, Copy, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum CRLiteFilterChannel {
-    #[serde(rename = "experimental+deltas")]
-    ExperimentalDeltas,
     #[default]
     Default,
     Compat,
 }
 
-#[derive(Clone, clap::ArgEnum)]
+#[derive(clap::ValueEnum, Clone)]
 enum RemoteSettingsInstance {
     Prod,
     Stage,
@@ -664,7 +682,8 @@ fn main() {
 
     stderrlog::new()
         .module(module_path!())
-        .verbosity(args.verbose)
+        .quiet(args.quiet)
+        .verbosity(std::cmp::min(4, (args.verbose + 2).into()))
         .init()
         .unwrap();
 
