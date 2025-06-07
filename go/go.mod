@@ -3,7 +3,7 @@ module github.com/mozilla/crlite/go
 require (
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/go-redis/redis v6.15.5+incompatible
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/golang/glog v1.2.4
 	github.com/google/certificate-transparency-go v1.1.0
 	github.com/google/renameio v1.0.1
 	github.com/gopherjs/gopherjs v0.0.0-20190915194858-d3ddacdb130f // indirect
