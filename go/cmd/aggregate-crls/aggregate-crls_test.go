@@ -469,7 +469,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil)
+	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil, false)
 
 	thisUpdate := time.Now().UTC()
 	nextUpdate := thisUpdate.AddDate(0, 0, 1)
@@ -569,7 +569,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	}
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil)
+	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil, false)
 
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 
@@ -657,5 +657,89 @@ func Test_SaveRevokedCertificateList(t *testing.T) {
 
 	if !bytes.Equal(expected, fileBytes) {
 		t.Fatalf("Data should match exactly - expected=[%+v] loaded=[%+v]", expected, fileBytes)
+	}
+}
+
+func Test_IssuingDPMatching(t *testing.T) {
+	// Certificate Revocation List (CRL):
+	//         Version 2 (0x1)
+	//         Signature Algorithm: ecdsa-with-SHA256
+	//         Issuer: CN = Test CRL
+	//         Last Update: Jul  1 16:02:05 2025 GMT
+	//         Next Update: Jul 11 15:02:04 2025 GMT
+	//         CRL extensions:
+	//             X509v3 Issuing Distribution Point: critical
+	//                 Full Name:
+	//                   URI:http://example.com/1.crl
+	//                   URI:http://example.com/2.crl
+	// No Revoked Certificates.
+	//     Signature Algorithm: ecdsa-with-SHA256
+	//     Signature Value:
+	//         30:44:02:20:00:00:00:00:00:00:00:00:00:00:00:00:00:00:
+	//         00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:
+	//         02:20:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:
+	//         00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
+	crlBlock := []byte(`-----BEGIN X509 CRL-----
+MIHmMIGOAgEBMAoGCCqGSM49BAMCMBMxETAPBgNVBAMTCFRlc3QgQ1JMFw0yNTA3
+MDExNjAyMDVaFw0yNTA3MTExNTAyMDRaMACgSDBGMEQGA1UdHAEB/wQ6MDigNqA0
+hhhodHRwOi8vZXhhbXBsZS5jb20vMS5jcmyGGGh0dHA6Ly9leGFtcGxlLmNvbS8y
+LmNybDAKBggqhkjOPQQDAgNHADBEAiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+-----END X509 CRL-----`)
+
+	crlPath, err := ioutil.TempFile("", "loadAndCheckSignatureOfCRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer os.Remove(crlPath.Name())
+
+	if _, err := crlPath.Write(crlBlock); err != nil {
+		t.Fatal(err)
+	}
+	if err := crlPath.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The fetch URL is not listed in the partitioned CRL URL set
+	partitionCrlUrl1 := "http://example.com/1.crl"
+	partionedCrlUrls := map[string]bool{}
+	match, err := loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
+	if err == nil || match {
+		t.Fatal("Expected 'Did not find matching URL' error")
+	}
+
+	// The fetch URL is listed in the partitioned CRL URL set and matches the issuingDP.
+	partionedCrlUrls = map[string]bool{
+		partitionCrlUrl1: true,
+	}
+	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !match {
+		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1)
+	}
+
+	// The fetch URL is listed in the partitioned CRL URL set but does not match the issuing DP.
+	otherUrl := "http://other.example.com"
+	partionedCrlUrls = map[string]bool{
+		otherUrl: true,
+	}
+	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), otherUrl, partionedCrlUrls)
+	if err == nil || match {
+		t.Fatal("Expected 'Did not find matching URL' error")
+	}
+
+	// The fetch URL is listed in the partition list and matches the issuing DP, but another URL in
+	// the partition list also matches the issuingDP.
+	partitionCrlUrl2 := "http://example.com/2.crl"
+	partionedCrlUrls = map[string]bool{
+		partitionCrlUrl1: true,
+		partitionCrlUrl2: true,
+	}
+	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
+	if err == nil {
+		t.Fatalf("CRL with multiple known partition urls should be rejected")
 	}
 }

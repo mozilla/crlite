@@ -24,6 +24,7 @@ var (
 	AuditKindOld                CrlAuditEntryKind = "Not Fresh, Warning"
 	AuditKindExpired            CrlAuditEntryKind = "Expired, Allowed"
 	AuditKindValid              CrlAuditEntryKind = "Valid, Processed"
+	AuditKindWrongDP            CrlAuditEntryKind = "Wrong distribution point"
 )
 
 type CrlAuditEntryKind string
@@ -169,6 +170,22 @@ func (auditor *CrlAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier
 		Errors:        []string{err.Error()},
 	})
 }
+
+func (auditor *CrlAuditor) WrongIssuingDistributionPoint(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string, err error) {
+	auditor.mutex.Lock()
+	defer auditor.mutex.Unlock()
+
+	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
+		Timestamp:     time.Now().UTC(),
+		Kind:          AuditKindWrongDP,
+		Url:           crlUrl.String(),
+		Path:          crlPath,
+		Issuer:        issuer,
+		IssuerSubject: auditor.getSubject(issuer),
+		Errors:        []string{err.Error()},
+	})
+}
+
 func (auditor *CrlAuditor) FailedProcessLocal(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string, err error) {
 	auditor.mutex.Lock()
 	defer auditor.mutex.Unlock()

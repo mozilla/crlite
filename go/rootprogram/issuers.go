@@ -34,7 +34,8 @@ type issuerCert struct {
 }
 
 type IssuerData struct {
-	certs []issuerCert
+	certs               []issuerCert
+	usesPartitionedCrls bool
 }
 
 type EnrolledIssuer struct {
@@ -233,7 +234,7 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 		if err != nil {
 			return err
 		}
-		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil)
+		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil, false)
 	}
 
 	return nil
@@ -266,6 +267,17 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer types.Issuer) (string, error) 
 	return entry.certs[0].subjectDN, nil
 }
 
+func (mi *MozIssuers) GetUsesPartitionedCrlsForIssuer(aIssuer types.Issuer) (bool, error) {
+	mi.mutex.Lock()
+	defer mi.mutex.Unlock()
+
+	entry, ok := mi.issuerMap[aIssuer.ID()]
+	if !ok {
+		return false, fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
+	}
+	return entry.usesPartitionedCrls, nil
+}
+
 func decodeCertificateFromPem(aPem string) (*x509.Certificate, error) {
 	block, rest := pem.Decode([]byte(aPem))
 
@@ -290,7 +302,8 @@ func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum in
 	return cert, nil
 }
 
-func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]string, error) {
+func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]string, bool, error) {
+	usesPartitionedCrls := false
 	crls := []string{}
 	fullCrlStr := aRow[aColMap["Full CRL Issued By This CA"]]
 	fullCrlStr = strings.TrimSpace(fullCrlStr)
@@ -313,6 +326,14 @@ func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]s
 		if crl == "" {
 			continue
 		}
+
+		// If an issuer has populated its "JSON Array of Partitioned
+		// CRLs" field, then we need to validate the
+		// issuingDistributionPoint extension in each of its CRLs. If
+		// we've gotten here then there is at least one entry in the
+		// JSON Array field.
+		usesPartitionedCrls = true
+
 		crlUrl, err := url.Parse(crl)
 		if err != nil {
 			glog.Warningf("decodeCrlsFromRow: Line %d: Could not parse %q as URL: %v", aLineNum, crl, err)
@@ -323,10 +344,10 @@ func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]s
 		}
 	}
 
-	return crls, nil
+	return crls, usesPartitionedCrls, nil
 }
 
-func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string, crls []string) types.Issuer {
+func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
 	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
@@ -338,7 +359,7 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 	if !exists {
 		crlSet = make(map[string]bool, 0)
 	}
-	for _, crl := range crls {
+	for _, crl := range aCrls {
 		crlSet[crl] = true
 	}
 	mi.CrlMap[issuer.ID()] = crlSet
@@ -352,7 +373,8 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 	}
 
 	mi.issuerMap[issuer.ID()] = IssuerData{
-		certs: []issuerCert{ic},
+		certs:               []issuerCert{ic},
+		usesPartitionedCrls: aUsesPartitionedCrls,
 	}
 
 	return issuer
@@ -400,12 +422,12 @@ func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
 			return err
 		}
 
-		crls, err := decodeCrlsFromRow(columnMap, row, lineNum)
+		crls, usesPartitionedCrls, err := decodeCrlsFromRow(columnMap, row, lineNum)
 		if err != nil {
 			return err
 		}
 
-		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"), crls)
+		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"), crls, usesPartitionedCrls)
 		lineNum += strings.Count(strings.Join(row, ""), "\n")
 	}
 
