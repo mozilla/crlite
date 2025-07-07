@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -188,6 +189,49 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, shasum[:], err
 }
 
+func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl string, aPartitionedCrlUrlSet map[string]bool) (bool, error) {
+	// If a CA uses partitioned CRLs, then the fetch URL must appear as a fullName in the
+	// issuingDistributionPoints extension. Moreover, it must be the only URL from the
+	// collection of partitioned CRL URLs that appears in the issuingDistributionPoints
+	// extension.
+	//
+	crlBytes, err := ioutil.ReadFile(aPath)
+	if err != nil {
+		return false, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
+	}
+
+	block, _ := pem.Decode(crlBytes)
+	if block != nil {
+		crlBytes = block.Bytes
+	}
+
+	// The certificate-transparency-go fork of x509 will parse the IssuingDP extension for us.
+	// We don't use this parser in loadAndCheckSignatureOfCRL because it is more strict than the
+	// standard x509 parser.
+	crl, err := x509.ParseCertificateListDER(crlBytes)
+	if err != nil {
+		return false, fmt.Errorf("Error parsing, will not process revocations: %s", err)
+	}
+
+	urls := []string{}
+	found := false
+	for _, url := range crl.TBSCertList.IssuingDPFullNames.URIs {
+		urls = append(urls, url)
+		_, exists := aPartitionedCrlUrlSet[url]
+		if exists {
+			if aFetchUrl == url {
+				found = true
+			} else {
+				return false, fmt.Errorf("The issuingDistributionPoints extension lists a different known CRL %s", url)
+			}
+		}
+	}
+	if found {
+		return true, nil
+	}
+	return false, fmt.Errorf("Did not find matching URL in %v", urls)
+}
+
 func (ae *AggregateEngine) verifyCRL(aIssuer types.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
 	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
 
@@ -250,6 +294,19 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 		}
 
+		usesPartitionedCrls, err := ae.issuers.GetUsesPartitionedCrlsForIssuer(tuple.Issuer)
+		if err != nil {
+			glog.Warningf("[%s] Assuming that this issuer uses partitioned CRLs.", tuple.Issuer.ID())
+			usesPartitionedCrls = true
+		}
+
+		partitionedCrlUrls := make(map[string]bool, len(tuple.CrlUrlPaths))
+		if usesPartitionedCrls {
+			for _, url := range tuple.CrlUrlPaths {
+				partitionedCrlUrls[url.Url.String()] = true
+			}
+		}
+
 		serialCount := 0
 		serials := make([]types.SerialAndReason, 0, 128*1024)
 
@@ -271,6 +328,20 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					ae.auditor.FailedVerifyPath(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
 					glog.Errorf("[%+v] Failed to verify: %s", crlUrlPath, err)
 					continue
+				}
+
+				if usesPartitionedCrls {
+					// Per TLS BR Section 7.2.2.1 (version 2.1.5) and MRSP
+					// Section 6.1.2 (version 3.0), each of its CRLs must
+					// include an issuingDP extension with a fullName of URI
+					// type that matches, byte-for-byte, a URL in the "JSON
+					// Array of Partitioned CRLs" in CCADB.
+					fetchUrl := crlUrlPath.Url.String()
+					foundMatch, err := loadAndCheckIssuingDistributionPointOfCRL(crlUrlPath.Path, fetchUrl, partitionedCrlUrls)
+					if err != nil || !foundMatch {
+						ae.auditor.WrongIssuingDistributionPoint(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+						glog.Errorf("[%s] CRL shard at %s does not list that URL in its issuing DP extension", tuple.Issuer.ID(), fetchUrl)
+					}
 				}
 
 				revokedSerials, err := processCRL(crl)
@@ -308,12 +379,12 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 	}
 }
 
-func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.IssuerCrlMap) (<-chan types.IssuerCrlUrlPaths, int64) {
+func (ae *AggregateEngine) downloadCRLs(ctx context.Context, mozIssuers *rootprogram.MozIssuers) (<-chan types.IssuerCrlUrlPaths, int64) {
 	var wg sync.WaitGroup
 
 	crlChan := make(chan types.IssuerCrlUrls, 16*1024*1024)
 	var count int64
-	for issuer, crlMap := range issuerToUrls {
+	for issuerStr, crlMap := range mozIssuers.CrlMap {
 		var urls []url.URL
 
 		for iUrl := range crlMap {
@@ -327,7 +398,7 @@ func (ae *AggregateEngine) downloadCRLs(ctx context.Context, issuerToUrls types.
 
 		if len(urls) > 0 {
 			crlChan <- types.IssuerCrlUrls{
-				Issuer: types.NewIssuerFromString(issuer),
+				Issuer: types.NewIssuerFromString(issuerStr),
 				Urls:   urls,
 			}
 			count = count + 1
@@ -465,15 +536,7 @@ func main() {
 		auditor:  auditor,
 	}
 
-	issuerCrlMap := make(types.IssuerCrlMap)
-	for issuer, crls := range mozIssuers.CrlMap {
-		issuerCrlMap[issuer] = make(map[string]bool)
-		for crl, _ := range crls {
-			issuerCrlMap[issuer][crl] = true
-		}
-	}
-
-	crlPaths, count := ae.downloadCRLs(ctx, issuerCrlMap)
+	crlPaths, count := ae.downloadCRLs(ctx, mozIssuers)
 
 	if ctx.Err() != nil {
 		return
