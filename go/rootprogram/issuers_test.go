@@ -300,7 +300,7 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
-	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem, nil)
+	mi.InsertIssuerFromCertAndPem(enrolledCert, enrolledCertPem, nil, false)
 
 	if !mi.IsIssuerInProgram(enrolledIssuer) {
 		t.Error("enrolledIssuer should be in program")

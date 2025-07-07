@@ -39,10 +39,11 @@ type IssuerData struct {
 }
 
 type EnrolledIssuer struct {
-	UniqueID   string `json:"uniqueID"`
-	PubKeyHash string `json:"pubKeyHash"`
-	Subject    string `json:"subject"`
-	Pem        string `json:"pem"`
+	UniqueID            string `json:"uniqueID"`
+	PubKeyHash          string `json:"pubKeyHash"`
+	Subject             string `json:"subject"`
+	Pem                 string `json:"pem"`
+	UsesPartitionedCrls bool   `json:"usesPartitionedCrls"`
 }
 
 type MozIssuers struct {
@@ -188,10 +189,11 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 			pubKeyHash := sha256.Sum256(cert.cert.RawSubjectPublicKeyInfo)
 			uniqueID := sha256.Sum256(append(cert.cert.RawSubject, cert.cert.RawSubjectPublicKeyInfo...))
 			issuers = append(issuers, EnrolledIssuer{
-				UniqueID:   base64.URLEncoding.EncodeToString(uniqueID[:]),
-				PubKeyHash: base64.URLEncoding.EncodeToString(pubKeyHash[:]),
-				Subject:    cert.subjectDN,
-				Pem:        normalizePem(cert.pemInfo),
+				UniqueID:            base64.URLEncoding.EncodeToString(uniqueID[:]),
+				PubKeyHash:          base64.URLEncoding.EncodeToString(pubKeyHash[:]),
+				Subject:             cert.subjectDN,
+				Pem:                 normalizePem(cert.pemInfo),
+				UsesPartitionedCrls: val.usesPartitionedCrls,
 			})
 			certCount++
 		}
@@ -234,7 +236,7 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 		if err != nil {
 			return err
 		}
-		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil, false)
+		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil, ei.UsesPartitionedCrls)
 	}
 
 	return nil
