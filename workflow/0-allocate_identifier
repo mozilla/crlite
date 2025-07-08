@@ -6,7 +6,7 @@ import __init__ as workflow
 
 from pathlib import Path
 
-from datetime import datetime
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs", type=Path)
