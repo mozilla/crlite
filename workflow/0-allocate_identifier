@@ -6,7 +6,7 @@ import __init__ as workflow
 
 from pathlib import Path
 
-import datetime
+from datetime import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", help="Path to folder on disk to store certs", type=Path)
@@ -20,8 +20,7 @@ if not args.path:
     parser.print_usage()
     sys.exit(0)
 
-now = datetime.datetime.now(datetime.UTC)
-dateprefix = now.strftime("%Y%m%d")
+dateprefix = datetime.utcnow().date().strftime("%Y%m%d")
 next_idx = 0
 
 all_identifiers = workflow.get_run_identifiers(args.filter_bucket)
@@ -37,6 +36,8 @@ allocatedPath = args.path / Path(allocatedName)
 allocatedPath.mkdir()
 
 timestamp_file = allocatedPath / Path("timestamp")
-timestamp_file.write_text(now.isoformat(timespec="seconds"), encoding="utf-8")
+timestamp_file.write_text(
+    datetime.utcnow().isoformat(timespec="seconds"), encoding="utf-8"
+)
 
 print(allocatedPath)
