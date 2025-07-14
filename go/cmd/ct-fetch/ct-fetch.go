@@ -96,7 +96,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 			return nil
 		}
 
-		worker, err := ld.NewLogWorker(ctx, &logMeta)
+		worker, err := NewLogWorker(ctx, ld.database, &logMeta)
 		if err != nil {
 			metrics.IncrCounter([]string{"sync", "error"}, 1)
 			return err
@@ -259,7 +259,7 @@ func (ld *LogSyncEngine) insertCTWorker() {
 	}
 }
 
-func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLogMetadata) (*LogWorker, error) {
+func NewLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
 	logUrlObj, err := url.Parse(ctLogMeta.URL)
@@ -268,7 +268,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 		return nil, err
 	}
 
-	logObj, err := ld.database.GetLogState(logUrlObj)
+	logObj, err := db.GetLogState(logUrlObj)
 	if err != nil {
 		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogMeta.URL, err)
 		return nil, err
@@ -341,7 +341,7 @@ func (ld *LogSyncEngine) NewLogWorker(ctx context.Context, ctLogMeta *types.CTLo
 	}
 
 	return &LogWorker{
-		Database:  ld.database,
+		Database:  db,
 		Client:    ctLog,
 		LogState:  logObj,
 		LogMeta:   ctLogMeta,
