@@ -276,8 +276,7 @@ func (db *CertDatabase) GetLogState(aUrl *url.URL) (*types.CTLogState, error) {
 	}, nil
 }
 
-func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate,
-	aLogURL string, aEntryId int64) error {
+func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate) error {
 	expDate := types.NewExpDateFromTime(aCert.NotAfter)
 	issuer := types.NewIssuer(aIssuer)
 	serialWriter := db.GetSerialCacheAccessor(expDate, issuer)

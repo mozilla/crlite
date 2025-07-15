@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/bits"
 	"math/rand"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -14,14 +15,12 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
-	//"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/hashicorp/go-metrics"
 	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"
-	//"github.com/mozilla/crlite/go/config"
-	//"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/storage"
 )
 
@@ -245,7 +244,7 @@ func NewLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *types
 	}
 
 	ctLog, err := client.New(ctLogMeta.URL, &httpClient, jsonclient.Options{
-		UserAgent: "ct-fetch; https://github.com/mozilla/crlite",
+		UserAgent: userAgent,
 	})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogMeta.URL, err)
@@ -531,6 +530,79 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 	return nil
 }
 
+func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, entryChan chan<- CtLogEntry) error {
+	var cert *x509.Certificate
+	var err error
+	precert := false
+
+	switch logEntry.Leaf.TimestampedEntry.EntryType {
+	case ct.X509LogEntryType:
+		cert = logEntry.X509Cert
+	case ct.PrecertLogEntryType:
+		cert, err = x509.ParseCertificate(logEntry.Precert.Submitted.Data)
+		precert = true
+	}
+
+	if cert == nil {
+		return fmt.Errorf("[%s] Fatal parsing error: index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+	}
+	if err != nil {
+		glog.Warningf("[%s] Nonfatal parsing error: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+	}
+
+	// Skip expired certificates unless configured otherwise
+	if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+		return nil
+	}
+
+	if len(logEntry.Chain) < 1 {
+		glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+			lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+		return nil
+	}
+
+	preIssuerOrIssuingCert, err := x509.ParseCertificate(logEntry.Chain[0].Data)
+	if err != nil {
+		return fmt.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+	}
+
+	// RFC 6962 allows a precertificate to be signed by "a
+	// special-purpose [...] Precertificate Signing Certificate
+	// [that is] certified by the (root or intermediate) CA
+	// certificate that will ultimately sign the end-entity". In
+	// this case, the certificate that will issue the final cert is
+	// the second entry in the chain (logEntry.Chain[1]).
+	var issuingCert *x509.Certificate
+	if types.IsPreIssuer(preIssuerOrIssuingCert) {
+		if !precert {
+			glog.Warningf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", lw.LogMeta.URL, logEntry.Index)
+		}
+
+		if len(logEntry.Chain) < 2 {
+			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+				lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+		}
+
+		issuingCert, err = x509.ParseCertificate(logEntry.Chain[1].Data)
+		if err != nil {
+			return fmt.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+		}
+	} else {
+		issuingCert = preIssuerOrIssuingCert
+	}
+
+	// We might block while waiting for space in entryChan.
+	// If we catch a signal here the verification will fail and the subtree
+	// will not get merged.
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("[%s] Cancelled", lw.Name())
+	case entryChan <- CtLogEntry{cert, issuingCert, logEntry.Index, lw.LogMeta}:
+	}
+
+	return nil
+}
+
 func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
 	var minTimestamp uint64
 	var maxTimestamp uint64
@@ -576,14 +648,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 				continue
 			}
 
-			// We might block while waiting for space in entryChan.
-			// If we catch a signal here the verification will fail and the subtree
-			// will not get merged.
-			select {
-			case <-ctx.Done():
-				glog.Infof("[%s] Cancelled", lw.Name())
-				return minTimestamp, maxTimestamp, nil
-			case entryChan <- CtLogEntry{logEntry, lw.LogMeta}:
+			err = lw.storeLogEntry(ctx, logEntry, entryChan)
+			if err != nil {
+				return minTimestamp, maxTimestamp, err
 			}
 
 			// Update the metadata that we will pass to mergeSubtree.
