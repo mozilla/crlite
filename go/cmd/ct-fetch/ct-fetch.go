@@ -91,22 +91,44 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 		return err
 	}
 
+	// Tiled logs store chains as lists of certificate fingerprints. The
+	// certificates themselves need to be fetched from https://<monitoring
+	// prefix>/issuer/<fingerprint>. The cache mapping fingerprints to
+	// certificates is stored here in SyncLog so that it can persist across
+	// many TiledLogWorker jobs.
+	issuerMap := map[string]*x509.Certificate{}
+
 	for {
 		if !enrolledLogs.IsEnrolled(logMeta.LogID) {
 			return nil
 		}
 
-		worker, err := NewLogWorker(ctx, ld.database, &logMeta)
-		if err != nil {
-			metrics.IncrCounter([]string{"sync", "error"}, 1)
-			return err
-		}
+		if logMeta.Tiled {
+			worker, err := NewTiledLogWorker(ctx, ld.database, &logMeta, &issuerMap)
+			if err != nil {
+				metrics.IncrCounter([]string{"sync", "error"}, 1)
+				return err
+			}
 
-		err = worker.Run(ctx, ld.entryChan)
-		if err != nil {
-			glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
-			metrics.IncrCounter([]string{"sync", "error"}, 1)
-			return err
+			err = worker.Run(ctx, ld.entryChan)
+			if err != nil {
+				glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
+				metrics.IncrCounter([]string{"sync", "error"}, 1)
+				return err
+			}
+		} else {
+			worker, err := NewLogWorker(ctx, ld.database, &logMeta)
+			if err != nil {
+				metrics.IncrCounter([]string{"sync", "error"}, 1)
+				return err
+			}
+
+			err = worker.Run(ctx, ld.entryChan)
+			if err != nil {
+				glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
+				metrics.IncrCounter([]string{"sync", "error"}, 1)
+				return err
+			}
 		}
 
 		// We did useful work. Register an update for the health service.
@@ -182,10 +204,11 @@ func (ld *LogSyncEngine) insertCTWorker() {
 type LogWorkerTask int
 
 const (
-	Init     LogWorkerTask = iota // Initialize db with one batch of recent certs
-	Backfill                      // Download old certs
-	Update                        // Download new certs
-	Sleep                         // Wait for an STH update
+	Init        LogWorkerTask = iota // Initialize db with one batch of recent certs
+	Backfill                         // Download old certs
+	Update                           // Download new certs
+	ForceUpdate                      // Download new certs even if doing so will fetch a partial tile
+	Sleep                            // Wait for an STH update
 )
 
 type EnrolledLogs struct {
