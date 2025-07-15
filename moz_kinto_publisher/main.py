@@ -1088,6 +1088,7 @@ def publish_ctlogs(*, args, rw_client):
     #       "logID": string,
     #       "mmd": integer,
     #       "operator": string
+    #       "tiled": boolean
     #       "url": string
     #   }
     #
@@ -1110,6 +1111,16 @@ def publish_ctlogs(*, args, rw_client):
             ctlog["admissible"] = any(
                 state in ctlog["state"] for state in admissible_states
             )
+            ctlog["tiled"] = False
+            upstream_logs_raw.append(ctlog)
+
+        for ctlog in operator["tiled_logs"]:
+            ctlog["operator"] = operator["name"]
+            ctlog["admissible"] = any(
+                state in ctlog["state"] for state in admissible_states
+            )
+            ctlog["tiled"] = True
+            ctlog["url"] = ctlog["monitoring_url"]
             upstream_logs_raw.append(ctlog)
 
     # Translate |upstream_logs_raw| to our schema (and remove unused fields)
@@ -1122,6 +1133,7 @@ def publish_ctlogs(*, args, rw_client):
             "logID": ctlog["log_id"],
             "mmd": ctlog["mmd"],
             "operator": ctlog["operator"],
+            "tiled": ctlog["tiled"],
             "url": ctlog["url"],
         }
         for ctlog in upstream_logs_raw
@@ -1195,7 +1207,6 @@ def publish_ctlogs(*, args, rw_client):
             log.error(f"Deletion failed, {ke}")
 
     # Update logs if upstream metadata has changed.
-    # (These will be unenrolled and manually reviewed.)
     for known_id, known_log in known_lut.items():
         if known_id not in upstream_lut:  # skip deletions
             continue
@@ -1207,7 +1218,15 @@ def publish_ctlogs(*, args, rw_client):
         upstream_log["crlite_enrolled"] = known_log["crlite_enrolled"]
 
         need_update = False
-        for i in ["description", "key", "url", "mmd", "admissible", "operator"]:
+        for i in [
+            "description",
+            "key",
+            "url",
+            "mmd",
+            "admissible",
+            "operator",
+            "tiled",
+        ]:
             if upstream_log[i] != known_log.get(i, None):
                 need_update = True
 
