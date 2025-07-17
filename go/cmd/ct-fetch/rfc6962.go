@@ -556,14 +556,17 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 	}
 
 	if len(logEntry.Chain) < 1 {
-		glog.Warningf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+		glog.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
 			lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 		return nil
 	}
 
 	preIssuerOrIssuingCert, err := x509.ParseCertificate(logEntry.Chain[0].Data)
+	if preIssuerOrIssuingCert == nil {
+		return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+	}
 	if err != nil {
-		return fmt.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+		glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
 	}
 
 	// RFC 6962 allows a precertificate to be signed by "a
@@ -579,13 +582,17 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 		}
 
 		if len(logEntry.Chain) < 2 {
-			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
+			glog.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
 				lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+			return nil
 		}
 
 		issuingCert, err = x509.ParseCertificate(logEntry.Chain[1].Data)
+		if issuingCert == nil {
+			return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+		}
 		if err != nil {
-			return fmt.Errorf("[%s] Problem decoding issuing certificate: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+			glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
 		}
 	} else {
 		issuingCert = preIssuerOrIssuingCert
