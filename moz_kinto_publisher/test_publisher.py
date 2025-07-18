@@ -92,10 +92,13 @@ class MockClient:
 
     def create_record(self, *args, **kwargs):
         record = kwargs["data"]
-        record["id"] = hashlib.sha256(
-            record["channel"].encode("utf-8")
-            + record["details"]["name"].encode("utf-8")
-        ).hexdigest()
+        if kwargs["collection"] == "cert-revocations":
+            record["id"] = hashlib.sha256(
+                record["channel"].encode("utf-8")
+                + record["details"]["name"].encode("utf-8")
+            ).hexdigest()
+        elif kwargs["collection"] == "ct-logs":
+            record["id"] = record["logID"]
         self.existing_records += [record]
         return {"data": record}
 
@@ -129,6 +132,13 @@ class MockClient:
         )
 
 
+class Args:
+    def __init__(self):
+        self.noop = False
+        self.download_path = Path()
+        self.filter_bucket = workflow.kTestBucket + ":" + str(Path())
+
+
 class TestLoadIntermediates(unittest.TestCase):
     def test_load_local(self):
         intermediates_path = Path(__file__).parent / Path("example_enrolled.json")
@@ -147,11 +157,10 @@ class TestLoadIntermediates(unittest.TestCase):
         self.assertEqual(len(errors), 0)
 
 
-class Args:
-    def __init__(self):
-        self.noop = False
-        self.download_path = Path()
-        self.filter_bucket = workflow.kTestBucket + ":" + str(Path())
+class TestUpdateCtLogs(unittest.TestCase):
+    def test_load_remote(self):
+        rw_client = MockClient()
+        main.publish_ctlogs(args=Args(), rw_client=rw_client)
 
 
 class TestPublishDecisions(unittest.TestCase):
