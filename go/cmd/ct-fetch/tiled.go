@@ -259,13 +259,11 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 	}
 
 	if len(logEntry.ChainFingerprints) < 1 {
-		glog.Errorf("[%s] No chain for certificate index=%d serial=%s subject=%+v issuer=%+v",
-			lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 		// Hard to imagine how this would happen, as even a self-signed
-		// cert has a non-empty chain. But there's no reason to halt
-		// log ingestion here since CRLite is only used for
-		// certificates with known issuers.
-		return true, nil
+		// cert has a non-empty chain. But if it does happen we shouldn't
+		// be relying on this CT log.
+		return false, fmt.Errorf("[%s] No chain for certificate index=%d serial=%s subject=%+v issuer=%+v",
+			lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 	}
 
 	preIssuerOrIssuingCert, err := lw.GetCertificate(ctx, hex.EncodeToString(logEntry.ChainFingerprints[0][:]))
@@ -283,11 +281,9 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 		}
 
 		if len(logEntry.ChainFingerprints) < 2 {
-			glog.Errorf("[%s] No issuer known for certificate index=%d serial=%s subject=%+v issuer=%+v",
+			// As above, this shouldn't happen.
+			return false, fmt.Errorf("[%s] No issuer known for certificate index=%d serial=%s subject=%+v issuer=%+v",
 				lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
-			// As above, it's safe for us to ignore certificates
-			// without known issuers.
-			return true, nil
 		}
 
 		issuingCert, err = lw.GetCertificate(ctx, hex.EncodeToString(logEntry.ChainFingerprints[1][:]))
