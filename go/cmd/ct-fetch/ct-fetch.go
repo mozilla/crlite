@@ -47,11 +47,21 @@ var (
 	userAgent = "ct-fetch; +https://github.com/mozilla/crlite"
 )
 
-type CtLogEntry struct {
+// The database stores issuer-serial pairs and CT log coverage metadata. A
+// LogSyncMessage encodes either an issuer-serial pair, or a change in
+// coverage, or both.
+//
+// A LogSyncMessage with a non-nil LogState field is essentially a save-point
+// for the LogSync process. If the process is terminated before the LogState is
+// updated, it will resume from whatever LogState was last written to the
+// database.
+//
+// For efficiency, LogWorkers should submit many LogSyncMessages with nil
+// LogState fields before submitting one with a non-nil LogState field.
+type LogSyncMessage struct {
 	Certificate *x509.Certificate
 	Issuer      *x509.Certificate
-	Index       int64
-	LogMeta     *types.CTLogMetadata
+	LogState    *types.CTLogState
 }
 
 // Coordinates all workers
@@ -59,7 +69,7 @@ type LogSyncEngine struct {
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
 	database            storage.CertDatabase
-	entryChan           chan CtLogEntry
+	entryChan           chan LogSyncMessage
 	lastUpdateTime      time.Time
 	lastUpdateMutex     *sync.RWMutex
 }
@@ -69,17 +79,14 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan CtLogEntry, 1024*16),
+		entryChan:           make(chan LogSyncMessage, 1024*16),
 		lastUpdateTime:      time.Time{},
 		lastUpdateMutex:     &sync.RWMutex{},
 	}
 }
 
-func (ld *LogSyncEngine) StartDatabaseThreads() {
-	glog.Infof("Starting %d threads...", *ctconfig.NumThreads)
-	for t := 0; t < *ctconfig.NumThreads; t++ {
-		go ld.insertCTWorker()
-	}
+func (ld *LogSyncEngine) StartDatabaseThread(ctx context.Context) {
+	go ld.insertCTWorker(ctx)
 }
 
 // Blocking function, run from a thread
@@ -103,8 +110,20 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 			return nil
 		}
 
+		logUrlObj, err := url.Parse(logMeta.URL)
+		if err != nil {
+			glog.Errorf("[%s] Unable to parse CT Log URL: %s", logMeta.URL, err)
+			return err
+		}
+
+		logObj, err := ld.database.GetLogState(logUrlObj)
+		if err != nil {
+			glog.Errorf("[%s] Unable to get cached CT Log state: %s", logMeta.URL, err)
+			return err
+		}
+
 		if logMeta.Tiled {
-			worker, err := NewTiledLogWorker(ctx, ld.database, &logMeta, &issuerMap)
+			worker, err := NewTiledLogWorker(ctx, logObj, &logMeta, &issuerMap)
 			if err != nil {
 				metrics.IncrCounter([]string{"sync", "error"}, 1)
 				return err
@@ -117,7 +136,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 				return err
 			}
 		} else {
-			worker, err := NewLogWorker(ctx, ld.database, &logMeta)
+			worker, err := NewLogWorker(ctx, logObj, &logMeta)
 			if err != nil {
 				metrics.IncrCounter([]string{"sync", "error"}, 1)
 				return err
@@ -175,15 +194,36 @@ func (ld *LogSyncEngine) Wait() {
 	ld.ThreadWaitGroup.Wait()
 }
 
-func (ld *LogSyncEngine) insertCTWorker() {
+func (ld *LogSyncEngine) tryUpdate(ep *LogSyncMessage) bool {
+	entry := *ep
+
+	if entry.Certificate != nil && entry.Issuer != nil {
+		err := ld.database.Store(entry.Certificate, entry.Issuer)
+		if err != nil {
+			glog.Errorf("Problem inserting certificate (serial=%s): %s", types.NewSerial(entry.Certificate).String(), err)
+			return false
+		}
+	}
+
+	if entry.LogState != nil {
+		err := ld.database.SaveLogState(entry.LogState)
+		if err != nil {
+			glog.Errorf("Problem saving log state (%s): %s", entry.LogState, err)
+			return false
+		}
+		glog.Infof("[%s] Saved log state: %s", entry.LogState.ShortURL, entry.LogState)
+	}
+
+	return true
+}
+
+func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
 
-	healthStatusPeriod, _ := time.ParseDuration("15s")
-	healthStatusJitter := rand.Int63n(15 * 1000)
-	healthStatusDuration := healthStatusPeriod + time.Duration(healthStatusJitter)*time.Millisecond
-	glog.Infof("Thread health status period: %v + %v = %v", healthStatusPeriod, healthStatusJitter, healthStatusDuration)
-	healthStatusTicker := time.NewTicker(healthStatusDuration)
+	healthStatusPeriod := time.Duration(15000+rand.Int63n(15000)) * time.Millisecond
+	glog.Infof("Thread health status period: %v", healthStatusPeriod)
+	healthStatusTicker := time.NewTicker(healthStatusPeriod)
 	defer healthStatusTicker.Stop()
 
 	for ep := range ld.entryChan {
@@ -194,9 +234,24 @@ func (ld *LogSyncEngine) insertCTWorker() {
 		default:
 		}
 
-		err := ld.database.Store(ep.Certificate, ep.Issuer)
-		if err != nil {
-			glog.Errorf("[%s] Problem inserting certificate: index: %d error: %s", ep.LogMeta.URL, ep.Index, err)
+		for {
+			if ld.tryUpdate(&ep) {
+				break
+			}
+
+			// The database may be unreachable or out of memory.
+			// Both of these are recoverable (memory will become
+			// available when the cache is committed to disk by
+			// aggregate-known and/or as entries expire). We'll
+			// wait until the next health status clock tick and try
+			// again. Meanwhile entryChan will likely reach
+			// capacity and log workers trying to write to it will
+			// block.
+			select {
+			case <-ctx.Done():
+				return
+			case <-healthStatusTicker.C:
+			}
 		}
 	}
 }
@@ -392,8 +447,8 @@ func main() {
 
 	syncEngine := NewLogSyncEngine(storageDB)
 
-	// Start a pool of threads to parse and store log entries
-	syncEngine.StartDatabaseThreads()
+	// Start a thread to store LogSyncMessages
+	syncEngine.StartDatabaseThread(ctx)
 
 	// Sync with logs as they are enrolled
 	go func() {

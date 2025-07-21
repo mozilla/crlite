@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/bits"
 	"math/rand"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +20,6 @@ import (
 	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 func uint64Min(x, y uint64) uint64 {
@@ -206,7 +204,6 @@ func consistencyProofToSubtrees(proof [][]byte, oldSize, newSize uint64) ([]CtLo
 
 // Operates on a single log
 type LogWorker struct {
-	Database  storage.CertDatabase
 	Client    *client.LogClient
 	LogMeta   *types.CTLogMetadata
 	STH       *ct.SignedTreeHead
@@ -216,20 +213,8 @@ type LogWorker struct {
 	MetricKey string
 }
 
-func NewLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *types.CTLogMetadata) (*LogWorker, error) {
+func NewLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *types.CTLogMetadata) (*LogWorker, error) {
 	batchSize := *ctconfig.BatchSize
-
-	logUrlObj, err := url.Parse(ctLogMeta.URL)
-	if err != nil {
-		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogMeta.URL, err)
-		return nil, err
-	}
-
-	logObj, err := db.GetLogState(logUrlObj)
-	if err != nil {
-		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogMeta.URL, err)
-		return nil, err
-	}
 
 	if logObj.LogID != ctLogMeta.LogID {
 		// The LogID shouldn't change, but we'll treat the input as
@@ -298,7 +283,6 @@ func NewLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *types
 	}
 
 	return &LogWorker{
-		Database:  db,
 		Client:    ctLog,
 		LogState:  logObj,
 		LogMeta:   ctLogMeta,
@@ -325,7 +309,7 @@ func (lw *LogWorker) sleep(ctx context.Context) {
 	}
 }
 
-func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error {
+func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessage) error {
 	var firstIndex, lastIndex uint64
 
 	switch lw.WorkOrder {
@@ -462,7 +446,7 @@ Loop:
 				lw.Name(), verifier.Subtree.First, verifier.Subtree.Last, err)
 			return err
 		}
-		err = lw.saveState(&verifier.Subtree, minTimestamp, maxTimestamp)
+		err = lw.updateState(ctx, &verifier.Subtree, minTimestamp, maxTimestamp, entryChan)
 		if err != nil {
 			glog.Errorf("[%s] Failed to update log state: %s", lw.Name(), err)
 			return err
@@ -479,7 +463,7 @@ Loop:
 	return nil
 }
 
-func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimestamp uint64) error {
+func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, minTimestamp uint64, maxTimestamp uint64, entryChan chan<- LogSyncMessage) error {
 	// TODO(jms) Block until entry channel is empty and database writes are complete
 	// Depends on: using a separate entry channel per log
 
@@ -521,16 +505,17 @@ func (lw *LogWorker) saveState(newSubtree *CtLogSubtree, minTimestamp, maxTimest
 	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
-	saveErr := lw.Database.SaveLogState(lw.LogState)
-	if saveErr != nil {
-		return fmt.Errorf("Database error: %s", saveErr)
+	stateCopy := *lw.LogState
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("[%s] Cancelled", lw.Name())
+	case entryChan <- LogSyncMessage{nil, nil, &stateCopy}:
 	}
 
-	glog.Infof("[%s] Saved log state: %s", lw.Name(), lw.LogState)
 	return nil
 }
 
-func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, entryChan chan<- CtLogEntry) error {
+func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, entryChan chan<- LogSyncMessage) error {
 	var cert *x509.Certificate
 	var err error
 	precert := false
@@ -606,13 +591,13 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- CtLogEntry{cert, issuingCert, logEntry.Index, lw.LogMeta}:
+	case entryChan <- LogSyncMessage{cert, issuingCert, nil}:
 	}
 
 	return nil
 }
 
-func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- CtLogEntry) (uint64, uint64, error) {
+func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- LogSyncMessage) (uint64, uint64, error) {
 	var minTimestamp uint64
 	var maxTimestamp uint64
 

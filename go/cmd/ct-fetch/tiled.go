@@ -22,11 +22,9 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 
 	"github.com/mozilla/crlite/go"
-	"github.com/mozilla/crlite/go/storage"
 )
 
 type TiledLogWorker struct {
-	Database   storage.CertDatabase
 	Client     *sunlight.Client
 	LogMeta    *types.CTLogMetadata
 	Checkpoint torchwood.Checkpoint
@@ -37,20 +35,8 @@ type TiledLogWorker struct {
 	MetricKey  string
 }
 
-func NewTiledLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *types.CTLogMetadata, issuerMap *map[string]*x509.Certificate) (*TiledLogWorker, error) {
+func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *types.CTLogMetadata, issuerMap *map[string]*x509.Certificate) (*TiledLogWorker, error) {
 	batchSize := *ctconfig.BatchSize
-
-	logUrlObj, err := url.Parse(ctLogMeta.URL)
-	if err != nil {
-		glog.Errorf("[%s] Unable to parse CT Log URL: %s", ctLogMeta.URL, err)
-		return nil, err
-	}
-
-	logObj, err := db.GetLogState(logUrlObj)
-	if err != nil {
-		glog.Errorf("[%s] Unable to get cached CT Log state: %s", ctLogMeta.URL, err)
-		return nil, err
-	}
 
 	if logObj.LogID != ctLogMeta.LogID {
 		// The LogID shouldn't change, but we'll treat the input as
@@ -106,7 +92,6 @@ func NewTiledLogWorker(ctx context.Context, db storage.CertDatabase, ctLogMeta *
 	}
 
 	return &TiledLogWorker{
-		Database:   db,
 		Client:     client,
 		LogState:   logObj,
 		LogMeta:    ctLogMeta,
@@ -238,7 +223,7 @@ func (lw *TiledLogWorker) sleep(ctx context.Context) {
 //   - (true, nil) indicates that logEntry was processed successfully,
 //   - (false, nil) indicates that there was a network error and that the TiledLogWorker should go to sleep,
 //   - (false, err) indicates a fatal error that should halt log ingestion.
-func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.LogEntry, entryChan chan<- CtLogEntry) (bool, error) {
+func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.LogEntry, entryChan chan<- LogSyncMessage) (bool, error) {
 	var cert *x509.Certificate
 	var err error
 	if logEntry.IsPrecert {
@@ -301,13 +286,13 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 	case <-ctx.Done():
 		// The LogSyncEngine is shutting down, so it's OK to return an error here.
 		return false, fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- CtLogEntry{cert, issuingCert, logEntry.LeafIndex, lw.LogMeta}:
+	case entryChan <- LogSyncMessage{cert, issuingCert, nil}:
 	}
 
 	return true, nil
 }
 
-func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) error {
+func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessage) error {
 	// NOTE: If we return a non-nil error from this function we will stop
 	// ingesting the log.
 
@@ -343,7 +328,7 @@ func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) 
 			maxTimestamp = uint64Max(maxTimestamp, uint64(entry.Timestamp))
 
 			if maxEntry%lw.BatchSize == 0 {
-				err := lw.saveState(maxEntry, minTimestamp, maxTimestamp)
+				err := lw.updateState(ctx, maxEntry, minTimestamp, maxTimestamp, entryChan)
 				if err != nil {
 					glog.Errorf("[%s] : Error saving log state %s", err)
 					return false, err
@@ -351,7 +336,7 @@ func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) 
 			}
 		}
 
-		err := lw.saveState(maxEntry, minTimestamp, maxTimestamp)
+		err := lw.updateState(ctx, maxEntry, minTimestamp, maxTimestamp, entryChan)
 		if err != nil {
 			glog.Errorf("[%s] : Error saving log state %s", lw.Name(), err)
 			return false, err
@@ -391,18 +376,19 @@ func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- CtLogEntry) 
 	return nil
 }
 
-func (lw *TiledLogWorker) saveState(maxEntry, minTimestamp, maxTimestamp uint64) error {
+func (lw *TiledLogWorker) updateState(ctx context.Context, maxEntry uint64, minTimestamp uint64, maxTimestamp uint64, entryChan chan<- LogSyncMessage) error {
 	lw.LogState.MinEntry = 0
 	lw.LogState.MaxEntry = uint64Max(lw.LogState.MaxEntry, maxEntry)
 	lw.LogState.MinTimestamp = uint64Min(lw.LogState.MinTimestamp, minTimestamp)
 	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
-	saveErr := lw.Database.SaveLogState(lw.LogState)
-	if saveErr != nil {
-		return fmt.Errorf("Database error: %s", saveErr)
+	stateCopy := *lw.LogState
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("[%s] Cancelled", lw.Name())
+	case entryChan <- LogSyncMessage{nil, nil, &stateCopy}:
 	}
 
-	glog.Infof("[%s] Saved log state: %s", lw.Name(), lw.LogState)
 	return nil
 }
