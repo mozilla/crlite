@@ -464,9 +464,6 @@ Loop:
 }
 
 func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, minTimestamp uint64, maxTimestamp uint64, entryChan chan<- LogSyncMessage) error {
-	// TODO(jms) Block until entry channel is empty and database writes are complete
-	// Depends on: using a separate entry channel per log
-
 	// Ensure that the entries in newSubtree are contiguous with the DB.
 	switch lw.WorkOrder {
 	case Init:
@@ -498,7 +495,7 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 		return fmt.Errorf("Unknown work order")
 	}
 
-	// TODO(jms): We could do some sanity checks here. E.g. if the work order is
+	// TODO(jms): We could do some consistency checks here. E.g. if the work order is
 	// Update and LogState.MaxTimestamp is >= 1 MMD ahead of LogState.MinTimestamp
 	// then LogState.MinTimestamp should not change.
 	lw.LogState.MinTimestamp = uint64Min(lw.LogState.MinTimestamp, minTimestamp)
@@ -610,7 +607,6 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 	index := verifier.Subtree.First
 	last := verifier.Subtree.Last
 	for index <= last {
-		// TODO(jms) Add an option to get entries from disk.
 		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP Status") &&
