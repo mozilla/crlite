@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
@@ -33,6 +34,15 @@ type CTLogMetadata struct {
 	LogID          string `json:"logID"`
 	MMD            int    `json:"mmd"`
 	URL            string `json:"url"`
+	Tiled          bool   `json:"tiled"`
+}
+
+func (o *CTLogMetadata) PublicKey() (crypto.PublicKey, error) {
+	der, err := base64.StdEncoding.DecodeString(o.Key)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParsePKIXPublicKey(der)
 }
 
 func (o *CTLogMetadata) MetricKey() string {

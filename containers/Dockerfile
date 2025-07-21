@@ -1,14 +1,14 @@
-FROM golang:1.18.1-bullseye as go-builder
+FROM golang:1.24.5-bookworm AS go-builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
 RUN mkdir bin gopath
-ENV GOPATH /build/gopath
+ENV GOPATH=/build/gopath
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
 RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 
-FROM rust:latest as rust-builder
+FROM rust:latest AS rust-builder
 RUN mkdir /build
 
 ADD rust-create-cascade /build/rust-create-cascade/
@@ -30,13 +30,13 @@ RUN apt update \
 
 RUN adduser --system --uid 10001 --group --home /app app
 
-ENV crlite_log /var/log
-ENV crlite_processing /processing
-ENV crlite_persistent /persistent
-ENV crlite_workflow /app/workflow
-ENV crlite_bin /app
+ENV crlite_log=/var/log
+ENV crlite_processing=/processing
+ENV crlite_persistent=/persistent
+ENV crlite_workflow=/app/workflow
+ENV crlite_bin=/app
 
-ENV certPath /persistent/certdb/
+ENV certPath=/persistent/certdb/
 
 RUN mkdir /processing && chown app /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
@@ -52,7 +52,7 @@ COPY setup.py version.json /app/
 
 RUN pip3 install /app/
 
-ENV TINI_VERSION v0.19.0
+ENV TINI_VERSION=v0.19.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
 ENTRYPOINT ["/tini", "-g", "--"]
@@ -61,11 +61,11 @@ USER app
 WORKDIR /app
 
 # For crlite-fetch
-ENV runForever true
-ENV logExpiredEntries false
+ENV runForever=true
+ENV logExpiredEntries=false
 
 EXPOSE 8080/tcp
 
 # For crlite-generate
-ENV numThreads 16
-ENV cacheSize 64
+ENV numThreads=16
+ENV cacheSize=64

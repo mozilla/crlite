@@ -75,7 +75,7 @@ func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 	ir := rc.client.SAdd(key, entry)
 	added, err := ir.Result()
 	if err != nil && strings.HasPrefix(err.Error(), "OOM") {
-		glog.Fatalf("Out of memory on Redis insert of entry %s into key %s, error %v", entry, key, err.Error())
+		return false, fmt.Errorf("Out of memory on Redis insert of entry %s into key %s, error %v", entry, key, err.Error())
 	}
 	return added == 1, err
 }
