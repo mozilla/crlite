@@ -69,7 +69,6 @@ type LogSyncEngine struct {
 	ThreadWaitGroup     *sync.WaitGroup
 	DownloaderWaitGroup *sync.WaitGroup
 	database            storage.CertDatabase
-	entryChan           chan LogSyncMessage
 	lastUpdateTime      time.Time
 	lastUpdateMutex     *sync.RWMutex
 }
@@ -79,14 +78,9 @@ func NewLogSyncEngine(db storage.CertDatabase) *LogSyncEngine {
 		ThreadWaitGroup:     new(sync.WaitGroup),
 		DownloaderWaitGroup: new(sync.WaitGroup),
 		database:            db,
-		entryChan:           make(chan LogSyncMessage, 1024*16),
 		lastUpdateTime:      time.Time{},
 		lastUpdateMutex:     &sync.RWMutex{},
 	}
-}
-
-func (ld *LogSyncEngine) StartDatabaseThread(ctx context.Context) {
-	go ld.insertCTWorker(ctx)
 }
 
 // Blocking function, run from a thread
@@ -97,6 +91,16 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 	if err := ld.database.Migrate(&logMeta); err != nil {
 		return err
 	}
+
+	entryChan := make(chan LogSyncMessage, 1024*16)
+
+	defer func() {
+		// Once entryChan is closed, the insertCTWorker will process
+		// the entries in the channel and then terminate.
+		close(entryChan)
+		glog.Infof("[%s] Waiting on database writes to complete: %d remaining", logMeta.URL, len(entryChan))
+	}()
+	go ld.insertCTWorker(ctx, entryChan)
 
 	// Tiled logs store chains as lists of certificate fingerprints. The
 	// certificates themselves need to be fetched from https://<monitoring
@@ -129,7 +133,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 				return err
 			}
 
-			err = worker.Run(ctx, ld.entryChan)
+			err = worker.Run(ctx, entryChan)
 			if err != nil {
 				glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
 				metrics.IncrCounter([]string{"sync", "error"}, 1)
@@ -142,7 +146,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 				return err
 			}
 
-			err = worker.Run(ctx, ld.entryChan)
+			err = worker.Run(ctx, entryChan)
 			if err != nil {
 				glog.Errorf("[%s] Could not sync log: %s", logMeta.URL, err)
 				metrics.IncrCounter([]string{"sync", "error"}, 1)
@@ -186,11 +190,6 @@ func (ld *LogSyncEngine) Wait() {
 	// cancel function has been called.
 	ld.DownloaderWaitGroup.Wait()
 
-	// No more log entries will be downloaded.
-	close(ld.entryChan)
-
-	// Finish handling |ld.entryChan|
-	glog.Infof("Waiting on database writes to complete: %d remaining", len(ld.entryChan))
 	ld.ThreadWaitGroup.Wait()
 }
 
@@ -217,7 +216,7 @@ func (ld *LogSyncEngine) tryUpdate(ep *LogSyncMessage) bool {
 	return true
 }
 
-func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
+func (ld *LogSyncEngine) insertCTWorker(ctx context.Context, entryChan <-chan LogSyncMessage) {
 	ld.ThreadWaitGroup.Add(1)
 	defer ld.ThreadWaitGroup.Done()
 
@@ -226,7 +225,7 @@ func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 	healthStatusTicker := time.NewTicker(healthStatusPeriod)
 	defer healthStatusTicker.Stop()
 
-	for ep := range ld.entryChan {
+	for ep := range entryChan {
 		select { // Taking something off the queue is useful work.
 		// So indicate server health when requested.
 		case <-healthStatusTicker.C:
@@ -446,9 +445,6 @@ func main() {
 	enrolledLogs := NewEnrolledLogs()
 
 	syncEngine := NewLogSyncEngine(storageDB)
-
-	// Start a thread to store LogSyncMessages
-	syncEngine.StartDatabaseThread(ctx)
 
 	// Sync with logs as they are enrolled
 	go func() {
