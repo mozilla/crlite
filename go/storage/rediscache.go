@@ -108,15 +108,7 @@ func (rc *RedisCache) SetRemove(key string, entries []string) error {
 			batchEnd = len(entries)
 		}
 		batch := entries[batchStart:batchEnd]
-		_, err := rc.client.Pipelined(func(pipe redis.Pipeliner) error {
-			for _, entry := range batch {
-				err := pipe.SRem(key, entry).Err()
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+		err := rc.client.SRem(key, batch).Err()
 		if err != nil {
 			return err
 		}
