@@ -276,14 +276,15 @@ func (db *CertDatabase) GetLogState(aUrl *url.URL) (*types.CTLogState, error) {
 	}, nil
 }
 
-func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate) error {
-	expDate := types.NewExpDateFromTime(aCert.NotAfter)
+func (db *CertDatabase) PrepareSetMember(aCertificate, aIssuer *x509.Certificate) SetMemberWithExpiry {
+	expDate := types.NewExpDateFromTime(aCertificate.NotAfter)
 	issuer := types.NewIssuer(aIssuer)
-	key := db.GetSerialCacheKey(expDate, issuer)
+	serial := types.NewSerial(aCertificate)
+	return db.GetSerialCacheKey(expDate, issuer).NewMember(serial)
+}
 
-	serial := types.NewSerial(aCert)
-
-	_, err := db.Insert(key, serial)
+func (db *CertDatabase) Store(items []SetMemberWithExpiry) error {
+	err := db.cache.SetInsertMany(items)
 	if err != nil {
 		return err
 	}

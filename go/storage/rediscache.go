@@ -80,6 +80,26 @@ func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 	return added == 1, err
 }
 
+func (rc *RedisCache) SetInsertMany(items []SetMemberWithExpiry) error {
+	_, err := rc.client.Pipelined(func(pipe redis.Pipeliner) error {
+		for _, item := range items {
+			err := pipe.SAdd(item.Key, item.Value).Err()
+			if err != nil {
+				return err
+			}
+			err = pipe.ExpireAt(item.Key, item.Expiry).Err()
+			if err != nil {
+				glog.Errorf("Couldn't set expiration time %v for serials %s: %v", item.Expiry, item.Key, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (rc *RedisCache) SetRemove(key string, entries []string) error {
 	batchSize := 1024
 	for batchStart := 0; batchStart < len(entries); batchStart += batchSize {

@@ -70,6 +70,16 @@ func (ec *MockRemoteCache) SetInsert(key string, entry string) (bool, error) {
 	return true, nil
 }
 
+func (ec *MockRemoteCache) SetInsertMany(items []SetMemberWithExpiry) error {
+	for _, item := range items {
+		_, err := ec.SetInsert(item.Key, item.Value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (ec *MockRemoteCache) setRemove(key string, entry string) error {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
