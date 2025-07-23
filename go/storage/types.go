@@ -35,16 +35,14 @@ type RemoteCache interface {
 type SerialCacheKey struct {
 	expDate   types.ExpDate
 	issuer    types.Issuer
-	cache     RemoteCache
 	id        string
 	expirySet bool
 }
 
-func NewSerialCacheKey(aExpDate types.ExpDate, aIssuer types.Issuer, aCache RemoteCache) *SerialCacheKey {
+func NewSerialCacheKey(aExpDate types.ExpDate, aIssuer types.Issuer) *SerialCacheKey {
 	return &SerialCacheKey{
 		expDate:   aExpDate,
 		issuer:    aIssuer,
-		cache:     aCache,
 		id:        fmt.Sprintf("serials::%s::%s", aExpDate.ID(), aIssuer.ID()),
 		expirySet: false,
 	}

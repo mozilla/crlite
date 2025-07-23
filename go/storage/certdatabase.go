@@ -339,7 +339,7 @@ func (db *CertDatabase) GetSerialCacheKey(aExpDate types.ExpDate, aIssuer types.
 	cacheObj, err := db.cacheAccessors.GetIFPresent(id)
 	if err != nil {
 		if err == gcache.KeyNotFoundError {
-			kc = NewSerialCacheKey(aExpDate, aIssuer, db.cache)
+			kc = NewSerialCacheKey(aExpDate, aIssuer)
 			err = db.cacheAccessors.Set(id, kc)
 			if err != nil {
 				glog.Fatalf("Couldn't set into the cache expDate=%s issuer=%s from cache: %s",
@@ -709,7 +709,7 @@ func (db *CertDatabase) Insert(k *SerialCacheKey, aSerial types.Serial) (bool, e
 
 	if !k.expirySet {
 		expireTime := k.expDate.ExpireTime()
-		if err := k.cache.ExpireAt(k.ID(), expireTime); err != nil {
+		if err := db.cache.ExpireAt(k.ID(), expireTime); err != nil {
 			glog.Errorf("Couldn't set expiration time %v for serials %s: %v", expireTime, k.ID(), err)
 		} else {
 			k.expirySet = true
