@@ -3,14 +3,8 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
-	"math"
 	"math/rand"
-	"net/http"
-	"net/url"
-	"strconv"
 	"time"
 
 	"filippo.io/sunlight"
@@ -21,7 +15,7 @@ import (
 
 	"github.com/google/certificate-transparency-go/x509"
 
-	"github.com/mozilla/crlite/go"
+	types "github.com/mozilla/crlite/go"
 )
 
 type TiledLogWorker struct {
@@ -51,6 +45,10 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 	}
 
 	publicKey, err := ctLogMeta.PublicKey()
+	if err != nil {
+		glog.Errorf("[%s] Unable to get public key: %s", ctLogMeta.URL, err)
+		return nil, err
+	}
 
 	client, err := sunlight.NewClient(&sunlight.ClientConfig{
 		MonitoringPrefix: ctLogMeta.URL,
@@ -103,23 +101,6 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 	}, nil
 }
 
-// Helper function borrowed from
-// https://github.com/FiloSottile/torchwood/blob/b067ac9d4cf6836cb59633e380453d60a5bee16c/tlogclient.go#L512
-func parseRetryAfter(header string) time.Time {
-	if header == "" {
-		return time.Time{}
-	}
-	n, err := strconv.Atoi(header)
-	if err == nil {
-		return time.Now().Add(time.Duration(n) * time.Second)
-	}
-	t, err := http.ParseTime(header)
-	if err == nil {
-		return t
-	}
-	return time.Time{}
-}
-
 // GetCertificate retrieves a certificate from cache or fetches it over the network.
 //
 // Error returns:
@@ -132,72 +113,25 @@ func (lw TiledLogWorker) GetCertificate(ctx context.Context, fingerprint string)
 		return cert, nil
 	}
 
-	uri, err := url.JoinPath(lw.LogMeta.URL, "issuer", fingerprint)
+	endpoint := "issuer/" + fingerprint
+	glog.Infof("[%s] Fetching %s", lw.Name(), endpoint)
+
+	data, err := lw.Client.Fetcher().ReadEndpoint(ctx, endpoint)
 	if err != nil {
-		return nil, err
+		glog.Warningf("[%s] Error retrieving issuer cert %s: %w", lw.Name(), fingerprint, err)
+		return nil, nil
 	}
-	glog.Infof("[%s] Fetching %s", lw.Name(), uri)
 
-	/* For consistency with the tile fetcher, this HTTP request / retry
-	 * loop is borrowed from
-	 * https://github.com/FiloSottile/torchwood/blob/b067ac9d4cf6836cb59633e380453d60a5bee16c/tlogclient.go#L460
-	 */
-	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	cert, err = x509.ParseCertificate(data)
+	if cert == nil {
+		return nil, fmt.Errorf("[%s] Fatal parsing error: fingerprint: %s error: %s", lw.Name(), fingerprint, err)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to create request: %w", uri, err)
+		glog.Warningf("[%s] Nonfatal parsing error: fingerprint: %s error: %s", lw.Name(), fingerprint, err)
 	}
-	var errs error
-	var retryAfter time.Time
-	for j := range 5 {
-		if j > 0 {
-			// Wait 1s, 5s, 25s, or 125s before retrying.
-			pause := time.Duration(math.Pow(5, float64(j-1))) * time.Second
-			if !retryAfter.IsZero() {
-				pause = time.Until(retryAfter)
-				retryAfter = time.Time{}
-			}
-			glog.Infof("[%s] waiting %s to retry GET request %s (%w)", lw.Name(), pause, uri, errs)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(pause):
-			}
-		}
-		req.Header.Set("User-Agent", userAgent)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			errs = errors.Join(errs, err)
-			continue
-		}
-		defer resp.Body.Close()
-		switch {
-		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
-			errs = errors.Join(errs, fmt.Errorf("unexpected status code %d", resp.StatusCode))
-			continue
-		case resp.StatusCode != http.StatusOK:
-			// We'll try again later
-			return nil, nil
-		}
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			errs = errors.Join(errs, err)
-			continue
-		}
 
-		cert, err := x509.ParseCertificate(data)
-		if cert == nil {
-			return nil, fmt.Errorf("[%s] Fatal parsing error: fingerprint: %s error: %s", lw.Name(), fingerprint, err)
-		}
-		if err != nil {
-			glog.Warningf("[%s] Nonfatal parsing error: fingerprint: %s error: %s", lw.Name(), fingerprint, err)
-		}
-
-		(*lw.IssuerMap)[fingerprint] = cert
-		return cert, nil
-	}
-	glog.Warningf("[%s] Errors retrieving issuer cert %s: %w", lw.Name(), fingerprint, errs)
-	return nil, nil
+	(*lw.IssuerMap)[fingerprint] = cert
+	return cert, nil
 }
 
 func (lw TiledLogWorker) Name() string {

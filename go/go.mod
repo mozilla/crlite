@@ -1,7 +1,7 @@
 module github.com/mozilla/crlite/go
 
 require (
-	filippo.io/sunlight v0.5.1
+	filippo.io/sunlight v0.5.2
 	filippo.io/torchwood v0.5.1-0.20250713221105-b067ac9d4cf6
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/go-redis/redis v6.15.9+incompatible
