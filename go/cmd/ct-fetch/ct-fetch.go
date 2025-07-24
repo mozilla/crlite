@@ -194,24 +194,20 @@ func (ld *LogSyncEngine) Wait() {
 	ld.ThreadWaitGroup.Wait()
 }
 
-func (ld *LogSyncEngine) tryUpdate(ep *LogSyncMessage) bool {
-	entry := *ep
-
-	if entry.Certificate != nil && entry.Issuer != nil {
-		err := ld.database.Store(entry.Certificate, entry.Issuer)
-		if err != nil {
-			glog.Errorf("Problem inserting certificate (serial=%s): %s", types.NewSerial(entry.Certificate).String(), err)
-			return false
-		}
+func (ld *LogSyncEngine) tryUpdate(queue []storage.SetMemberWithExpiry, logState *types.CTLogState) bool {
+	err := ld.database.Store(queue)
+	if err != nil {
+		glog.Errorf("Problem inserting certificates: %s", err)
+		return false
 	}
 
-	if entry.LogState != nil {
-		err := ld.database.SaveLogState(entry.LogState)
+	if logState != nil {
+		err = ld.database.SaveLogState(logState)
 		if err != nil {
-			glog.Errorf("Problem saving log state (%s): %s", entry.LogState, err)
+			glog.Errorf("Problem saving log state (%s): %s", logState, err)
 			return false
 		}
-		glog.Infof("[%s] Saved log state: %s", entry.LogState.ShortURL, entry.LogState)
+		glog.Infof("[%s] Saved log state: %s", logState.ShortURL, logState)
 	}
 
 	return true
@@ -226,6 +222,9 @@ func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 	healthStatusTicker := time.NewTicker(healthStatusPeriod)
 	defer healthStatusTicker.Stop()
 
+	batchSize := *ctconfig.BatchSize
+	queue := make([]storage.SetMemberWithExpiry, 0, batchSize)
+
 	for ep := range ld.entryChan {
 		select { // Taking something off the queue is useful work.
 		// So indicate server health when requested.
@@ -234,8 +233,20 @@ func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 		default:
 		}
 
+		if ep.Certificate != nil && ep.Issuer != nil {
+			item := ld.database.PrepareSetMember(ep.Certificate, ep.Issuer)
+			queue = append(queue, item)
+		}
+
+		// Only dispatch the queue if it is full or if we're updating
+		// the log state
+		if uint64(len(queue)+1) < batchSize && ep.LogState == nil {
+			continue
+		}
+
 		for {
-			if ld.tryUpdate(&ep) {
+			if ld.tryUpdate(queue, ep.LogState) {
+				queue = queue[:0]
 				break
 			}
 

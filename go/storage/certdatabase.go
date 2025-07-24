@@ -276,14 +276,15 @@ func (db *CertDatabase) GetLogState(aUrl *url.URL) (*types.CTLogState, error) {
 	}, nil
 }
 
-func (db *CertDatabase) Store(aCert *x509.Certificate, aIssuer *x509.Certificate) error {
-	expDate := types.NewExpDateFromTime(aCert.NotAfter)
+func (db *CertDatabase) PrepareSetMember(aCertificate, aIssuer *x509.Certificate) SetMemberWithExpiry {
+	expDate := types.NewExpDateFromTime(aCertificate.NotAfter)
 	issuer := types.NewIssuer(aIssuer)
-	serialWriter := db.GetSerialCacheAccessor(expDate, issuer)
+	serial := types.NewSerial(aCertificate)
+	return db.GetSerialCacheKey(expDate, issuer).NewMember(serial)
+}
 
-	serial := types.NewSerial(aCert)
-
-	_, err := serialWriter.Insert(serial)
+func (db *CertDatabase) Store(items []SetMemberWithExpiry) error {
+	err := db.cache.SetInsertMany(items)
 	if err != nil {
 		return err
 	}
@@ -330,15 +331,15 @@ func (db *CertDatabase) GetCTLogsFromStorage() ([]types.CTLogState, error) {
 	return ctLogList, nil
 }
 
-func (db *CertDatabase) GetSerialCacheAccessor(aExpDate types.ExpDate, aIssuer types.Issuer) *SerialCacheWriter {
-	var kc *SerialCacheWriter
+func (db *CertDatabase) GetSerialCacheKey(aExpDate types.ExpDate, aIssuer types.Issuer) *SerialCacheKey {
+	var kc *SerialCacheKey
 
 	id := aIssuer.ID() + aExpDate.ID()
 
 	cacheObj, err := db.cacheAccessors.GetIFPresent(id)
 	if err != nil {
 		if err == gcache.KeyNotFoundError {
-			kc = NewSerialCacheWriter(aExpDate, aIssuer, db.cache)
+			kc = NewSerialCacheKey(aExpDate, aIssuer)
 			err = db.cacheAccessors.Set(id, kc)
 			if err != nil {
 				glog.Fatalf("Couldn't set into the cache expDate=%s issuer=%s from cache: %s",
@@ -349,7 +350,7 @@ func (db *CertDatabase) GetSerialCacheAccessor(aExpDate types.ExpDate, aIssuer t
 				aExpDate, aIssuer.ID(), err)
 		}
 	} else {
-		kc = cacheObj.(*SerialCacheWriter)
+		kc = cacheObj.(*SerialCacheKey)
 	}
 
 	if kc == nil {
@@ -359,8 +360,7 @@ func (db *CertDatabase) GetSerialCacheAccessor(aExpDate types.ExpDate, aIssuer t
 }
 
 func (db *CertDatabase) ReadSerialsFromCache(aExpDate types.ExpDate, aIssuer types.Issuer) []types.Serial {
-	accessor := db.GetSerialCacheAccessor(aExpDate, aIssuer)
-	return accessor.List()
+	return db.List(db.GetSerialCacheKey(aExpDate, aIssuer))
 }
 
 func (db *CertDatabase) ReadSerialsFromStorage(aExpDate types.ExpDate, aIssuer types.Issuer) ([]types.Serial, error) {
@@ -434,8 +434,8 @@ func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpD
 	}
 
 	// It's now safe to remove cachedSerials from the cache.
-	cacheWriter := db.GetSerialCacheAccessor(aExpDate, aIssuer)
-	err = cacheWriter.RemoveMany(cachedSerials)
+	key := db.GetSerialCacheKey(aExpDate, aIssuer)
+	err = db.RemoveMany(key, cachedSerials)
 	if err != nil {
 		glog.Warningf("Failed to remove serial from cache: %s", err)
 	}
@@ -697,4 +697,69 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 
 func (db *CertDatabase) AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error {
 	return db.cache.AddPreIssuerAlias(aPreIssuer, aIssuer)
+}
+
+// Returns true if this serial was unknown. Subsequent calls with the same serial
+// will return false, as it will be known then.
+func (db *CertDatabase) Insert(k *SerialCacheKey, aSerial types.Serial) (bool, error) {
+	result, err := db.cache.SetInsert(k.ID(), aSerial.BinaryString())
+	if err != nil {
+		return false, err
+	}
+
+	if !k.expirySet {
+		expireTime := k.expDate.ExpireTime()
+		if err := db.cache.ExpireAt(k.ID(), expireTime); err != nil {
+			glog.Errorf("Couldn't set expiration time %v for serials %s: %v", expireTime, k.ID(), err)
+		} else {
+			k.expirySet = true
+		}
+	}
+
+	return result, nil
+}
+
+func (db *CertDatabase) RemoveMany(k *SerialCacheKey, aSerials []types.Serial) error {
+	// Removing an element of a set may leave the set empty. Redis
+	// automatically deletes empty sets, so assume that we need to reset
+	// the ExpireAt time for this set on the next Insert call.
+	k.expirySet = false
+	serialStrings := make([]string, len(aSerials))
+	for i := 0; i < len(aSerials); i++ {
+		serialStrings[i] = aSerials[i].BinaryString()
+	}
+	return db.cache.SetRemove(k.ID(), serialStrings)
+}
+
+func (db *CertDatabase) List(k *SerialCacheKey) []types.Serial {
+	// Redis' scan methods regularly provide duplicates. The duplication
+	// happens at this level, pulling from SetToChan, so we make a hash-set
+	// here to de-duplicate when the memory impacts are the most minimal.
+	serials := make(map[string]struct{})
+	var count int
+
+	strChan := make(chan string)
+	go func() {
+		err := db.cache.SetToChan(k.ID(), strChan)
+		if err != nil {
+			glog.Fatalf("Error obtaining list of known certificates: %v", err)
+		}
+	}()
+
+	for str := range strChan {
+		serials[str] = struct{}{}
+		count += 1
+	}
+
+	serialList := make([]types.Serial, 0, count)
+	for str := range serials {
+		bs, err := types.NewSerialFromBinaryString(str)
+		if err != nil {
+			glog.Errorf("Failed to populate serial str=[%s] %v", str, err)
+			continue
+		}
+		serialList = append(serialList, bs)
+	}
+
+	return serialList
 }

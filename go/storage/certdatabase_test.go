@@ -42,8 +42,7 @@ func cacheSerial(t *testing.T, db CertDatabase, expDateStr string, issuerStr str
 	}
 	serial := types.NewSerialFromHex(serialStr)
 
-	kc := db.GetSerialCacheAccessor(expDate, issuer)
-	_, err = kc.Insert(serial)
+	_, err = db.Insert(db.GetSerialCacheKey(expDate, issuer), serial)
 	if err != nil {
 		t.Error(err)
 	}
@@ -57,8 +56,9 @@ func isCached(t *testing.T, db CertDatabase, expDateStr string, issuerStr string
 	}
 	serial := types.NewSerialFromHex(serialStr)
 
-	kc := db.GetSerialCacheAccessor(expDate, issuer)
-	cached, err := kc.Contains(serial)
+	kc := db.GetSerialCacheKey(expDate, issuer)
+
+	cached, err := db.cache.SetContains(kc.ID(), serial.BinaryString())
 	if err != nil {
 		t.Error(err)
 	}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/mozilla/crlite/go"
@@ -28,4 +29,39 @@ type RemoteCache interface {
 	Restore(aEpoch uint64, aLogStates []types.CTLogState) error
 	AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error
 	GetPreIssuerAliases(aPreIssuer types.Issuer) ([]types.Issuer, error)
+	SetInsertMany(items []SetMemberWithExpiry) error
+}
+
+type SerialCacheKey struct {
+	expDate   types.ExpDate
+	issuer    types.Issuer
+	id        string
+	expirySet bool
+}
+
+func NewSerialCacheKey(aExpDate types.ExpDate, aIssuer types.Issuer) *SerialCacheKey {
+	return &SerialCacheKey{
+		expDate:   aExpDate,
+		issuer:    aIssuer,
+		id:        fmt.Sprintf("serials::%s::%s", aExpDate.ID(), aIssuer.ID()),
+		expirySet: false,
+	}
+}
+
+func (k *SerialCacheKey) ID() string {
+	return k.id
+}
+
+func (k *SerialCacheKey) NewMember(serial types.Serial) SetMemberWithExpiry {
+	return SetMemberWithExpiry{
+		Key:    k.ID(),
+		Value:  serial.BinaryString(),
+		Expiry: k.expDate.ExpireTime(),
+	}
+}
+
+type SetMemberWithExpiry struct {
+	Key    string
+	Value  string
+	Expiry time.Time
 }
