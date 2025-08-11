@@ -1,0 +1,22 @@
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/optimizing-pr-creation-version-updates
+
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directories:
+      - rust-create-cascade
+      - rust-query-crlite
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: containers
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: go
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
