@@ -14,8 +14,7 @@ use std::fs::File;
 use std::io::prelude::Write;
 use std::path::Path;
 
-use rand::rngs::OsRng;
-use rand::RngCore;
+use rand::{rngs::OsRng, TryRngCore};
 
 impl FilterBuilder for CascadeBuilder {
     type ExcludeSetType = ExcludeSet;
@@ -114,7 +113,7 @@ pub fn create_cascade(
 
     let mut salt = vec![0u8; salt_len];
     if salt_len > 0 {
-        OsRng.fill_bytes(&mut salt);
+        let _ = OsRng.try_fill_bytes(&mut salt);
     }
 
     let mut builder = CascadeBuilder::new(hash_alg, salt, revoked, not_revoked);
