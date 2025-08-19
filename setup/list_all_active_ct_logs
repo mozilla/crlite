@@ -1,6 +1,0 @@
-#!/bin/bash
-
-for i in $(curl -s https://www.gstatic.com/ct/log_list/log_list.json | jq -r ' .logs | .[] | .url'); do
-  curl --max-time 10 -s -I --fail -X GET "https://${i}ct/v1/get-sth" | grep -q "200"
-  [ $? -eq 0 ] && echo -n "https://${i}, "
-done
