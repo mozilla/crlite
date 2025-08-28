@@ -44,6 +44,7 @@ extern crate statsd;
 extern crate stderrlog;
 extern crate tempfile;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use clap::Parser;
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -260,7 +261,7 @@ impl Iterator for KnownSerialIterator {
 }
 
 fn decode_issuer(s: &str) -> [u8; 32] {
-    base64::decode_config(s, base64::URL_SAFE)
+    URL_SAFE.decode(s)
         .expect("found invalid issuer id: not url-safe base64.")
         .try_into()
         .expect("found invalid issuer id: not 32 bytes.")
@@ -584,9 +585,9 @@ fn write_revset_and_delta(
 ) {
     let prev_revset: HashSet<Vec<u8>> = match std::fs::read(prev_revset_file)
         .as_deref()
-        .map(bincode::deserialize)
+        .map(|b| bincode::serde::decode_from_slice(b, bincode::config::legacy()))
     {
-        Ok(Ok(prev_revset)) => prev_revset,
+        Ok(Ok((prev_revset, _))) => prev_revset,
         _ => {
             warn!("Could not load previous revset. Stash file will be large.");
             Default::default()
@@ -615,7 +616,7 @@ fn write_revset_and_delta(
         }
     }
 
-    let revset_bytes = bincode::serialize(&revset).unwrap();
+    let revset_bytes = bincode::serde::encode_to_vec(&revset, bincode::config::legacy()).unwrap();
     info!("Revset is {} bytes", revset_bytes.len());
     std::fs::write(output_revset_file, &revset_bytes).expect("can't write revset file");
 
@@ -684,29 +685,29 @@ enum FilterType {
 
 #[derive(Parser)]
 struct Cli {
-    #[clap(long, parse(from_os_str), default_value = "./known/")]
+    #[arg(long, value_parser = clap::value_parser!(PathBuf), default_value = "./known/")]
     known: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./revoked/")]
+    #[arg(long, value_parser = clap::value_parser!(PathBuf), default_value = "./revoked/")]
     revoked: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./prev_revset.bin")]
+    #[arg(long, value_parser = clap::value_parser!(PathBuf), default_value = "./prev_revset.bin")]
     prev_revset: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./ct-logs.json")]
+    #[arg(long, value_parser = clap::value_parser!(PathBuf), default_value = "./ct-logs.json")]
     ct_logs_json: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = ".")]
+    #[arg(long, value_parser = clap::value_parser!(PathBuf), default_value = ".")]
     outdir: PathBuf,
-    #[clap(long, value_enum, default_value = "all")]
+    #[arg(long, value_enum, default_value = "all")]
     reason_set: ReasonSet,
-    #[clap(long, value_enum, default_value = "all")]
+    #[arg(long, value_enum, default_value = "all")]
     delta_reason_set: ReasonSet,
-    #[clap(long)]
+    #[arg(long)]
     statsd_host: Option<String>,
-    #[clap(long)]
+    #[arg(long)]
     murmurhash3: bool,
-    #[clap(long, value_enum, default_value = "cascade")]
+    #[arg(long, value_enum, default_value = "cascade")]
     filter_type: FilterType,
-    #[clap(long)]
+    #[arg(long)]
     clobber: bool,
-    #[clap(short = 'v', parse(from_occurrences))]
+    #[arg(short = 'v', value_parser = clap::value_parser!(usize))]
     verbose: usize,
 }
 
@@ -1006,9 +1007,9 @@ mod tests {
         decode_issuer, decode_serial, write_revset_and_delta, write_stash, CheckableFilter, Reason,
         ReasonSet,
     };
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE};
     use clubcard_crlite::CRLiteClubcard;
-    use rand::rngs::OsRng;
-    use rand::RngCore;
+    use rand::{rngs::OsRng, TryRngCore};
     use rust_cascade::{Cascade, HashAlgorithm};
     use std::collections::HashSet;
     use std::convert::TryInto;
@@ -1044,11 +1045,11 @@ mod tests {
 
         fn add_issuer(&self) -> String {
             let mut issuer_bytes = vec![0u8; 32];
-            OsRng.fill_bytes(&mut issuer_bytes);
+            OsRng.try_fill_bytes(&mut issuer_bytes).expect("could not fill issuer_bytes");
 
-            let issuer_str = base64::encode_config(issuer_bytes, base64::URL_SAFE);
+            let issuer_str = URL_SAFE.encode(issuer_bytes);
             std::fs::File::create(self.known_dir().join(&issuer_str))
-                .expect("could not create issuer file");
+                .expect(&format!("could not create issuer file {issuer_str}"));
             std::fs::File::create(self.revoked_dir().join(&issuer_str))
                 .expect("could not create issuer file");
             issuer_str
@@ -1056,7 +1057,7 @@ mod tests {
 
         fn add_serial(&self, issuer: &str) -> String {
             let mut serial_bytes = vec![0u8; 20];
-            OsRng.fill_bytes(&mut serial_bytes);
+            let _ = OsRng.try_fill_bytes(&mut serial_bytes);
 
             let mut known_file = std::fs::OpenOptions::new()
                 .append(true)
@@ -1071,7 +1072,7 @@ mod tests {
 
         fn add_revoked_serial(&self, issuer: &str, reason: Reason) -> String {
             let mut serial_bytes = vec![0u8; 20];
-            OsRng.fill_bytes(&mut serial_bytes);
+            let _ = OsRng.try_fill_bytes(&mut serial_bytes);
 
             let mut known_file = std::fs::OpenOptions::new()
                 .append(true)
@@ -1202,7 +1203,7 @@ mod tests {
         std::fs::rename(&revset_file, &prev_revset_file).expect("could not move revset file");
         let first_revset_bytes = std::fs::read(&prev_revset_file).expect("could not read revset");
         let first_revset: HashSet<Vec<u8>> =
-            bincode::deserialize(&first_revset_bytes).expect("could not parse revset");
+            bincode::serde::decode_from_slice(&first_revset_bytes, bincode::config::legacy()).expect("could not parse revset").0;
 
         // Add a revoked serial after writing the first revset and stash
         let serial = env.add_revoked_serial(&issuer, Reason::Unspecified);
@@ -1221,7 +1222,7 @@ mod tests {
 
         let second_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
         let second_revset: HashSet<Vec<u8>> =
-            bincode::deserialize(&second_revset_bytes).expect("could not parse revset");
+            bincode::serde::decode_from_slice(&second_revset_bytes, bincode::config::legacy()).expect("could not parse revset").0;
 
         let serial_bytes = decode_serial(&serial);
         let issuer_bytes = decode_issuer(&issuer);
@@ -1255,7 +1256,7 @@ mod tests {
 
         let third_revset_bytes = std::fs::read(&revset_file).expect("could not read revset");
         let third_revset: HashSet<Vec<u8>> =
-            bincode::deserialize(&third_revset_bytes).expect("could not parse revset");
+            bincode::serde::decode_from_slice(&third_revset_bytes, bincode::config::legacy()).expect("could not parse revset").0;
 
         // The newly revoked serial should not be in the third revset as it has
         // an unspecified reason code

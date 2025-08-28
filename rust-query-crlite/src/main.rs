@@ -381,13 +381,13 @@ impl Intermediates {
 
         let mut intermediates = Intermediates::new();
         for der in list {
-            if let Ok((_, cert)) = X509Certificate::from_der(&der.contents) {
+            if let Ok((_, cert)) = X509Certificate::from_der(der.contents()) {
                 let name = cert.tbs_certificate.subject.as_raw();
                 intermediates
                     .0
                     .entry(name.to_vec())
                     .or_default()
-                    .push(der.contents);
+                    .push(DERCert::from(der.contents()));
             } else {
                 return Err(CRLiteDBError::from("error reading CCADB report"));
             }
@@ -396,17 +396,17 @@ impl Intermediates {
     }
 
     fn from_bincode(bytes: &[u8]) -> Result<Intermediates, CRLiteDBError> {
-        let inner = bincode::deserialize(bytes)
+        let (inner, _) = bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
             .map_err(|_| CRLiteDBError::from("could not deserialize bincoded intermediates"))?;
         Ok(Intermediates(inner))
     }
 
     fn encode(&self) -> Result<Vec<u8>, CRLiteDBError> {
-        bincode::serialize(&self.0)
+        bincode::serde::encode_to_vec(&self.0, bincode::config::legacy())
             .map_err(|_| CRLiteDBError::from("could not serialize intermediates"))
     }
 
-    fn lookup_issuer_spki(&self, cert: &X509Certificate) -> Option<SubjectPublicKeyInfo> {
+    fn lookup_issuer_spki(&self, cert: &X509Certificate) -> Option<SubjectPublicKeyInfo<'_>> {
         let issuer_dn = cert.tbs_certificate.issuer.as_raw();
         if let Some(der_issuer_certs) = self.0.get(issuer_dn) {
             let parsed_issuer_certs = der_issuer_certs
@@ -545,13 +545,14 @@ fn query_https_addr(
 }
 
 fn query_cert_pem_or_der_bytes(db: &CRLiteDB, input: &[u8]) -> Result<Status, CRLiteDBError> {
-    let der_cert = match pem::parse(input) {
-        Ok(pem_cert) => pem_cert.contents,
-        _ => input.to_vec(),
-    };
-    X509Certificate::from_der(&der_cert)
-        .map(|(_, cert)| db.query(&cert))
-        .map_err(|_| CRLiteDBError::from("could not parse certificate"))
+    X509Certificate::from_der(
+        &(match pem::parse(input) {
+            Ok(ref pem_cert) => pem_cert.contents(),
+            _ => input,
+        }),
+    )
+    .map(|(_, cert)| db.query(&cert))
+    .map_err(|_| CRLiteDBError::from("could not parse certificate"))
 }
 
 fn query_certs(db: &CRLiteDB, files: &[PathBuf]) -> Result<CmdResult, CRLiteDBError> {
@@ -620,23 +621,23 @@ fn query_crtsh_id(db: &CRLiteDB, id: &str) -> Result<CmdResult, CRLiteDBError> {
 #[derive(Parser)]
 struct Cli {
     /// Download a new CRLite filter and associated metadata from Firefox Remote Settings.
-    #[clap(long, value_enum)]
+    #[arg(long, value_enum)]
     update: Option<RemoteSettingsInstance>,
 
     /// CRLite filter channel
-    #[clap(long, value_enum, default_value = "default")]
+    #[arg(long, value_enum, default_value = "default")]
     channel: CRLiteFilterChannel,
 
     /// CRLite directory e.g. <firefox profile>/security_state/.
-    #[clap(short, long, default_value = "./crlite_db/")]
+    #[arg(short, long, default_value = "./crlite_db/")]
     db: PathBuf,
 
     /// Silence all output.
-    #[clap(short = 'q')]
+    #[arg(short = 'q')]
     quiet: bool,
 
     /// Include debug output in logs.
-    #[clap(short = 'v', action = clap::ArgAction::Count)]
+    #[arg(short = 'v', action = clap::ArgAction::Count)]
     verbose: u8,
 
     #[clap(subcommand)]
