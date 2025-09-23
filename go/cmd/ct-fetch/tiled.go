@@ -19,14 +19,15 @@ import (
 )
 
 type TiledLogWorker struct {
-	Client     *sunlight.Client
-	LogMeta    *types.CTLogMetadata
-	Checkpoint torchwood.Checkpoint
-	LogState   *types.CTLogState
-	IssuerMap  *map[string]*x509.Certificate
-	WorkOrder  LogWorkerTask
-	BatchSize  uint64
-	MetricKey  string
+	Client       *sunlight.Client
+	LogMeta      *types.CTLogMetadata
+	Checkpoint   torchwood.Checkpoint
+	SthTimestamp uint64
+	LogState     *types.CTLogState
+	IssuerMap    *map[string]*x509.Certificate
+	WorkOrder    LogWorkerTask
+	BatchSize    uint64
+	MetricKey    string
 }
 
 func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *types.CTLogMetadata, issuerMap *map[string]*x509.Certificate) (*TiledLogWorker, error) {
@@ -62,14 +63,24 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 
 	metricKey := ctLogMeta.MetricKey()
 
-	checkpoint, _, fetchErr := client.Checkpoint(ctx)
+	checkpoint, n, fetchErr := client.Checkpoint(ctx)
+
+	sthTimestamp := uint64(0)
+	if n != nil && len(n.Sigs) > 0 {
+		noteTimestamp, err := sunlight.RFC6962SignatureTimestamp(n.Sigs[0])
+		if err != nil {
+			glog.Errorf("[%s] Unable to parse note: %s", ctLogMeta.URL, err)
+			return nil, err
+		}
+		sthTimestamp = uint64(noteTimestamp)
+	}
 
 	// Determine what the worker should do.
 	var task LogWorkerTask
 	if fetchErr != nil {
 		// Temporary network failure?
 		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogMeta.URL, fetchErr)
-		task = Sleep
+		task = RetryGetSTH
 	} else {
 		metrics.SetGauge([]string{metricKey, "coverage"}, float32(logObj.MaxEntry-logObj.MinEntry+1)/float32(checkpoint.Tree.N))
 
@@ -84,20 +95,20 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 			// downloaded anything recently.
 			task = ForceUpdate
 		} else {
-			// There are no new entries.
 			task = Sleep
 		}
 	}
 
 	return &TiledLogWorker{
-		Client:     client,
-		LogState:   logObj,
-		LogMeta:    ctLogMeta,
-		Checkpoint: checkpoint,
-		IssuerMap:  issuerMap,
-		WorkOrder:  task,
-		BatchSize:  batchSize,
-		MetricKey:  metricKey,
+		Client:       client,
+		LogState:     logObj,
+		LogMeta:      ctLogMeta,
+		Checkpoint:   checkpoint,
+		SthTimestamp: sthTimestamp,
+		IssuerMap:    issuerMap,
+		WorkOrder:    task,
+		BatchSize:    batchSize,
+		MetricKey:    metricKey,
 	}, nil
 }
 
@@ -230,7 +241,33 @@ func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessa
 	// NOTE: If we return a non-nil error from this function we will stop
 	// ingesting the log.
 
+	minTimestamp := lw.LogState.MinTimestamp
+	maxTimestamp := lw.LogState.MaxTimestamp
+	maxEntry := lw.LogState.MaxEntry
+
+	if lw.WorkOrder == RetryGetSTH {
+		lw.sleep(ctx)
+		return nil
+	}
+
 	if lw.WorkOrder == Sleep {
+		// The coverage cutoff for CRLite filters is
+		// `LogState.MaxTimestamp - LogState.MMD`. Normally
+		// MaxTimestamp is the timestamp of an entry that we have seen
+		// in the log. But if we are sleeping because there are no new
+		// entries in the log, then we can set MaxTimestamp equal to
+		// STH.Timestamp, because no new entries with a timestamp less
+		// than `STH.Timestamp - LogState.MMD` will be added. This
+		// ensures that we will eventually cover the tail of a log that
+		// is no longer receiving new entries.
+		if lw.LogState.MaxEntry+1 == uint64(lw.Checkpoint.Tree.N) {
+			maxTimestamp = lw.SthTimestamp
+			err := lw.updateState(ctx, maxEntry, minTimestamp, maxTimestamp, entryChan)
+			if err != nil {
+				glog.Errorf("[%s] : Error saving log state %s", lw.Name(), err)
+				return err
+			}
+		}
 		lw.sleep(ctx)
 		return nil
 	}
@@ -238,10 +275,6 @@ func (lw *TiledLogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessa
 	if !(lw.WorkOrder == Update || lw.WorkOrder == ForceUpdate) {
 		return fmt.Errorf("Unexpected work order: %d", lw.WorkOrder)
 	}
-
-	minTimestamp := lw.LogState.MinTimestamp
-	maxTimestamp := lw.LogState.MaxTimestamp
-	maxEntry := lw.LogState.MaxEntry
 
 	// readLogEntries mutably captures lw, ctx, maxEntry, minTimestamp,
 	// and maxTimestamp.
