@@ -248,7 +248,7 @@ func NewLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *type
 	if fetchErr != nil {
 		// Temporary network failure?
 		glog.Warningf("[%s] Unable to fetch signed tree head: %s", ctLogMeta.URL, fetchErr)
-		task = Sleep
+		task = RetryGetSTH
 	} else if sth.TreeSize <= 3 {
 		// For technical reasons, we can't verify our download
 		// until there are at least 3 entries in the log. So
@@ -339,6 +339,25 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessage) e
 		lastIndex = lw.LogState.MinEntry - 1
 		glog.Infof("[%s] Running Backfill job %d %d", lw.Name(), firstIndex, lastIndex)
 	case Sleep:
+		// The coverage cutoff for CRLite filters is
+		// `LogState.MaxTimestamp - LogState.MMD`. Normally
+		// MaxTimestamp is the timestamp of an entry that we have seen
+		// in the log. But if we are sleeping because there are no new
+		// entries in the log, then we can set MaxTimestamp equal to
+		// STH.Timestamp, because no new entries with a timestamp less
+		// than `STH.Timestamp - LogState.MMD` will be added. This
+		// ensures that we will eventually cover the tail of a log that
+		// is no longer receiving new entries.
+		if lw.LogState.MaxEntry == lw.STH.TreeSize-1 {
+			err := lw.updateState(ctx, nil, lw.LogState.MinEntry, lw.STH.Timestamp, entryChan)
+			if err != nil {
+				glog.Errorf("[%s] Failed to update log state: %s", lw.Name(), err)
+				return err
+			}
+		}
+		lw.sleep(ctx)
+		return nil
+	case RetryGetSTH:
 		lw.sleep(ctx)
 		return nil
 	}
@@ -490,6 +509,10 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 			lw.LogState.MinEntry = newSubtree.First
 		} else {
 			return fmt.Errorf("Missing entries")
+		}
+	case Sleep:
+		if newSubtree != nil {
+			return fmt.Errorf("Unexpected argument")
 		}
 	default:
 		return fmt.Errorf("Unknown work order")

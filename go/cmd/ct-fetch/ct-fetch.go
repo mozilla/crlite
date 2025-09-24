@@ -274,7 +274,8 @@ const (
 	Backfill                         // Download old certs
 	Update                           // Download new certs
 	ForceUpdate                      // Download new certs even if doing so will fetch a partial tile
-	Sleep                            // Wait for an STH update
+	Sleep                            // Wait for new entries
+	RetryGetSTH                      // Sleep and then try getting the STH / Checkpoint again
 )
 
 type EnrolledLogs struct {
