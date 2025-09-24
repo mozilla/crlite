@@ -61,14 +61,52 @@ type CTLogState struct {
 	ShortURL       string    `db:"url"`            // URL to the log
 	MinEntry       uint64    `db:"minEntry"`       // The smallest index we've downloaded
 	MaxEntry       uint64    `db:"maxEntry"`       // The largest index we've downloaded
-	MinTimestamp   uint64    `db:"minTimestamp"`   // Unix timestamp of the earliest entry we've downloaded
-	MaxTimestamp   uint64    `db:"maxTimestamp"`   // Unix timestamp of the most recent entry we've downloaded
+	MinTimestamp   uint64    `db:"minTimestamp"`   // Unix timestamp in milliseconds of the earliest entry we've downloaded
+	MaxTimestamp   uint64    `db:"maxTimestamp"`   // Unix timestamp in milliseconds of the most recent entry we've downloaded
 	LastUpdateTime time.Time `db:"lastUpdateTime"` // Date when we completed the last update
 }
 
 func (o *CTLogState) String() string {
 	return fmt.Sprintf("[%s] MinEntry=%d, MaxEntry=%d, MaxTimestamp=%d, LastUpdateTime=%s",
 		o.ShortURL, o.MinEntry, o.MaxEntry, o.MaxTimestamp, o.LastUpdateTime)
+}
+
+func (o *CTLogState) KeyID() ([32]byte, error) {
+	keyId, err := base64.StdEncoding.DecodeString(o.LogID)
+	if err != nil {
+		var emptyBytes [32]byte
+		return emptyBytes, err
+	}
+	if len(keyId) != 32 {
+		var emptyBytes [32]byte
+		return emptyBytes, fmt.Errorf("Invalid Log ID length")
+	}
+	return [32]byte(keyId), err
+}
+
+func (o *CTLogState) CoverageCutoff() uint64 {
+	// MMD is in seconds whereas timestamp is in milliseconds
+	msMMD := o.MMD * uint64(time.Second.Milliseconds())
+
+	if o.MaxTimestamp < msMMD {
+		return 0
+	}
+
+	return o.MaxTimestamp - msMMD
+}
+
+type CoverageCutoffMap map[[32]byte]uint64
+
+func NewCoverageCutoffMap(aLogData []CTLogState) CoverageCutoffMap {
+	coverageCutoffMap := make(CoverageCutoffMap)
+	for _, log := range aLogData {
+		keyId, err := log.KeyID()
+		if err != nil {
+			continue
+		}
+		coverageCutoffMap[keyId] = log.CoverageCutoff()
+	}
+	return coverageCutoffMap
 }
 
 type Issuer struct {

@@ -61,6 +61,8 @@ var (
 type LogSyncMessage struct {
 	Certificate *x509.Certificate
 	Issuer      *x509.Certificate
+	Timestamp   uint64
+	LogId       [32]byte
 	LogState    *types.CTLogState
 }
 
@@ -234,7 +236,7 @@ func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 		}
 
 		if ep.Certificate != nil && ep.Issuer != nil {
-			item := ld.database.PrepareSetMember(ep.Certificate, ep.Issuer)
+			item := ld.database.PrepareSetMember(ep.Certificate, ep.Issuer, ep.Timestamp, ep.LogId)
 			queue = append(queue, item)
 		}
 
