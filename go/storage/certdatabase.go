@@ -399,7 +399,7 @@ func (db *CertDatabase) ReadSerialsFromStorage(aExpDate types.ExpDate, aIssuer t
 	return serialList, nil
 }
 
-func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpDate types.ExpDate, aIssuer types.Issuer, aLogData []types.CTLogState) error {
+func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpDate types.ExpDate, aIssuer types.Issuer, aCoverageCutoffMap *types.CoverageCutoffMap) error {
 	cachedEntries := db.ReadEntriesFromCache(aExpDate, aIssuer)
 	if len(cachedEntries) == 0 {
 		return nil
@@ -408,13 +408,11 @@ func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpD
 	// The "known set" input to the filter generation process should be the set of
 	// covered serials. Any serials that are not yet covered should stay in cache.
 	// See: https://github.com/mozilla/crlite/issues/367
-	coverageCutoffMap := types.NewCoverageCutoffMap(aLogData)
-
 	coveredEntries := make([]string, 0, len(cachedEntries))
 	coveredSerials := make([]types.Serial, 0, len(cachedEntries))
 	for entryStr := range cachedEntries {
 		entry := SerialCacheEntry(entryStr)
-		if !entry.IsCovered(&coverageCutoffMap) {
+		if !entry.IsCovered(aCoverageCutoffMap) {
 			continue
 		}
 		serial, err := entry.AsSerial()
@@ -470,6 +468,8 @@ func (db *CertDatabase) moveCachedSerialsToStorage(aLogData []types.CTLogState) 
 		return err
 	}
 
+	coverageCutoffMap := types.NewCoverageCutoffMap(aLogData)
+
 	for _, issuerDate := range issuerList {
 		issuer := issuerDate.Issuer
 		tmpDir := renameio.TempDir(db.issuerDir(issuer))
@@ -488,7 +488,7 @@ func (db *CertDatabase) moveCachedSerialsToStorage(aLogData []types.CTLogState) 
 			wg.Add(batchSize)
 			for i := start; i < start+batchSize; i++ {
 				go func(expDate types.ExpDate) {
-					errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer, aLogData)
+					errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer, &coverageCutoffMap)
 					wg.Done()
 				}(issuerDate.ExpDates[i])
 			}
