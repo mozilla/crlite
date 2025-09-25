@@ -24,6 +24,7 @@ type TiledLogWorker struct {
 	Checkpoint   torchwood.Checkpoint
 	SthTimestamp uint64
 	LogState     *types.CTLogState
+	LogKeyId     [32]byte
 	IssuerMap    *map[string]*x509.Certificate
 	WorkOrder    LogWorkerTask
 	BatchSize    uint64
@@ -43,6 +44,12 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 	if logObj.MMD != uint64(ctLogMeta.MMD) {
 		// Likewise storing MMD is new.
 		logObj.MMD = uint64(ctLogMeta.MMD)
+	}
+
+	logKeyId, err := logObj.KeyID()
+	if err != nil {
+		glog.Errorf("[%s] Could not parse log id: %s", ctLogMeta.URL, err)
+		return nil, err
 	}
 
 	publicKey, err := ctLogMeta.PublicKey()
@@ -102,6 +109,7 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 	return &TiledLogWorker{
 		Client:       client,
 		LogState:     logObj,
+		LogKeyId:     logKeyId,
 		LogMeta:      ctLogMeta,
 		Checkpoint:   checkpoint,
 		SthTimestamp: sthTimestamp,
@@ -171,6 +179,8 @@ func (lw *TiledLogWorker) sleep(ctx context.Context) {
 func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.LogEntry, entryChan chan<- LogSyncMessage) (bool, error) {
 	var cert *x509.Certificate
 	var err error
+	timestamp := uint64(logEntry.Timestamp)
+
 	if logEntry.IsPrecert {
 		cert, err = x509.ParseCertificate(logEntry.PreCertificate)
 	} else {
@@ -231,7 +241,7 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 	case <-ctx.Done():
 		// The LogSyncEngine is shutting down, so it's OK to return an error here.
 		return false, fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- LogSyncMessage{cert, issuingCert, nil}:
+	case entryChan <- LogSyncMessage{cert, issuingCert, timestamp, lw.LogKeyId, nil}:
 	}
 
 	return true, nil
@@ -350,11 +360,12 @@ func (lw *TiledLogWorker) updateState(ctx context.Context, maxEntry uint64, minT
 	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
+	var emptyBytes [32]byte
 	stateCopy := *lw.LogState
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- LogSyncMessage{nil, nil, &stateCopy}:
+	case entryChan <- LogSyncMessage{nil, nil, 0, emptyBytes, &stateCopy}:
 	}
 
 	return nil

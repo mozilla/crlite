@@ -208,6 +208,7 @@ type LogWorker struct {
 	LogMeta   *types.CTLogMetadata
 	STH       *ct.SignedTreeHead
 	LogState  *types.CTLogState
+	LogKeyId  [32]byte
 	WorkOrder LogWorkerTask
 	JobSize   uint64
 	MetricKey string
@@ -233,6 +234,12 @@ func NewLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *type
 	})
 	if err != nil {
 		glog.Errorf("[%s] Unable to construct CT log client: %s", ctLogMeta.URL, err)
+		return nil, err
+	}
+
+	logKeyId, err := logObj.KeyID()
+	if err != nil {
+		glog.Errorf("[%s] Could not parse log id: %s", ctLogMeta.URL, err)
 		return nil, err
 	}
 
@@ -285,6 +292,7 @@ func NewLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *type
 	return &LogWorker{
 		Client:    ctLog,
 		LogState:  logObj,
+		LogKeyId:  logKeyId,
 		LogMeta:   ctLogMeta,
 		STH:       sth,
 		WorkOrder: task,
@@ -525,11 +533,12 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 	lw.LogState.MaxTimestamp = uint64Max(lw.LogState.MaxTimestamp, maxTimestamp)
 	lw.LogState.LastUpdateTime = time.Now()
 
+	var emptyBytes [32]byte
 	stateCopy := *lw.LogState
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- LogSyncMessage{nil, nil, &stateCopy}:
+	case entryChan <- LogSyncMessage{nil, nil, 0, emptyBytes, &stateCopy}:
 	}
 
 	return nil
@@ -539,6 +548,7 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 	var cert *x509.Certificate
 	var err error
 	precert := false
+	entryTimestamp := logEntry.Leaf.TimestampedEntry.Timestamp
 
 	switch logEntry.Leaf.TimestampedEntry.EntryType {
 	case ct.X509LogEntryType:
@@ -611,7 +621,7 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("[%s] Cancelled", lw.Name())
-	case entryChan <- LogSyncMessage{cert, issuingCert, nil}:
+	case entryChan <- LogSyncMessage{cert, issuingCert, entryTimestamp, lw.LogKeyId, nil}:
 	}
 
 	return nil
