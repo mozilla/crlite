@@ -316,26 +316,3 @@ func (ec *MockRemoteCache) Restore(aEpoch uint64, aLogStates []types.CTLogState)
 
 	return nil
 }
-
-func (ec *MockRemoteCache) AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error {
-	key := fmt.Sprintf("preissuer::%s", aPreIssuer.ID())
-	added, err := ec.SetInsert(key, aIssuer.ID())
-	if err == nil && added {
-		glog.Warningf("Added preissuer alias %s -> %s", aPreIssuer.ID(), aIssuer.ID())
-	}
-	return err
-}
-
-func (ec *MockRemoteCache) GetPreIssuerAliases(aPreIssuer types.Issuer) ([]types.Issuer, error) {
-	key := fmt.Sprintf("preissuer::%s", aPreIssuer.ID())
-	aliases, err := ec.SetList(key)
-	if err != nil {
-		return nil, err
-	}
-
-	issuerList := make([]types.Issuer, 0, len(aliases))
-	for _, alias := range aliases {
-		issuerList = append(issuerList, types.NewIssuerFromString(alias))
-	}
-	return issuerList, nil
-}

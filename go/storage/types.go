@@ -28,8 +28,6 @@ type RemoteCache interface {
 	GetEpoch() (uint64, error)
 	NextEpoch() error
 	Restore(aEpoch uint64, aLogStates []types.CTLogState) error
-	AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error
-	GetPreIssuerAliases(aPreIssuer types.Issuer) ([]types.Issuer, error)
 	SetInsertMany(items []SetMemberWithExpiry) error
 }
 

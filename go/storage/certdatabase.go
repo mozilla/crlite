@@ -505,80 +505,6 @@ func (db *CertDatabase) moveCachedSerialsToStorage(aLogData []types.CTLogState) 
 	return nil
 }
 
-func (db *CertDatabase) moveOneBinOfAliasedSerials(aTmpDir string, aExpDate types.ExpDate, aPreIssuer types.Issuer, aIssuer types.Issuer) error {
-	aliasedSerials, err := db.ReadSerialsFromStorage(aExpDate, aPreIssuer)
-	if err != nil {
-		return err
-	}
-
-	if len(aliasedSerials) > 0 {
-		glog.Infof("[%s] Moving %d aliased serials from %s", aIssuer.ID(), len(aliasedSerials), aPreIssuer.ID())
-	} else {
-		return nil
-	}
-
-	storedSerials, err := db.ReadSerialsFromStorage(aExpDate, aIssuer)
-	if err != nil {
-		return err
-	}
-
-	// Concatenate the serial lists and remove any duplicates
-	serials := append(storedSerials, aliasedSerials...)
-	serials = types.SerialList(serials).Dedup()
-
-	// Write the merged serial list to a temporary file, and atomically
-	// overwrite the issuer's file if all goes well.
-	path := db.serialFile(aExpDate, aIssuer)
-	t, err := renameio.TempFile(aTmpDir, path)
-	if err != nil {
-		return err
-	}
-	defer t.Cleanup()
-
-	err = WriteSerialList(t, aExpDate, aIssuer, serials)
-	if err != nil {
-		return err
-	}
-
-	err = t.CloseAtomicallyReplace()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (db *CertDatabase) moveAliasedSerials() error {
-	issuerAndDatesList, err := db.GetIssuerAndDatesFromStorage()
-	if err != nil {
-		return err
-	}
-
-	for _, issuerAndDates := range issuerAndDatesList {
-		preissuer := issuerAndDates.Issuer
-		preissuerDates := issuerAndDates.ExpDates
-
-		aliases, err := db.cache.GetPreIssuerAliases(preissuer)
-		if err != nil {
-			return err
-		}
-		for _, issuer := range aliases {
-			tmpDir := renameio.TempDir(db.issuerDir(issuer))
-			err = os.MkdirAll(tmpDir, permModeDir)
-			if err != nil {
-				return err
-			}
-			for _, expDate := range preissuerDates {
-				err = db.moveOneBinOfAliasedSerials(tmpDir, expDate, preissuer, issuer)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
 func (db *CertDatabase) getStorageEpoch() (uint64, error) {
 	fd, err := os.Open(db.epochFile())
 	if errors.Is(err, os.ErrNotExist) {
@@ -678,11 +604,6 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 		return err
 	}
 
-	err = db.moveAliasedSerials()
-	if err != nil {
-		return err
-	}
-
 	// The data on disk is in a good state and we just have to increment
 	// the cache and storage epochs. We can ignore some errors here as long
 	// as the end result is that the cache is one epoch ahead of storage.
@@ -714,10 +635,6 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 	}
 
 	return nil
-}
-
-func (db *CertDatabase) AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error {
-	return db.cache.AddPreIssuerAlias(aPreIssuer, aIssuer)
 }
 
 // Returns true if this serial was unknown. Subsequent calls with the same serial

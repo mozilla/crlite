@@ -354,30 +354,3 @@ func (ec *RedisCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) erro
 
 	return nil
 }
-
-func (ec *RedisCache) AddPreIssuerAlias(aPreIssuer types.Issuer, aIssuer types.Issuer) error {
-	key := fmt.Sprintf("preissuer::%s", aPreIssuer.ID())
-	added, err := ec.SetInsert(key, aIssuer.ID())
-	if err == nil && added {
-		glog.Warningf("Added preissuer alias %s -> %s", aPreIssuer.ID(), aIssuer.ID())
-		// This alias will be preserved for one week. During this time
-		// any call to CertDatabase.Commit() will migrate serials from
-		// the preissuer's bin to the issuer's bin.
-		ec.ExpireAt(key, time.Now().AddDate(0, 0, 7))
-	}
-	return err
-}
-
-func (ec *RedisCache) GetPreIssuerAliases(aPreIssuer types.Issuer) ([]types.Issuer, error) {
-	key := fmt.Sprintf("preissuer::%s", aPreIssuer.ID())
-	aliases, err := ec.SetList(key)
-	if err != nil {
-		return nil, err
-	}
-
-	issuerList := make([]types.Issuer, 0, len(aliases))
-	for _, alias := range aliases {
-		issuerList = append(issuerList, types.NewIssuerFromString(alias))
-	}
-	return issuerList, nil
-}
