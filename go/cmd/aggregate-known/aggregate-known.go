@@ -86,16 +86,8 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				if err != nil {
 					glog.Fatalf("[%s] Could not read serials with expDate=%s: %s", tuple.issuer.ID(), expDate.ID(), err)
 				}
-				knownSetLen := uint64(len(knownSet))
 
-				if knownSetLen == 0 {
-					// This is almost certainly due to an hour-rollover since the loader ran, and expired all the next hour's
-					// certs.
-					glog.Warningf("No cached certificates for issuer=%s (%s) expDate=%s, but the loader thought there should be."+
-						" (current count this worker=%d)", tuple.issuerDN, tuple.issuer.ID(), expDate, serialCount)
-				}
-
-				serialCount += knownSetLen
+				serialCount += uint64(len(knownSet))
 				err = storage.WriteSerialList(writer, expDate, tuple.issuer, knownSet)
 				if err != nil {
 					glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
