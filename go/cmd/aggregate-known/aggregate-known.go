@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,12 +44,14 @@ type knownWorker struct {
 	certDB   storage.CertDatabase
 }
 
-func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-chan knownWorkUnit) {
+func (kw knownWorker) run(ctx context.Context, cancelMain context.CancelFunc, wg *sync.WaitGroup, workChan <-chan knownWorkUnit) {
 	defer wg.Done()
 
 	err := os.MkdirAll(kw.savePath, permModeDir)
 	if err != nil && !os.IsExist(err) {
-		glog.Fatalf("Could not make directory %s: %s", kw.savePath, err)
+		glog.Errorf("Could not make directory %s: %s", kw.savePath, err)
+		cancelMain()
+		return
 	}
 
 	for tuple := range workChan {
@@ -57,7 +60,9 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 			path := filepath.Join(kw.savePath, tuple.issuer.ID())
 			fd, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, permMode)
 			if err != nil {
-				glog.Fatalf("[%s] Could not open known certificates file: %s", tuple.issuer.ID(), err)
+				glog.Errorf("[%s] Could not open known certificates file: %s", tuple.issuer.ID(), err)
+				cancelMain()
+				return
 			}
 			defer fd.Close()
 
@@ -84,13 +89,17 @@ func (kw knownWorker) run(ctx context.Context, wg *sync.WaitGroup, workChan <-ch
 				// Sharded by expiry date, so this should be fairly small.
 				knownSet, err := kw.certDB.ReadSerialsFromStorage(expDate, tuple.issuer)
 				if err != nil {
-					glog.Fatalf("[%s] Could not read serials with expDate=%s: %s", tuple.issuer.ID(), expDate.ID(), err)
+					glog.Errorf("[%s] Could not read serials with expDate=%s: %s", tuple.issuer.ID(), expDate.ID(), err)
+					cancelMain()
+					return
 				}
 
 				serialCount += uint64(len(knownSet))
 				err = storage.WriteSerialList(writer, expDate, tuple.issuer, knownSet)
 				if err != nil {
-					glog.Fatalf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
+					glog.Errorf("[%s] Could not write serials: %s", tuple.issuer.ID(), err)
+					cancelMain()
+					return
 				}
 			}
 			glog.Infof("[%s] %d total known serials for %s (shards=%d)", tuple.issuer.ID(),
@@ -113,7 +122,7 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 	}
 }
 
-func main() {
+func work() error {
 	ctconfig.Init()
 
 	ctx := context.Background()
@@ -138,14 +147,14 @@ func main() {
 	checkPathArg(*ctlogspath, "ctlogspath", ctconfig)
 
 	if err := os.MkdirAll(*knownpath, permModeDir); err != nil {
-		glog.Fatalf("Unable to make the output directory: %s", err)
+		return fmt.Errorf("Unable to make the output directory: %s", err)
 	}
 
 	engine.PrepareTelemetry("aggregate-known", ctconfig)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if err := mozIssuers.LoadEnrolledIssuers(*enrolledpath); err != nil {
-		glog.Fatalf("Failed to load enrolled issuers from disk: %s", err)
+		return fmt.Errorf("Failed to load enrolled issuers from disk: %s", err)
 	}
 
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
@@ -153,35 +162,35 @@ func main() {
 	glog.Infof("Committing DB changes since last run")
 	commitToken, err := cache.AcquireCommitLock()
 	if err != nil || commitToken == nil {
-		glog.Fatalf("Failed to acquire commit lock: %s", err)
+		return fmt.Errorf("Failed to acquire commit lock: %s", err)
 	}
 	defer cache.ReleaseCommitLock(*commitToken)
 
 	err = certDB.Commit(*commitToken)
 	if err != nil {
-		glog.Fatalf("Error in commit: %s", err)
+		return fmt.Errorf("Error in commit: %s", err)
 	}
 
 	logList, err := certDB.GetCTLogsFromStorage()
 	if err != nil {
-		glog.Fatalf("Error reading coverage metadata: %s", err)
+		return fmt.Errorf("Error reading coverage metadata: %s", err)
 	}
 
 	ctLogFD, err := os.OpenFile(*ctlogspath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		glog.Fatalf("Error opening %s: %s", *ctlogspath, err)
+		return fmt.Errorf("Error opening %s: %s", *ctlogspath, err)
 	}
 
 	enc := json.NewEncoder(ctLogFD)
 	if err := enc.Encode(logList); err != nil {
-		glog.Fatalf("Error marshaling ct-logs list %s: %s", *ctlogspath, err)
+		return fmt.Errorf("Error marshaling ct-logs list %s: %s", *ctlogspath, err)
 	}
 	ctLogFD.Close()
 
 	glog.Infof("Listing issuers and their expiration dates...")
 	issuerList, err := certDB.GetIssuerAndDatesFromStorage()
 	if err != nil {
-		glog.Fatal(err)
+		return err
 	}
 
 	var count int64
@@ -213,7 +222,7 @@ func main() {
 		select {
 		case workChan <- wu:
 		default:
-			glog.Fatalf("Channel overflow. Aborting at %+v", wu)
+			return fmt.Errorf("Channel overflow. Aborting at %+v", wu)
 		}
 	}
 	// Signal that was the last work
@@ -230,8 +239,20 @@ func main() {
 			savePath: *knownpath,
 			certDB:   certDB,
 		}
-		go worker.run(ctx, &wg, workChan)
+		go worker.run(ctx, cancelMain, &wg, workChan)
 	}
 
 	wg.Wait()
+
+	// The workers either ran to completion or they were cancelled. In the
+	// latter case we want the error to bubble up to a non-zero return code
+	// for the process.
+	return ctx.Err()
+}
+
+func main() {
+	err := work()
+	if err != nil {
+		glog.Fatal(err)
+	}
 }
