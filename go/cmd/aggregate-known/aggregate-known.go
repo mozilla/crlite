@@ -122,6 +122,18 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 	}
 }
 
+func waitForCommitLock(cache storage.RemoteCache) (*string, error) {
+	start := time.Now()
+	for time.Since(start) < 15*time.Minute {
+		commitToken, err := cache.AcquireCommitLock()
+		if err == nil && commitToken != nil {
+			return commitToken, err
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return nil, fmt.Errorf("Timed out waiting for commit lock")
+}
+
 func work() error {
 	ctconfig.Init()
 
@@ -160,7 +172,7 @@ func work() error {
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
 
 	glog.Infof("Committing DB changes since last run")
-	commitToken, err := cache.AcquireCommitLock()
+	commitToken, err := waitForCommitLock(cache)
 	if err != nil || commitToken == nil {
 		return fmt.Errorf("Failed to acquire commit lock: %s", err)
 	}
