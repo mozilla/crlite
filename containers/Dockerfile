@@ -6,6 +6,7 @@ RUN mkdir bin gopath
 ENV GOPATH=/build/gopath
 RUN go build -o bin/aggregate-crls /build/cmd/aggregate-crls
 RUN go build -o bin/aggregate-known /build/cmd/aggregate-known
+RUN go build -o bin/commit /build/cmd/commit
 RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 
 FROM rust:latest AS rust-builder
