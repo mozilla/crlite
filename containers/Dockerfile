@@ -1,4 +1,4 @@
-FROM golang:1.24.5-bookworm AS go-builder
+FROM golang:1.24.6-bookworm AS go-builder
 RUN mkdir /build
 ADD go /build/
 WORKDIR /build
@@ -21,7 +21,7 @@ WORKDIR /build/rust-query-crlite
 RUN cargo build --release --target-dir /build
 
 
-FROM python:3.12.2-slim-bookworm
+FROM python:3.13.6-slim-bookworm
 RUN apt update \
     && apt install -y ca-certificates \
     && apt -y upgrade \

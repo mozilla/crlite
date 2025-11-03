@@ -3,12 +3,12 @@ module github.com/mozilla/crlite/go
 require (
 	filippo.io/sunlight v0.5.2
 	filippo.io/torchwood v0.5.1-0.20250713221105-b067ac9d4cf6
-	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+	github.com/bluele/gcache v0.0.2
 	github.com/go-redis/redis v6.15.9+incompatible
-	github.com/golang/glog v1.2.4
+	github.com/golang/glog v1.2.5
 	github.com/google/certificate-transparency-go v1.3.2
 	github.com/google/renameio v1.0.1
-	github.com/hashicorp/go-metrics v0.5.3
+	github.com/hashicorp/go-metrics v0.5.4
 	github.com/jpillora/backoff v1.0.0
 	gopkg.in/ini.v1 v1.67.0
 )
@@ -28,4 +28,4 @@ require (
 
 go 1.24.4
 
-toolchain go1.24.5
+toolchain go1.24.6
