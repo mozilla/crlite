@@ -199,11 +199,8 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 	}
 
 	if len(logEntry.ChainFingerprints) < 1 {
-		// Hard to imagine how this would happen, as even a self-signed
-		// cert has a non-empty chain. But if it does happen we shouldn't
-		// be relying on this CT log.
-		return false, fmt.Errorf("[%s] No chain for certificate index=%d serial=%s subject=%+v issuer=%+v",
-			lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+		// Skip self-signed root certificates
+		return true, nil
 	}
 
 	preIssuerOrIssuingCert, err := lw.GetCertificate(ctx, hex.EncodeToString(logEntry.ChainFingerprints[0][:]))
@@ -221,7 +218,10 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 		}
 
 		if len(logEntry.ChainFingerprints) < 2 {
-			// As above, this shouldn't happen.
+			// The final entry of the certificate_chain array MUST
+			// correspond to a root CA accepted by the log The
+			// percertificate signing certificate cannot itself be
+			// a root CA accepted by the log.
 			return false, fmt.Errorf("[%s] No issuer known for certificate index=%d serial=%s subject=%+v issuer=%+v",
 				lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 		}

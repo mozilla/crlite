@@ -570,12 +570,9 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 		return nil
 	}
 
+	// Skip self-signed root certificates
 	if len(logEntry.Chain) < 1 {
-		// Hard to imagine how this would happen, as even a self-signed
-		// cert has a non-empty chain. But if it does happen we shouldn't
-		// be relying on this CT log.
-		return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-			lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+		return nil
 	}
 
 	preIssuerOrIssuingCert, err := x509.ParseCertificate(logEntry.Chain[0].Data)
@@ -599,7 +596,10 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 		}
 
 		if len(logEntry.Chain) < 2 {
-			// As above, this shouldn't happen.
+			// The final entry of the certificate_chain array MUST
+			// correspond to a root CA accepted by the log The
+			// percertificate signing certificate cannot itself be
+			// a root CA accepted by the log.
 			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
 				lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
 		}
