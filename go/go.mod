@@ -9,7 +9,6 @@ require (
 	github.com/google/certificate-transparency-go v1.3.2
 	github.com/google/renameio v1.0.1
 	github.com/hashicorp/go-metrics v0.5.3
-	github.com/jpillora/backoff v1.0.0
 	gopkg.in/ini.v1 v1.67.0
 )
 

@@ -17,7 +17,6 @@ import (
 	"github.com/google/certificate-transparency-go/jsonclient"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/hashicorp/go-metrics"
-	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"
 )
@@ -631,11 +630,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 	var minTimestamp uint64
 	var maxTimestamp uint64
 
-	b := &backoff.Backoff{
-		Jitter: true,
-		Min:    5 * time.Second,
-		Max:    10 * time.Minute,
-	}
+	const minBackoff = 5 * time.Second
+	const maxBackoff = 10 * time.Minute
+	backoffDuration := minBackoff
 
 	index := verifier.Subtree.First
 	last := verifier.Subtree.Last
@@ -644,17 +641,24 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
-				d := b.Duration()
-				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, d, err)
+				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, backoffDuration, err)
 
-				time.Sleep(d)
+				select {
+				case <-ctx.Done():
+					return minTimestamp, maxTimestamp, ctx.Err()
+				case <-time.After(backoffDuration):
+				}
+
+				backoffDuration *= 2
+				if backoffDuration > maxBackoff {
+					backoffDuration = maxBackoff
+				}
 				continue
 			}
 
 			glog.Warningf("Failed to get entries: %v", err)
 			return minTimestamp, maxTimestamp, err
 		}
-		b.Reset()
 
 		for _, entry := range resp.Entries {
 			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
