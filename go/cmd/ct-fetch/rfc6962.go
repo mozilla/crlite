@@ -543,19 +543,10 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 }
 
 func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEntry, entryChan chan<- LogSyncMessage) error {
-	var cert *types.Certificate
-	var err error
-	precert := false
 	entryTimestamp := rawLogEntry.Leaf.TimestampedEntry.Timestamp
 
-	switch rawLogEntry.Leaf.TimestampedEntry.EntryType {
-	case ct.X509LogEntryType:
-		cert, err = types.ParseCertificate(rawLogEntry.Cert.Data)
-	case ct.PrecertLogEntryType:
-		cert, err = types.ParseCertificate(rawLogEntry.Cert.Data)
-		precert = true
-	}
-
+	precert := rawLogEntry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType
+	cert, err := types.ParseCertificate(rawLogEntry.Cert.Data)
 	if cert == nil {
 		return fmt.Errorf("[%s] Fatal parsing error: index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}

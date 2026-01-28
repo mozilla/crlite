@@ -508,12 +508,3 @@ type IssuerDate struct {
 	Issuer   Issuer
 	ExpDates []ExpDate
 }
-
-func IsPreIssuer(issuer *ctx509.Certificate) bool {
-	for _, eku := range issuer.ExtKeyUsage {
-		if eku == ctx509.ExtKeyUsageCertificateTransparency {
-			return true
-		}
-	}
-	return false
-}

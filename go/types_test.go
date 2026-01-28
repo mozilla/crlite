@@ -4,8 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"testing"
-
-	"github.com/google/certificate-transparency-go/x509"
 )
 
 const (
@@ -89,23 +87,23 @@ func Test_DecodeCRL(t *testing.T) {
 func TestDetectPrecertSigningEKU(t *testing.T) {
 	b, _ := pem.Decode([]byte(kCtPrecertificateSigningEku))
 
-	cert, err := x509.ParseCertificate(b.Bytes)
+	cert, err := ParseCertificate(b.Bytes)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if !IsPreIssuer(cert) {
+	if !cert.IsPreIssuer() {
 		t.Errorf("Failed to identify preissuer")
 	}
 
 	b, _ = pem.Decode([]byte(kNoCtPrecertificateSigningEku))
 
-	cert, err = x509.ParseCertificate(b.Bytes)
+	cert, err = ParseCertificate(b.Bytes)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if IsPreIssuer(cert) {
+	if cert.IsPreIssuer() {
 		t.Errorf("Bad result from IsPreIssuer")
 	}
 }
