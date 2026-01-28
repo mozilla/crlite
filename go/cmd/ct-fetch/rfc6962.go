@@ -15,7 +15,6 @@ import (
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
-	"github.com/google/certificate-transparency-go/x509"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/mozilla/crlite/go"
@@ -544,16 +543,16 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 }
 
 func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEntry, entryChan chan<- LogSyncMessage) error {
-	var cert *x509.Certificate
+	var cert *types.Certificate
 	var err error
 	precert := false
 	entryTimestamp := rawLogEntry.Leaf.TimestampedEntry.Timestamp
 
 	switch rawLogEntry.Leaf.TimestampedEntry.EntryType {
 	case ct.X509LogEntryType:
-		cert, err = x509.ParseCertificate(rawLogEntry.Cert.Data)
+		cert, err = types.ParseCertificate(rawLogEntry.Cert.Data)
 	case ct.PrecertLogEntryType:
-		cert, err = x509.ParseCertificate(rawLogEntry.Cert.Data)
+		cert, err = types.ParseCertificate(rawLogEntry.Cert.Data)
 		precert = true
 	}
 
@@ -565,7 +564,7 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEn
 	}
 
 	// Skip expired certificates unless configured otherwise
-	if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+	if cert.NotAfter().Before(time.Now()) && !*ctconfig.LogExpiredEntries {
 		return nil
 	}
 
@@ -574,7 +573,7 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEn
 		return nil
 	}
 
-	preIssuerOrIssuingCert, err := x509.ParseCertificate(rawLogEntry.Chain[0].Data)
+	preIssuerOrIssuingCert, err := types.ParseCertificate(rawLogEntry.Chain[0].Data)
 	if preIssuerOrIssuingCert == nil {
 		return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}
@@ -588,8 +587,8 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEn
 	// certificate that will ultimately sign the end-entity". In
 	// this case, the certificate that will issue the final cert is
 	// the second entry in the chain (rawLogEntry.Chain[1]).
-	var issuingCert *x509.Certificate
-	if types.IsPreIssuer(preIssuerOrIssuingCert) {
+	var issuingCert *types.Certificate
+	if preIssuerOrIssuingCert.IsPreIssuer() {
 		if !precert {
 			glog.Warningf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", lw.LogMeta.URL, rawLogEntry.Index)
 		}
@@ -599,16 +598,16 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEn
 			// correspond to a root CA accepted by the log The
 			// percertificate signing certificate cannot itself be
 			// a root CA accepted by the log.
-			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-				lw.LogMeta.URL, precert, rawLogEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s",
+				lw.LogMeta.URL, precert, rawLogEntry.Index, types.NewSerialFromCertificate(cert).String())
 		}
 
-		issuingCert, err = x509.ParseCertificate(rawLogEntry.Chain[1].Data)
+		issuingCert, err = types.ParseCertificate(rawLogEntry.Chain[1].Data)
 		if issuingCert == nil {
-			return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
+			return fmt.Errorf("[%s] Fatal parsing error (chain[1]): index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 		}
 		if err != nil {
-			glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, rawLogEntry.Index, err)
+			glog.Warningf("[%s] Nonfatal parsing error (chain[1]): index: %d error: %s", lw.LogMeta.URL, rawLogEntry.Index, err)
 		}
 	} else {
 		issuingCert = preIssuerOrIssuingCert

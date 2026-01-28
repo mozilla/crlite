@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/google/certificate-transparency-go/x509"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/mozilla/crlite/go"
@@ -59,8 +58,8 @@ var (
 // For efficiency, LogWorkers should submit many LogSyncMessages with nil
 // LogState fields before submitting one with a non-nil LogState field.
 type LogSyncMessage struct {
-	Certificate *x509.Certificate
-	Issuer      *x509.Certificate
+	Certificate *types.Certificate
+	Issuer      *types.Certificate
 	Timestamp   uint64
 	LogId       [32]byte
 	LogState    *types.CTLogState
@@ -105,7 +104,7 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 	// prefix>/issuer/<fingerprint>. The cache mapping fingerprints to
 	// certificates is stored here in SyncLog so that it can persist across
 	// many TiledLogWorker jobs.
-	issuerMap := map[string]*x509.Certificate{}
+	issuerMap := map[string]*types.Certificate{}
 
 	for {
 		if !enrolledLogs.IsEnrolled(logMeta.LogID) {

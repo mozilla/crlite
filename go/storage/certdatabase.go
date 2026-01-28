@@ -16,7 +16,6 @@ import (
 
 	"github.com/bluele/gcache"
 	"github.com/golang/glog"
-	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/renameio"
 
 	"github.com/mozilla/crlite/go"
@@ -276,10 +275,10 @@ func (db *CertDatabase) GetLogState(aUrl *url.URL) (*types.CTLogState, error) {
 	}, nil
 }
 
-func (db *CertDatabase) PrepareSetMember(aCertificate, aIssuer *x509.Certificate, aTimestamp uint64, aLogId [32]byte) SetMemberWithExpiry {
-	expDate := types.NewExpDateFromTime(aCertificate.NotAfter)
-	issuer := types.NewIssuer(aIssuer)
-	serial := types.NewSerial(aCertificate)
+func (db *CertDatabase) PrepareSetMember(aCertificate, aIssuer *types.Certificate, aTimestamp uint64, aLogId [32]byte) SetMemberWithExpiry {
+	expDate := types.NewExpDateFromTime(aCertificate.NotAfter())
+	issuer := types.NewIssuerFromCertificate(aIssuer)
+	serial := types.NewSerialFromCertificate(aCertificate)
 	return db.GetSerialCacheKey(expDate, issuer).NewMember(aTimestamp, aLogId, serial)
 }
 
