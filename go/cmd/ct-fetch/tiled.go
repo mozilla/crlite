@@ -13,8 +13,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/hashicorp/go-metrics"
 
-	"github.com/google/certificate-transparency-go/x509"
-
 	types "github.com/mozilla/crlite/go"
 )
 
@@ -25,13 +23,13 @@ type TiledLogWorker struct {
 	SthTimestamp uint64
 	LogState     *types.CTLogState
 	LogKeyId     [32]byte
-	IssuerMap    *map[string]*x509.Certificate
+	IssuerMap    *map[string]*types.Certificate
 	WorkOrder    LogWorkerTask
 	BatchSize    uint64
 	MetricKey    string
 }
 
-func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *types.CTLogMetadata, issuerMap *map[string]*x509.Certificate) (*TiledLogWorker, error) {
+func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta *types.CTLogMetadata, issuerMap *map[string]*types.Certificate) (*TiledLogWorker, error) {
 	batchSize := *ctconfig.BatchSize
 
 	if logObj.LogID != ctLogMeta.LogID {
@@ -126,7 +124,7 @@ func NewTiledLogWorker(ctx context.Context, logObj *types.CTLogState, ctLogMeta 
 //
 //	(nil, nil) indicates an intermittent network error,
 //	(nil, err) indicates a fatal error that should halt log ingestion.
-func (lw TiledLogWorker) GetCertificate(ctx context.Context, fingerprint string) (*x509.Certificate, error) {
+func (lw TiledLogWorker) GetCertificate(ctx context.Context, fingerprint string) (*types.Certificate, error) {
 	cert, prs := (*lw.IssuerMap)[fingerprint]
 	if prs {
 		return cert, nil
@@ -141,7 +139,7 @@ func (lw TiledLogWorker) GetCertificate(ctx context.Context, fingerprint string)
 		return nil, nil
 	}
 
-	cert, err = x509.ParseCertificate(data)
+	cert, err = types.ParseCertificate(data)
 	if cert == nil {
 		return nil, fmt.Errorf("[%s] Fatal parsing error: fingerprint: %s error: %s", lw.Name(), fingerprint, err)
 	}
@@ -177,14 +175,14 @@ func (lw *TiledLogWorker) sleep(ctx context.Context) {
 //   - (false, nil) indicates that there was a network error and that the TiledLogWorker should go to sleep,
 //   - (false, err) indicates a fatal error that should halt log ingestion.
 func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.LogEntry, entryChan chan<- LogSyncMessage) (bool, error) {
-	var cert *x509.Certificate
+	var cert *types.Certificate
 	var err error
 	timestamp := uint64(logEntry.Timestamp)
 
 	if logEntry.IsPrecert {
-		cert, err = x509.ParseCertificate(logEntry.PreCertificate)
+		cert, err = types.ParseCertificate(logEntry.PreCertificate)
 	} else {
-		cert, err = x509.ParseCertificate(logEntry.Certificate)
+		cert, err = types.ParseCertificate(logEntry.Certificate)
 	}
 	if cert == nil {
 		return false, fmt.Errorf("[%s] Fatal parsing error: index: %d error: %s", lw.Name(), logEntry.LeafIndex, err)
@@ -193,7 +191,7 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 		glog.Warningf("[%s] Nonfatal parsing error: index: %d error: %s", lw.Name(), logEntry.LeafIndex, err)
 	}
 
-	if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+	if cert.NotAfter().Before(time.Now()) && !*ctconfig.LogExpiredEntries {
 		// Skip expired certificate
 		return true, nil
 	}
@@ -211,8 +209,8 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 		return false, nil
 	}
 
-	var issuingCert *x509.Certificate
-	if types.IsPreIssuer(preIssuerOrIssuingCert) {
+	var issuingCert *types.Certificate
+	if preIssuerOrIssuingCert.IsPreIssuer() {
 		if !logEntry.IsPrecert {
 			glog.Warningf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", lw.Name(), logEntry.LeafIndex)
 		}
@@ -222,8 +220,8 @@ func (lw *TiledLogWorker) storeLogEntry(ctx context.Context, logEntry *sunlight.
 			// correspond to a root CA accepted by the log The
 			// percertificate signing certificate cannot itself be
 			// a root CA accepted by the log.
-			return false, fmt.Errorf("[%s] No issuer known for certificate index=%d serial=%s subject=%+v issuer=%+v",
-				lw.Name(), logEntry.LeafIndex, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+			return false, fmt.Errorf("[%s] No issuer known for certificate index=%d serial=%s",
+				lw.Name(), logEntry.LeafIndex, types.NewSerialFromCertificate(cert).String())
 		}
 
 		issuingCert, err = lw.GetCertificate(ctx, hex.EncodeToString(logEntry.ChainFingerprints[1][:]))

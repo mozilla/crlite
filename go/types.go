@@ -9,11 +9,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/google/certificate-transparency-go/x509"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
+
+	ctx509 "github.com/google/certificate-transparency-go/x509"
+	zcasn1 "github.com/zmap/zcrypto/encoding/asn1"
+	zcx509 "github.com/zmap/zcrypto/x509"
 )
 
 const (
@@ -24,6 +27,82 @@ const (
 var (
 	kOidExtensionReasonCode = []int{2, 5, 29, 21}
 )
+
+type Certificate struct {
+	ctCert *ctx509.Certificate
+	zcCert *zcx509.Certificate
+}
+
+func ParseCertificate(der []byte) (*Certificate, error) {
+	ctCert, ctErr := ctx509.ParseCertificate(der)
+	if ctCert != nil {
+		return &Certificate{ctCert: ctCert}, ctErr
+	}
+
+	zcCert, zcErr := zcx509.ParseCertificate(der)
+	if zcCert != nil {
+		return &Certificate{zcCert: zcCert}, zcErr
+	}
+
+	return nil, ctErr
+}
+
+func (c *Certificate) NotAfter() time.Time {
+	if c.ctCert != nil {
+		return c.ctCert.NotAfter
+	}
+	return c.zcCert.NotAfter
+}
+
+func (c *Certificate) NotBefore() time.Time {
+	if c.ctCert != nil {
+		return c.ctCert.NotBefore
+	}
+	return c.zcCert.NotBefore
+}
+
+func (c *Certificate) RawTBSCertificate() []byte {
+	if c.ctCert != nil {
+		return c.ctCert.RawTBSCertificate
+	}
+	return c.zcCert.RawTBSCertificate
+}
+
+func (c *Certificate) RawSubjectPublicKeyInfo() []byte {
+	if c.ctCert != nil {
+		return c.ctCert.RawSubjectPublicKeyInfo
+	}
+	return c.zcCert.RawSubjectPublicKeyInfo
+}
+
+func (c *Certificate) IsPreIssuer() bool {
+	if c.ctCert != nil {
+		for _, eku := range c.ctCert.ExtKeyUsage {
+			if eku == ctx509.ExtKeyUsageCertificateTransparency {
+				return true
+			}
+		}
+		return false
+	}
+
+	// For zcrypto certificates, check the UnknownExtKeyUsage array for the CT OID
+	// OID 1.3.6.1.4.1.11129.2.4.4 (Certificate Transparency)
+	ctOID := zcasn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 4}
+	for _, oid := range c.zcCert.UnknownExtKeyUsage {
+		if oid.Equal(ctOID) {
+			return true
+		}
+	}
+	return false
+}
+
+func NewSerialFromCertificate(aCert *Certificate) Serial {
+	return NewSerialFromTBS(aCert.RawTBSCertificate())
+}
+
+func NewIssuerFromCertificate(aCert *Certificate) Issuer {
+	return NewIssuerFromSPKI(aCert.RawSubjectPublicKeyInfo())
+}
 
 /* The CTLogMetadata struct contains the information that we receive
  * `ct-logs` Remote Settings collection. */
@@ -42,7 +121,7 @@ func (o *CTLogMetadata) PublicKey() (crypto.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return x509.ParsePKIXPublicKey(der)
+	return ctx509.ParsePKIXPublicKey(der)
 }
 
 func (o *CTLogMetadata) MetricKey() string {
@@ -114,10 +193,18 @@ type Issuer struct {
 	spki SPKI
 }
 
-func NewIssuer(aCert *x509.Certificate) Issuer {
+func NewIssuer(aCert *ctx509.Certificate) Issuer {
 	obj := Issuer{
 		id:   nil,
 		spki: SPKI{aCert.RawSubjectPublicKeyInfo},
+	}
+	return obj
+}
+
+func NewIssuerFromSPKI(spkiBytes []byte) Issuer {
+	obj := Issuer{
+		id:   nil,
+		spki: SPKI{spkiBytes},
 	}
 	return obj
 }
@@ -327,9 +414,18 @@ type tbsCertWithRawSerial struct {
 	SerialNumber asn1.RawValue
 }
 
-func NewSerial(aCert *x509.Certificate) Serial {
+func NewSerial(aCert *ctx509.Certificate) Serial {
 	var tbsCert tbsCertWithRawSerial
 	_, err := asn1.Unmarshal(aCert.RawTBSCertificate, &tbsCert)
+	if err != nil {
+		panic(err)
+	}
+	return NewSerialFromBytes(tbsCert.SerialNumber.Bytes)
+}
+
+func NewSerialFromTBS(rawTBS []byte) Serial {
+	var tbsCert tbsCertWithRawSerial
+	_, err := asn1.Unmarshal(rawTBS, &tbsCert)
 	if err != nil {
 		panic(err)
 	}
@@ -411,13 +507,4 @@ func (e ExpDate) ID() string {
 type IssuerDate struct {
 	Issuer   Issuer
 	ExpDates []ExpDate
-}
-
-func IsPreIssuer(issuer *x509.Certificate) bool {
-	for _, eku := range issuer.ExtKeyUsage {
-		if eku == x509.ExtKeyUsageCertificateTransparency {
-			return true
-		}
-	}
-	return false
 }

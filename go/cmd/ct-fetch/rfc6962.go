@@ -15,9 +15,7 @@ import (
 	"github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
-	"github.com/google/certificate-transparency-go/x509"
 	"github.com/hashicorp/go-metrics"
-	"github.com/jpillora/backoff"
 
 	"github.com/mozilla/crlite/go"
 )
@@ -544,43 +542,34 @@ func (lw *LogWorker) updateState(ctx context.Context, newSubtree *CtLogSubtree, 
 	return nil
 }
 
-func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, entryChan chan<- LogSyncMessage) error {
-	var cert *x509.Certificate
-	var err error
-	precert := false
-	entryTimestamp := logEntry.Leaf.TimestampedEntry.Timestamp
+func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEntry, entryChan chan<- LogSyncMessage) error {
+	entryTimestamp := rawLogEntry.Leaf.TimestampedEntry.Timestamp
 
-	switch logEntry.Leaf.TimestampedEntry.EntryType {
-	case ct.X509LogEntryType:
-		cert = logEntry.X509Cert
-	case ct.PrecertLogEntryType:
-		cert, err = x509.ParseCertificate(logEntry.Precert.Submitted.Data)
-		precert = true
-	}
-
+	precert := rawLogEntry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType
+	cert, err := types.ParseCertificate(rawLogEntry.Cert.Data)
 	if cert == nil {
-		return fmt.Errorf("[%s] Fatal parsing error: index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+		return fmt.Errorf("[%s] Fatal parsing error: index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}
 	if err != nil {
-		glog.Warningf("[%s] Nonfatal parsing error: index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+		glog.Warningf("[%s] Nonfatal parsing error: index: %d error: %s", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}
 
 	// Skip expired certificates unless configured otherwise
-	if cert.NotAfter.Before(time.Now()) && !*ctconfig.LogExpiredEntries {
+	if cert.NotAfter().Before(time.Now()) && !*ctconfig.LogExpiredEntries {
 		return nil
 	}
 
 	// Skip self-signed root certificates
-	if len(logEntry.Chain) < 1 {
+	if len(rawLogEntry.Chain) < 1 {
 		return nil
 	}
 
-	preIssuerOrIssuingCert, err := x509.ParseCertificate(logEntry.Chain[0].Data)
+	preIssuerOrIssuingCert, err := types.ParseCertificate(rawLogEntry.Chain[0].Data)
 	if preIssuerOrIssuingCert == nil {
-		return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+		return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}
 	if err != nil {
-		glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+		glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, rawLogEntry.Index, err)
 	}
 
 	// RFC 6962 allows a precertificate to be signed by "a
@@ -588,28 +577,28 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, logEntry *ct.LogEntry, e
 	// [that is] certified by the (root or intermediate) CA
 	// certificate that will ultimately sign the end-entity". In
 	// this case, the certificate that will issue the final cert is
-	// the second entry in the chain (logEntry.Chain[1]).
-	var issuingCert *x509.Certificate
-	if types.IsPreIssuer(preIssuerOrIssuingCert) {
+	// the second entry in the chain (rawLogEntry.Chain[1]).
+	var issuingCert *types.Certificate
+	if preIssuerOrIssuingCert.IsPreIssuer() {
 		if !precert {
-			glog.Warningf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", lw.LogMeta.URL, logEntry.Index)
+			glog.Warningf("[%s] X509LogEntry issuer has precertificate signing EKU: index: %d", lw.LogMeta.URL, rawLogEntry.Index)
 		}
 
-		if len(logEntry.Chain) < 2 {
+		if len(rawLogEntry.Chain) < 2 {
 			// The final entry of the certificate_chain array MUST
 			// correspond to a root CA accepted by the log The
 			// percertificate signing certificate cannot itself be
 			// a root CA accepted by the log.
-			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s subject=%+v issuer=%+v",
-				lw.LogMeta.URL, precert, logEntry.Index, types.NewSerial(cert).String(), cert.Subject, cert.Issuer)
+			return fmt.Errorf("[%s] No issuer known for certificate precert=%v index=%d serial=%s",
+				lw.LogMeta.URL, precert, rawLogEntry.Index, types.NewSerialFromCertificate(cert).String())
 		}
 
-		issuingCert, err = x509.ParseCertificate(logEntry.Chain[1].Data)
+		issuingCert, err = types.ParseCertificate(rawLogEntry.Chain[1].Data)
 		if issuingCert == nil {
-			return fmt.Errorf("[%s] Fatal parsing error (chain[0]): index: %d error: %v", lw.LogMeta.URL, logEntry.Index, err)
+			return fmt.Errorf("[%s] Fatal parsing error (chain[1]): index: %d error: %v", lw.LogMeta.URL, rawLogEntry.Index, err)
 		}
 		if err != nil {
-			glog.Warningf("[%s] Nonfatal parsing error (chain[0]): index: %d error: %s", lw.LogMeta.URL, logEntry.Index, err)
+			glog.Warningf("[%s] Nonfatal parsing error (chain[1]): index: %d error: %s", lw.LogMeta.URL, rawLogEntry.Index, err)
 		}
 	} else {
 		issuingCert = preIssuerOrIssuingCert
@@ -631,11 +620,9 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 	var minTimestamp uint64
 	var maxTimestamp uint64
 
-	b := &backoff.Backoff{
-		Jitter: true,
-		Min:    5 * time.Second,
-		Max:    10 * time.Minute,
-	}
+	const minBackoff = 5 * time.Second
+	const maxBackoff = 10 * time.Minute
+	backoffDuration := minBackoff
 
 	index := verifier.Subtree.First
 	last := verifier.Subtree.Last
@@ -644,22 +631,29 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP Status") &&
 				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
-				d := b.Duration()
-				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, d, err)
+				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, backoffDuration, err)
 
-				time.Sleep(d)
+				select {
+				case <-ctx.Done():
+					return minTimestamp, maxTimestamp, ctx.Err()
+				case <-time.After(backoffDuration):
+				}
+
+				backoffDuration *= 2
+				if backoffDuration > maxBackoff {
+					backoffDuration = maxBackoff
+				}
 				continue
 			}
 
 			glog.Warningf("Failed to get entries: %v", err)
 			return minTimestamp, maxTimestamp, err
 		}
-		b.Reset()
 
 		for _, entry := range resp.Entries {
-			logEntry, err := ct.LogEntryFromLeaf(int64(index), &entry)
-			if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
-				glog.Warningf("Erroneous certificate: log=%s index=%d err=%v",
+			rawLogEntry, err := ct.RawLogEntryFromLeaf(int64(index), &entry)
+			if err != nil {
+				glog.Warningf("Erroneous entry (TLS parsing): log=%s index=%d err=%v",
 					lw.Name(), index, err)
 
 				// This is a serious error that prevents us from ingesting a log, so
@@ -671,13 +665,13 @@ func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtL
 				continue
 			}
 
-			err = lw.storeLogEntry(ctx, logEntry, entryChan)
+			err = lw.storeLogEntry(ctx, rawLogEntry, entryChan)
 			if err != nil {
 				return minTimestamp, maxTimestamp, err
 			}
 
 			// Update the metadata that we will pass to mergeSubtree.
-			entryTimestamp := logEntry.Leaf.TimestampedEntry.Timestamp
+			entryTimestamp := rawLogEntry.Leaf.TimestampedEntry.Timestamp
 			if minTimestamp == 0 || entryTimestamp < minTimestamp {
 				minTimestamp = entryTimestamp
 			}
