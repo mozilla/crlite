@@ -17,7 +17,8 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/google/certificate-transparency-go/x509"
+	ctx509 "github.com/google/certificate-transparency-go/x509"
+	zcx509 "github.com/zmap/zcrypto/x509"
 
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
@@ -28,7 +29,7 @@ const (
 )
 
 type issuerCert struct {
-	cert      *x509.Certificate
+	cert      *ctx509.Certificate
 	subjectDN string
 	pemInfo   string
 }
@@ -134,12 +135,12 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	defer mi.mutex.Unlock()
 	mi.modTime = fi.ModTime()
 
-	intermediateCerts := make(map[string]*x509.Certificate)
+	intermediateCerts := make(map[string]*zcx509.Certificate)
 	intermediateCRLs := make(map[string][]string)
 	usesPartitioned := make(map[string]bool)
 
-	mozillaRootPool := x509.NewCertPool()
-	intermediatePool := x509.NewCertPool()
+	mozillaRootPool := zcx509.NewCertPool()
+	intermediatePool := zcx509.NewCertPool()
 
 	mozillaRootCount := 0
 	intermediateCount := 0
@@ -149,7 +150,7 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 			continue
 		}
 
-		cert, err := PEMToCertificate(row[columnMap["X.509_Certificate_PEM"]])
+		cert, err := PEMToZcryptoCertificate(row[columnMap["X.509_Certificate_PEM"]])
 		if err != nil {
 			glog.Warningf("Failed to parse certificate in row %d: %s", row, err)
 			continue
@@ -166,14 +167,12 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 			continue
 		}
 
-		// Collect Mozilla roots
 		if certType == "Root Certificate" {
 			mozillaRootPool.AddCert(cert)
 			mozillaRootCount += 1
 			continue
 		}
 
-		// Collect intermediate candidates
 		if certType == "Intermediate Certificate" {
 			_, duplicate := intermediateCerts[fp]
 			if duplicate {
@@ -196,22 +195,25 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	glog.Infof("Found %d Mozilla roots", mozillaRootCount)
 	glog.Infof("Found %d valid intermediate candidates", intermediateCount)
 
-	// Set up verify options
-	verifyOpts := x509.VerifyOptions{
+	verifyOpts := zcx509.VerifyOptions{
 		Roots:         mozillaRootPool,
 		Intermediates: intermediatePool,
 		CurrentTime:   time.Now(),
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsages:     []zcx509.ExtKeyUsage{zcx509.ExtKeyUsageServerAuth},
 	}
 
-	// Validate chains for each intermediate
 	validCount := 0
-	for fp, cert := range intermediateCerts {
-		chains, err := cert.Verify(verifyOpts)
+	for fp, zcCert := range intermediateCerts {
+		chains, _, _, err := zcCert.Verify(verifyOpts)
 		if err == nil && len(chains) > 0 {
+			ctCert, err := ZcryptoToCtCertificate(zcCert)
+			if err != nil {
+				glog.Warningf("Failed to convert certificate %s: %v", fp, err)
+				continue
+			}
 			crls := intermediateCRLs[fp]
 			partitioned := usesPartitioned[fp]
-			mi.InsertIssuer(cert, crls, partitioned)
+			mi.InsertIssuer(ctCert, crls, partitioned)
 			validCount++
 		}
 	}
@@ -242,7 +244,7 @@ func (mi *MozIssuers) GetIssuers() []types.Issuer {
 	return issuers
 }
 
-func CertificateToPEM(cert *x509.Certificate) string {
+func CertificateToPEM(cert *ctx509.Certificate) string {
 	pemBlock := &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: cert.Raw,
@@ -250,7 +252,7 @@ func CertificateToPEM(cert *x509.Certificate) string {
 	return strings.TrimSpace(string(pem.EncodeToMemory(pemBlock)))
 }
 
-func PEMToCertificate(aPem string) (*x509.Certificate, error) {
+func PEMToCertificate(aPem string) (*ctx509.Certificate, error) {
 	block, _ := pem.Decode([]byte(aPem))
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
@@ -260,7 +262,7 @@ func PEMToCertificate(aPem string) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("PEM block type is %s, expected CERTIFICATE", block.Type)
 	}
 
-	cert, err := x509.ParseCertificate(block.Bytes)
+	cert, err := ctx509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
@@ -268,7 +270,33 @@ func PEMToCertificate(aPem string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func CertificateFingerprint(cert *x509.Certificate) string {
+func PEMToZcryptoCertificate(aPem string) (*zcx509.Certificate, error) {
+	block, _ := pem.Decode([]byte(aPem))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("PEM block type is %s, expected CERTIFICATE", block.Type)
+	}
+
+	cert, err := zcx509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return cert, nil
+}
+
+func ZcryptoToCtCertificate(zcCert *zcx509.Certificate) (*ctx509.Certificate, error) {
+	ctCert, err := ctx509.ParseCertificate(zcCert.Raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert certificate: %w", err)
+	}
+	return ctCert, nil
+}
+
+func CertificateFingerprint(cert *zcx509.Certificate) string {
 	hash := sha256.Sum256(cert.Raw)
 	return strings.ToUpper(hex.EncodeToString(hash[:]))
 }
@@ -342,7 +370,7 @@ func (mi *MozIssuers) IsIssuerInProgram(aIssuer types.Issuer) bool {
 	return ok
 }
 
-func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*x509.Certificate, error) {
+func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*ctx509.Certificate, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
@@ -418,7 +446,7 @@ func decodeCrls(fullCrlStr string, partCrlJson string) ([]string, bool, error) {
 	return crls, usesPartitionedCrls, nil
 }
 
-func (mi *MozIssuers) InsertIssuer(aCert *x509.Certificate, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
+func (mi *MozIssuers) InsertIssuer(aCert *ctx509.Certificate, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
 	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
