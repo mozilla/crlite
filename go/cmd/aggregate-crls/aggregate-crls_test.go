@@ -469,7 +469,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil, false)
+	issuer := issuersObj.InsertIssuer(ca, nil, false)
 
 	thisUpdate := time.Now().UTC()
 	nextUpdate := thisUpdate.AddDate(0, 0, 1)
@@ -569,7 +569,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	}
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuerFromCertAndPem(ca, "", nil, false)
+	issuer := issuersObj.InsertIssuer(ca, nil, false)
 
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 

@@ -5,10 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -17,18 +17,19 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/google/certificate-transparency-go/x509"
+	ctx509 "github.com/google/certificate-transparency-go/x509"
+	zcx509 "github.com/zmap/zcrypto/x509"
 
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/downloader"
 )
 
 const (
-	kMozCCADBReport = "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport"
+	kMozCCADBReport = "https://ccadb.my.salesforce-sites.com/ccadb/Report?Name=MozillaAllUnexpiredPEMs"
 )
 
 type issuerCert struct {
-	cert      *x509.Certificate
+	cert      *ctx509.Certificate
 	subjectDN string
 	pemInfo   string
 }
@@ -65,37 +66,13 @@ func NewMozillaIssuers() *MozIssuers {
 	}
 }
 
-type verifier struct {
-}
-
-func (v *verifier) IsValid(path string) error {
-	mi := NewMozillaIssuers()
-	return mi.LoadFromDisk(path)
-}
-
-type loggingAuditor struct{}
-
-func (ta *loggingAuditor) FailedDownload(issuer downloader.DownloadIdentifier, crlUrl *url.URL,
-	dlTracer *downloader.DownloadTracer, err error) {
-	glog.Warningf("Failed download of %s: %s", crlUrl.String(), err)
-}
-func (ta *loggingAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier, crlUrl *url.URL,
-	dlTracer *downloader.DownloadTracer, err error) {
-	glog.Warningf("Failed verify of %s: %s", crlUrl.String(), err)
-}
-func (ta *loggingAuditor) FailedVerifyPath(issuer downloader.DownloadIdentifier, crlUrl *url.URL, crlPath string,
-	err error) {
-	glog.Warningf("Failed verify of %s (local: %s): %s", crlUrl.String(), crlPath, err)
-}
-
-type identifier struct{}
-
-func (i *identifier) ID() string {
-	return "Mozilla Issuers"
-}
-
 func (mi *MozIssuers) Load() error {
 	ctx := context.Background()
+
+	err := mi.LoadFromDisk(mi.DiskPath)
+	if err == nil && mi.DatasetAge() < 12*time.Hour {
+		return nil
+	}
 
 	dataUrl, err := url.Parse(mi.ReportUrl)
 	if err != nil {
@@ -103,15 +80,10 @@ func (mi *MozIssuers) Load() error {
 		return err
 	}
 
-	isAcceptable, err := downloader.DownloadAndVerifyFileSync(ctx, &verifier{}, &loggingAuditor{}, &identifier{},
-		*dataUrl, mi.DiskPath, 3, 300*time.Second)
-
-	if !isAcceptable {
-		return err
-	}
-
+	err = downloader.DownloadFileSync(ctx, *dataUrl, mi.DiskPath, 3, 300*time.Second)
 	if err != nil {
-		glog.Warningf("Error encountered loading CCADB data, but able to proceed with previous data. Error: %s", err)
+		glog.Errorf("Error downloading CCADB report: %s", err)
+		return err
 	}
 
 	return mi.LoadFromDisk(mi.DiskPath)
@@ -128,8 +100,126 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	if err != nil {
 		return err
 	}
+
+	reader := csv.NewReader(fd)
+	columns, err := reader.Read()
+	if err != nil {
+		return err
+	}
+
+	columnMap := make(map[string]int)
+	for index, attr := range columns {
+		columnMap[attr] = index
+	}
+
+	requiredColumns := []string{
+		"X.509_Certificate_PEM",
+		"RecordType.Name",
+		"Revocation_Status__c",
+		"Full_CRL_Issued_By_This_CA",
+		"JSON_Array_of_Partitioned_CRLs",
+	}
+	for _, s := range requiredColumns {
+		_, exists := columnMap[s]
+		if !exists {
+			return fmt.Errorf("%s column not found", s)
+		}
+	}
+
+	metadataRecords, err := reader.ReadAll()
+	if err != nil {
+		return err
+	}
+
+	mi.mutex.Lock()
+	defer mi.mutex.Unlock()
 	mi.modTime = fi.ModTime()
-	return mi.parseCCADB(fd)
+
+	intermediateCerts := make(map[string]*zcx509.Certificate)
+	intermediateCRLs := make(map[string][]string)
+	usesPartitioned := make(map[string]bool)
+
+	mozillaRootPool := zcx509.NewCertPool()
+	intermediatePool := zcx509.NewCertPool()
+
+	mozillaRootCount := 0
+	intermediateCount := 0
+
+	for _, row := range metadataRecords {
+		if len(row) < len(columnMap) {
+			continue
+		}
+
+		cert, err := PEMToZcryptoCertificate(row[columnMap["X.509_Certificate_PEM"]])
+		if err != nil {
+			glog.Warningf("Failed to parse certificate in row %d: %s", row, err)
+			continue
+		}
+
+		fp := CertificateFingerprint(cert)
+
+		certType := row[columnMap["RecordType.Name"]]
+		revoked := row[columnMap["Revocation_Status__c"]]
+		fullCrl := row[columnMap["Full_CRL_Issued_By_This_CA"]]
+		jsonArrayOfCrls := row[columnMap["JSON_Array_of_Partitioned_CRLs"]]
+
+		if revoked != "Not Revoked" && revoked != "" {
+			continue
+		}
+
+		if certType == "Root Certificate" {
+			mozillaRootPool.AddCert(cert)
+			mozillaRootCount += 1
+			continue
+		}
+
+		if certType == "Intermediate Certificate" {
+			_, duplicate := intermediateCerts[fp]
+			if duplicate {
+				glog.Warningf("Duplicate certificate in row %d", row)
+				continue
+			}
+
+			intermediatePool.AddCert(cert)
+			intermediateCerts[fp] = cert
+			intermediateCount += 1
+
+			crls, partitioned, err := decodeCrls(fullCrl, jsonArrayOfCrls)
+			if err == nil {
+				intermediateCRLs[fp] = crls
+				usesPartitioned[fp] = partitioned
+			}
+		}
+	}
+
+	glog.Infof("Found %d Mozilla roots", mozillaRootCount)
+	glog.Infof("Found %d valid intermediate candidates", intermediateCount)
+
+	verifyOpts := zcx509.VerifyOptions{
+		Roots:         mozillaRootPool,
+		Intermediates: intermediatePool,
+		CurrentTime:   time.Now(),
+		KeyUsages:     []zcx509.ExtKeyUsage{zcx509.ExtKeyUsageServerAuth},
+	}
+
+	validCount := 0
+	for fp, zcCert := range intermediateCerts {
+		chains, _, _, err := zcCert.Verify(verifyOpts)
+		if err == nil && len(chains) > 0 {
+			ctCert, err := ZcryptoToCtCertificate(zcCert)
+			if err != nil {
+				glog.Warningf("Failed to convert certificate %s: %v", fp, err)
+				continue
+			}
+			crls := intermediateCRLs[fp]
+			partitioned := usesPartitioned[fp]
+			mi.InsertIssuer(ctCert, crls, partitioned)
+			validCount++
+		}
+	}
+
+	glog.Infof("Found %d intermediates that chain to Mozilla roots", validCount)
+	return nil
 }
 
 func (mi *MozIssuers) DatasetAge() time.Duration {
@@ -154,28 +244,61 @@ func (mi *MozIssuers) GetIssuers() []types.Issuer {
 	return issuers
 }
 
-func normalizePem(input string) string {
-	// Some consumers of the file produced by `SaveIssuersList` mistakenly
-	// assume that the PEM encoding of a certificate is unique. This causes
-	// some problems as the CCADB report often includes a certificate with
-	// an unusual PEM presentation one day and a different presentation
-	// another. (Usually a 65 character line that is later reflowed to
-	// width 64.) As a work-around, we'll normalize to the PEM format
-	// produced by the go standard library modulo the trailing newline.  We
-	// omit the trailing newline to minimize differences with the entries
-	// in the CCADB report at the time of writing.
-	//
-	var pemBuf strings.Builder
-	derBytes, rest := pem.Decode([]byte(input))
-	if len(rest) != 0 {
-		glog.Warningf("Ignored %d bytes of trailing data while normalizing this PEM: %s", len(rest), input)
+func CertificateToPEM(cert *ctx509.Certificate) string {
+	pemBlock := &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: cert.Raw,
 	}
-	pem.Encode(&pemBuf, derBytes)
+	return strings.TrimSpace(string(pem.EncodeToMemory(pemBlock)))
+}
 
-	output := pemBuf.String()
-	output = strings.TrimRight(output, "\n")
+func PEMToCertificate(aPem string) (*ctx509.Certificate, error) {
+	block, _ := pem.Decode([]byte(aPem))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
 
-	return output
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("PEM block type is %s, expected CERTIFICATE", block.Type)
+	}
+
+	cert, err := ctx509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return cert, nil
+}
+
+func PEMToZcryptoCertificate(aPem string) (*zcx509.Certificate, error) {
+	block, _ := pem.Decode([]byte(aPem))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("PEM block type is %s, expected CERTIFICATE", block.Type)
+	}
+
+	cert, err := zcx509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return cert, nil
+}
+
+func ZcryptoToCtCertificate(zcCert *zcx509.Certificate) (*ctx509.Certificate, error) {
+	ctCert, err := ctx509.ParseCertificate(zcCert.Raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert certificate: %w", err)
+	}
+	return ctCert, nil
+}
+
+func CertificateFingerprint(cert *zcx509.Certificate) string {
+	hash := sha256.Sum256(cert.Raw)
+	return strings.ToUpper(hex.EncodeToString(hash[:]))
 }
 
 func (mi *MozIssuers) SaveIssuersList(filePath string) error {
@@ -192,7 +315,7 @@ func (mi *MozIssuers) SaveIssuersList(filePath string) error {
 				UniqueID:            base64.URLEncoding.EncodeToString(uniqueID[:]),
 				PubKeyHash:          base64.URLEncoding.EncodeToString(pubKeyHash[:]),
 				Subject:             cert.subjectDN,
-				Pem:                 normalizePem(cert.pemInfo),
+				Pem:                 CertificateToPEM(cert.cert),
 				UsesPartitionedCrls: val.usesPartitionedCrls,
 			})
 			certCount++
@@ -232,11 +355,11 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 	}
 
 	for _, ei := range list {
-		cert, err := decodeCertificateFromPem(ei.Pem)
+		cert, err := PEMToCertificate(ei.Pem)
 		if err != nil {
 			return err
 		}
-		mi.InsertIssuerFromCertAndPem(cert, ei.Pem, nil, ei.UsesPartitionedCrls)
+		mi.InsertIssuer(cert, nil, ei.UsesPartitionedCrls)
 	}
 
 	return nil
@@ -247,7 +370,7 @@ func (mi *MozIssuers) IsIssuerInProgram(aIssuer types.Issuer) bool {
 	return ok
 }
 
-func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*x509.Certificate, error) {
+func (mi *MozIssuers) GetCertificateForIssuer(aIssuer types.Issuer) (*ctx509.Certificate, error) {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
@@ -280,51 +403,25 @@ func (mi *MozIssuers) GetUsesPartitionedCrlsForIssuer(aIssuer types.Issuer) (boo
 	return entry.usesPartitionedCrls, nil
 }
 
-func decodeCertificateFromPem(aPem string) (*x509.Certificate, error) {
-	block, rest := pem.Decode([]byte(aPem))
-
-	if block == nil {
-		return nil, fmt.Errorf("Not a valid PEM")
-	}
-
-	if len(rest) != 0 {
-		return nil, fmt.Errorf("Extra PEM data")
-	}
-
-	return x509.ParseCertificate(block.Bytes)
-}
-
-func decodeCertificateFromRow(aColMap map[string]int, aRow []string, aLineNum int) (*x509.Certificate, error) {
-	p := strings.Trim(aRow[aColMap["PEM"]], "'")
-
-	cert, err := decodeCertificateFromPem(p)
-	if err != nil {
-		return nil, fmt.Errorf("%s at line %d", err, aLineNum)
-	}
-	return cert, nil
-}
-
-func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]string, bool, error) {
+func decodeCrls(fullCrlStr string, partCrlJson string) ([]string, bool, error) {
 	usesPartitionedCrls := false
 	crls := []string{}
-	fullCrlStr := aRow[aColMap["Full CRL Issued By This CA"]]
-	fullCrlStr = strings.TrimSpace(fullCrlStr)
+	fullCrlStr = strings.Trim(strings.TrimSpace(fullCrlStr), `"`)
 	if fullCrlStr != "" {
 		fullCrlUrl, err := url.Parse(fullCrlStr)
 		if err != nil {
-			glog.Warningf("decodeCrlsFromRow: Line %d: Could not parse %q as URL: %v", aLineNum, fullCrlStr, err)
+			glog.Warningf("decodeCrls: Could not parse %q as URL: %v", fullCrlStr, err)
 		} else if fullCrlUrl.Scheme != "http" && fullCrlUrl.Scheme != "https" {
-			glog.Warningf("decodeCrlsFromRow: Line %d: Unknown URL scheme in %q", aLineNum, fullCrlUrl.String())
+			glog.Warningf("decodeCrls: Unknown URL scheme in %q", fullCrlUrl.String())
 		} else {
 			crls = append(crls, fullCrlUrl.String())
 		}
 	}
 
-	partCrlJson := aRow[aColMap["JSON Array of Partitioned CRLs"]]
 	partCrlJson = strings.Trim(strings.TrimSpace(partCrlJson), "[]")
 	partCrls := strings.Split(partCrlJson, ",")
 	for _, crl := range partCrls {
-		crl = strings.TrimSpace(crl)
+		crl = strings.Trim(strings.TrimSpace(crl), `"`)
 		if crl == "" {
 			continue
 		}
@@ -338,9 +435,9 @@ func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]s
 
 		crlUrl, err := url.Parse(crl)
 		if err != nil {
-			glog.Warningf("decodeCrlsFromRow: Line %d: Could not parse %q as URL: %v", aLineNum, crl, err)
+			glog.Warningf("decodeCrls: Could not parse %q as URL: %v", crl, err)
 		} else if crlUrl.Scheme != "http" && crlUrl.Scheme != "https" {
-			glog.Warningf("decodeCrlsFromRow: Line %d: Unknown URL scheme in %q", aLineNum, crlUrl.String())
+			glog.Warningf("decodeCrls: Unknown URL scheme in %q", crlUrl.String())
 		} else {
 			crls = append(crls, crlUrl.String())
 		}
@@ -349,12 +446,12 @@ func decodeCrlsFromRow(aColMap map[string]int, aRow []string, aLineNum int) ([]s
 	return crls, usesPartitionedCrls, nil
 }
 
-func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem string, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
+func (mi *MozIssuers) InsertIssuer(aCert *ctx509.Certificate, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
 	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
 		subjectDN: aCert.Subject.String(),
-		pemInfo:   aPem,
+		pemInfo:   CertificateToPEM(aCert),
 	}
 
 	crlSet, exists := mi.CrlMap[issuer.ID()]
@@ -368,7 +465,6 @@ func (mi *MozIssuers) InsertIssuerFromCertAndPem(aCert *x509.Certificate, aPem s
 
 	v, exists := mi.issuerMap[issuer.ID()]
 	if exists {
-		glog.V(1).Infof("[%s] Duplicate issuer ID: %v with %v", issuer.ID(), v, aCert.Subject.String())
 		v.certs = append(v.certs, ic)
 		mi.issuerMap[issuer.ID()] = v
 		return issuer
@@ -391,47 +487,4 @@ func (mi *MozIssuers) NewTestIssuerFromSubjectString(aSub string) types.Issuer {
 		certs: []issuerCert{ic},
 	}
 	return issuer
-}
-
-func (mi *MozIssuers) parseCCADB(aStream io.Reader) error {
-	mi.mutex.Lock()
-	defer mi.mutex.Unlock()
-
-	reader := csv.NewReader(aStream)
-	columnMap := make(map[string]int)
-	columns, err := reader.Read()
-	if err != nil {
-		return err
-	}
-
-	for index, attr := range columns {
-		columnMap[attr] = index
-	}
-
-	lineNum := 1
-	for {
-		row, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		lineNum += 1
-
-		cert, err := decodeCertificateFromRow(columnMap, row, lineNum)
-		if err != nil {
-			return err
-		}
-
-		crls, usesPartitionedCrls, err := decodeCrlsFromRow(columnMap, row, lineNum)
-		if err != nil {
-			return err
-		}
-
-		_ = mi.InsertIssuerFromCertAndPem(cert, strings.Trim(row[columnMap["PEM"]], "'"), crls, usesPartitionedCrls)
-		lineNum += strings.Count(strings.Join(row, ""), "\n")
-	}
-
-	return nil
 }

@@ -406,7 +406,7 @@ impl Intermediates {
             .map_err(|_| CRLiteDBError::from("could not serialize intermediates"))
     }
 
-    fn lookup_issuer_spki(&self, cert: &X509Certificate) -> Option<SubjectPublicKeyInfo> {
+    fn lookup_issuer_spki(&self, cert: &X509Certificate) -> Option<SubjectPublicKeyInfo<'_>> {
         let issuer_dn = cert.tbs_certificate.issuer.as_raw();
         if let Some(der_issuer_certs) = self.0.get(issuer_dn) {
             let parsed_issuer_certs = der_issuer_certs

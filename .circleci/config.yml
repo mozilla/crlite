@@ -106,7 +106,7 @@ jobs:
 
   rust-create-cascade-build-and-test:
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.87.0
     environment:
       RUSTFLAGS: '-D warnings'
     working_directory: ~/crlite/rust-create-cascade
