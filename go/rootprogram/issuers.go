@@ -61,7 +61,7 @@ func NewMozillaIssuers() *MozIssuers {
 		issuerMap: make(map[string]IssuerData, 0),
 		CrlMap:    make(types.IssuerCrlMap, 0),
 		mutex:     &sync.Mutex{},
-		DiskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
+		DiskPath:  fmt.Sprintf("%s/mozilla_all_unexpired_pems.csv", os.TempDir()),
 		ReportUrl: kMozCCADBReport,
 	}
 }
