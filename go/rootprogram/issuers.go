@@ -135,6 +135,10 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	defer mi.mutex.Unlock()
 	mi.modTime = fi.ModTime()
 
+	// Reset maps to prevent duplicates on reload
+	mi.issuerMap = make(map[string]IssuerData)
+	mi.CrlMap = make(types.IssuerCrlMap)
+
 	intermediateCerts := make(map[string]*zcx509.Certificate)
 	intermediateCRLs := make(map[string][]string)
 	usesPartitioned := make(map[string]bool)
