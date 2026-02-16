@@ -664,7 +664,7 @@ func Test_IssuingDPMatching(t *testing.T) {
 	// Certificate Revocation List (CRL):
 	//         Version 2 (0x1)
 	//         Signature Algorithm: ecdsa-with-SHA256
-	//         Issuer: CN = Test CRL
+	//         Issuer: CN=Test CRL
 	//         Last Update: Jul  1 16:02:05 2025 GMT
 	//         Next Update: Jul 11 15:02:04 2025 GMT
 	//         CRL extensions:
@@ -672,6 +672,9 @@ func Test_IssuingDPMatching(t *testing.T) {
 	//                 Full Name:
 	//                   URI:http://example.com/1.crl
 	//                   URI:http://example.com/2.crl
+	//                   URI:http://example.com/2 final.crl
+	//                   URI:http://example.com/?q=2 final final.crl
+	//
 	// No Revoked Certificates.
 	//     Signature Algorithm: ecdsa-with-SHA256
 	//     Signature Value:
@@ -680,11 +683,13 @@ func Test_IssuingDPMatching(t *testing.T) {
 	//         02:20:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:
 	//         00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
 	crlBlock := []byte(`-----BEGIN X509 CRL-----
-MIHmMIGOAgEBMAoGCCqGSM49BAMCMBMxETAPBgNVBAMTCFRlc3QgQ1JMFw0yNTA3
-MDExNjAyMDVaFw0yNTA3MTExNTAyMDRaMACgSDBGMEQGA1UdHAEB/wQ6MDigNqA0
-hhhodHRwOi8vZXhhbXBsZS5jb20vMS5jcmyGGGh0dHA6Ly9leGFtcGxlLmNvbS8y
-LmNybDAKBggqhkjOPQQDAgNHADBEAiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+MIIBNDCB3AIBATAKBggqhkjOPQQDAjATMREwDwYDVQQDEwhUZXN0IENSTBcNMjUw
+NzAxMTYwMjA1WhcNMjUwNzExMTUwMjA0WjAAoIGVMIGSMIGPBgNVHRwBAf8EgYQw
+gYGgf6B9hhhodHRwOi8vZXhhbXBsZS5jb20vMS5jcmyGGGh0dHA6Ly9leGFtcGxl
+LmNvbS8yLmNybIYeaHR0cDovL2V4YW1wbGUuY29tLzIgZmluYWwuY3JshidodHRw
+Oi8vZXhhbXBsZS5jb20vP3E9MiBmaW5hbCBmaW5hbC5jcmwwCgYIKoZIzj0EAwID
+RwAwRAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACIAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 -----END X509 CRL-----`)
 
 	crlPath, err := ioutil.TempFile("", "loadAndCheckSignatureOfCRL")
@@ -702,7 +707,8 @@ AAAAAAAAAAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 	}
 
 	// The fetch URL is not listed in the partitioned CRL URL set
-	partitionCrlUrl1 := "http://example.com/1.crl"
+	partitionCrlUrl1, _ := url.Parse("http://example.com/1.crl")
+	partitionCrlUrl1Str := normalizedUrlString(partitionCrlUrl1)
 	partionedCrlUrls := map[string]bool{}
 	match, err := loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
 	if err == nil || match {
@@ -711,20 +717,21 @@ AAAAAAAAAAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
 	// The fetch URL is listed in the partitioned CRL URL set and matches the issuingDP.
 	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl1: true,
+		partitionCrlUrl1Str: true,
 	}
 	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !match {
-		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1)
+		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
 	}
 
 	// The fetch URL is listed in the partitioned CRL URL set but does not match the issuing DP.
-	otherUrl := "http://other.example.com"
+	otherUrl, _ := url.Parse("http://other.example.com")
+	otherUrlStr := normalizedUrlString(otherUrl)
 	partionedCrlUrls = map[string]bool{
-		otherUrl: true,
+		otherUrlStr: true,
 	}
 	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), otherUrl, partionedCrlUrls)
 	if err == nil || match {
@@ -733,13 +740,42 @@ AAAAAAAAAAIgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
 	// The fetch URL is listed in the partition list and matches the issuing DP, but another URL in
 	// the partition list also matches the issuingDP.
-	partitionCrlUrl2 := "http://example.com/2.crl"
+	partitionCrlUrl2, _ := url.Parse("http://example.com/2.crl")
+	partitionCrlUrl2Str := normalizedUrlString(partitionCrlUrl2)
 	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl1: true,
-		partitionCrlUrl2: true,
+		partitionCrlUrl1Str: true,
+		partitionCrlUrl2Str: true,
 	}
 	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
 	if err == nil {
 		t.Fatalf("CRL with multiple known partition urls should be rejected")
+	}
+
+	// The fetch URL path component is equivalent but not equal to a URL in the CRL DP extension
+	partitionCrlUrl3, _ := url.Parse("http://example.com/2%20final.crl")
+	partitionCrlUrl3Str := normalizedUrlString(partitionCrlUrl3)
+	partionedCrlUrls = map[string]bool{
+		partitionCrlUrl3Str: true,
+	}
+	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl3, partionedCrlUrls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !match {
+		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
+	}
+
+	// The fetch URL query component is equivalent but not equal to a URL in the CRL DP extension
+	partitionCrlUrl4, _ := url.Parse("http://example.com/?q=2%20final%20final.crl")
+	partitionCrlUrl4Str := normalizedUrlString(partitionCrlUrl4)
+	partionedCrlUrls = map[string]bool{
+		partitionCrlUrl4Str: true,
+	}
+	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl4, partionedCrlUrls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !match {
+		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
 	}
 }
