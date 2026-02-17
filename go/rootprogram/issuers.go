@@ -61,7 +61,7 @@ func NewMozillaIssuers() *MozIssuers {
 		issuerMap: make(map[string]IssuerData, 0),
 		CrlMap:    make(types.IssuerCrlMap, 0),
 		mutex:     &sync.Mutex{},
-		DiskPath:  fmt.Sprintf("%s/mozilla_issuers.csv", os.TempDir()),
+		DiskPath:  fmt.Sprintf("%s/mozilla_all_unexpired_pems.csv", os.TempDir()),
 		ReportUrl: kMozCCADBReport,
 	}
 }
@@ -134,6 +134,10 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 	mi.modTime = fi.ModTime()
+
+	// Reset maps to prevent duplicates on reload
+	mi.issuerMap = make(map[string]IssuerData)
+	mi.CrlMap = make(types.IssuerCrlMap)
 
 	intermediateCerts := make(map[string]*zcx509.Certificate)
 	intermediateCRLs := make(map[string][]string)

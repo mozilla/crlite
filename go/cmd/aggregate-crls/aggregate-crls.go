@@ -48,6 +48,15 @@ var (
 	allowableAgeOfLocalCRL, _ = time.ParseDuration("336h")
 )
 
+func normalizedUrlString(u *url.URL) string {
+	if u.RawQuery != "" {
+		normalized := *u
+		normalized.RawQuery = normalized.Query().Encode()
+		return normalized.String()
+	}
+	return u.String()
+}
+
 type AggregateEngine struct {
 	rootPath string
 
@@ -63,7 +72,7 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 	filename = strings.ToLower(filename)
 	filename = illegalPath.ReplaceAllString(filename, "")
 
-	hash := sha256.Sum256([]byte(crlUrl.String()))
+	hash := sha256.Sum256([]byte(normalizedUrlString(&crlUrl)))
 
 	filename = strings.TrimSuffix(filename, ".crl")
 	filename = fmt.Sprintf("%s-%s.crl", filename, hex.EncodeToString(hash[:8]))
@@ -80,6 +89,8 @@ func (cv *CrlVerifier) IsValid(path string) error {
 }
 
 func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl url.URL, issuer types.Issuer) (string, error) {
+	crlUrlStr := normalizedUrlString(&crlUrl)
+
 	err := os.MkdirAll(filepath.Join(*crlpath, issuer.ID()), permModeDir)
 	if err != nil {
 		glog.Warningf("Couldn't make directory: %s", err)
@@ -102,18 +113,18 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 		&issuer, crlUrl, finalPath, 3, 300*time.Second)
 	if !fileOnDiskIsAcceptable {
 		glog.Errorf("[%s] Could not download, and no local file, will not be populating the "+
-			"revocations: %s", crlUrl.String(), dlErr)
+			"revocations: %s", crlUrlStr, dlErr)
 		return "", dlErr
 	}
 	if dlErr != nil {
-		glog.Errorf("[%s] Problem downloading: %s", crlUrl.String(), dlErr)
+		glog.Errorf("[%s] Problem downloading: %s", crlUrlStr, dlErr)
 	}
 
 	// Ensure the final path is acceptable
 	localSize, localDate, err := downloader.GetSizeAndDateOfFile(finalPath)
 	if err != nil {
 		glog.Errorf("[%s] Unexpected error on local file, will not be populating the "+
-			"revocations: %s", crlUrl.String(), err)
+			"revocations: %s", crlUrlStr, err)
 		return "", err
 	}
 
@@ -121,10 +132,10 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 
 	if age > allowableAgeOfLocalCRL {
 		ae.auditor.Old(&issuer, &crlUrl, age)
-		glog.Warningf("[%s] CRL appears not very fresh, but proceeding with expiration check. Age: %s", crlUrl.String(), age)
+		glog.Warningf("[%s] CRL appears not very fresh, but proceeding with expiration check. Age: %s", crlUrlStr, age)
 	}
 
-	glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", issuer.ID(), crlUrl.String(),
+	glog.Infof("[%s] Updated CRL %s (path=%s) (sz=%d) (age=%s)", issuer.ID(), crlUrlStr,
 		finalPath, localSize, age)
 
 	return finalPath, nil
@@ -138,6 +149,8 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 		urlPaths := make([]types.UrlPath, 0)
 
 		for _, crlUrl := range tuple.Urls {
+			crlUrlStr := normalizedUrlString(&crlUrl)
+
 			select {
 			case <-ctx.Done():
 				return
@@ -146,7 +159,7 @@ func (ae *AggregateEngine) crlFetchWorker(ctx context.Context, wg *sync.WaitGrou
 
 			path, err := ae.crlFetchWorkerProcessOne(ctx, crlUrl, tuple.Issuer)
 			if err != nil {
-				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrl.String(), path, err)
+				glog.Warningf("[%s] CRL %s path=%s had error=%s", tuple.Issuer.ID(), crlUrlStr, path, err)
 			}
 			// the path here might be blank if err is set
 			urlPaths = append(urlPaths, types.UrlPath{Path: path, Url: crlUrl})
@@ -189,7 +202,7 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, shasum[:], err
 }
 
-func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl string, aPartitionedCrlUrlSet map[string]bool) (bool, error) {
+func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl *url.URL, aPartitionedCrlUrlSet map[string]bool) (bool, error) {
 	// If a CA uses partitioned CRLs, then the fetch URL must appear as a fullName in the
 	// issuingDistributionPoints extension. Moreover, it must be the only URL from the
 	// collection of partitioned CRL URLs that appears in the issuingDistributionPoints
@@ -213,16 +226,22 @@ func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl string, a
 		return false, fmt.Errorf("Error parsing, will not process revocations: %s", err)
 	}
 
+	normalizedFetchUrl := normalizedUrlString(aFetchUrl)
 	urls := []string{}
 	found := false
-	for _, url := range crl.TBSCertList.IssuingDPFullNames.URIs {
-		urls = append(urls, url)
-		_, exists := aPartitionedCrlUrlSet[url]
+	for _, urlStr := range crl.TBSCertList.IssuingDPFullNames.URIs {
+		parsedUrl, err := url.Parse(urlStr)
+		if err != nil {
+			continue
+		}
+		normalizedUrl := normalizedUrlString(parsedUrl)
+		urls = append(urls, normalizedUrl)
+		_, exists := aPartitionedCrlUrlSet[normalizedUrl]
 		if exists {
-			if aFetchUrl == url {
+			if normalizedFetchUrl == normalizedUrl {
 				found = true
 			} else {
-				return false, fmt.Errorf("The issuingDistributionPoints extension lists a different known CRL %s", url)
+				return false, fmt.Errorf("The issuingDistributionPoints extension lists a different known CRL %s", normalizedUrl)
 			}
 		}
 	}
@@ -303,7 +322,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 		partitionedCrlUrls := make(map[string]bool, len(tuple.CrlUrlPaths))
 		if usesPartitionedCrls {
 			for _, url := range tuple.CrlUrlPaths {
-				partitionedCrlUrls[url.Url.String()] = true
+				partitionedCrlUrls[normalizedUrlString(&url.Url)] = true
 			}
 		}
 
@@ -336,9 +355,9 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					// include an issuingDP extension with a fullName of URI
 					// type that matches, byte-for-byte, a URL in the "JSON
 					// Array of Partitioned CRLs" in CCADB.
-					fetchUrl := crlUrlPath.Url.String()
-					foundMatch, err := loadAndCheckIssuingDistributionPointOfCRL(crlUrlPath.Path, fetchUrl, partitionedCrlUrls)
+					foundMatch, err := loadAndCheckIssuingDistributionPointOfCRL(crlUrlPath.Path, &crlUrlPath.Url, partitionedCrlUrls)
 					if err != nil || !foundMatch {
+						fetchUrl := normalizedUrlString(&crlUrlPath.Url)
 						ae.auditor.WrongIssuingDistributionPoint(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
 						glog.Errorf("[%s] CRL shard at %s does not list that URL in its issuing DP extension", tuple.Issuer.ID(), fetchUrl)
 					}
