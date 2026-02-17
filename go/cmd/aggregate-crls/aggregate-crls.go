@@ -355,9 +355,9 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					// include an issuingDP extension with a fullName of URI
 					// type that matches, byte-for-byte, a URL in the "JSON
 					// Array of Partitioned CRLs" in CCADB.
-					fetchUrl := normalizedUrlString(&crlUrlPath.Url)
 					foundMatch, err := loadAndCheckIssuingDistributionPointOfCRL(crlUrlPath.Path, &crlUrlPath.Url, partitionedCrlUrls)
 					if err != nil || !foundMatch {
+						fetchUrl := normalizedUrlString(&crlUrlPath.Url)
 						ae.auditor.WrongIssuingDistributionPoint(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
 						glog.Errorf("[%s] CRL shard at %s does not list that URL in its issuing DP extension", tuple.Issuer.ID(), fetchUrl)
 					}
