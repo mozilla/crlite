@@ -36,8 +36,8 @@ use x509_parser::prelude::*;
 use base64::engine::general_purpose::URL_SAFE;
 use base64::prelude::*;
 
-const ICA_LIST_URL: &str =
-    "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport";
+const ENROLLED_JSON_URL_TEMPLATE: &str =
+    "https://storage.googleapis.com/crlite-filters-prod/{}/enrolled.json";
 
 const STAGE_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.allizom.org/";
 const STAGE_URL: &str =
@@ -95,20 +95,57 @@ struct CertRevRecordAttachment {
     location: String,
 }
 
-fn update_intermediates(int_dir: &Path) -> Result<(), CRLiteDBError> {
-    let intermediates_path = int_dir.join("crlite.intermediates");
+#[derive(Deserialize)]
+struct EnrolledRecord {
+    #[serde(rename = "uniqueID")]
+    unique_id: String,
+    pem: String,
+}
 
-    debug!("Fetching {}", ICA_LIST_URL);
-    let intermediates_bytes = &reqwest::blocking::get(ICA_LIST_URL)
-        .map_err(|_| CRLiteDBError::from("could not fetch CCADB report"))?
-        .bytes()
-        .map_err(|_| CRLiteDBError::from("could not read CCADB report"))?;
+fn extract_filter_prefix(path: &Path) -> Option<String> {
+    let filename = path.file_name()?.to_str()?;
+    let mut parts = filename.splitn(3, '-');
+    let date = parts.next()?;
+    let revision = parts.next()?;
+    if date.len() == 8
+        && date.chars().all(|c| c.is_ascii_digit())
+        && !revision.is_empty()
+        && revision.chars().all(|c| c.is_ascii_digit())
+    {
+        Some(format!("{}-{}", date, revision))
+    } else {
+        None
+    }
+}
 
-    let intermediates = Intermediates::from_ccadb_csv(intermediates_bytes)
-        .map_err(|_| CRLiteDBError::from("cannot parse CCADB report"))?;
+fn update_intermediates(db_dir: &Path) -> Result<(), CRLiteDBError> {
+    let intermediates_path = db_dir.join("crlite.intermediates");
 
+    // Find the lexicographically largest "yyyymmdd-r" prefix among downloaded filter files.
+    let mut latest_prefix: Option<String> = None;
+    for dir_entry in std::fs::read_dir(db_dir)? {
+        let Ok(dir_entry) = dir_entry else { continue };
+        if let Some(prefix) = extract_filter_prefix(&dir_entry.path()) {
+            latest_prefix = Some(match latest_prefix {
+                None => prefix,
+                Some(current) => current.max(prefix),
+            });
+        }
+    }
+
+    let prefix = latest_prefix.ok_or_else(|| {
+        CRLiteDBError::from("no filter files found; cannot determine enrolled.json URL")
+    })?;
+
+    let enrolled_url = ENROLLED_JSON_URL_TEMPLATE.replace("{}", &prefix);
+    debug!("Fetching {}", enrolled_url);
+    let records: Vec<EnrolledRecord> = reqwest::blocking::get(&enrolled_url)
+        .map_err(|_| CRLiteDBError::from("could not fetch enrolled.json"))?
+        .json()
+        .map_err(|_| CRLiteDBError::from("could not parse enrolled.json"))?;
+
+    let intermediates = Intermediates::from_enrolled_json(&records);
     let encoded_intermediates = intermediates.encode()?;
-
     std::fs::write(intermediates_path, &encoded_intermediates)?;
 
     Ok(())
@@ -371,16 +408,16 @@ impl Intermediates {
         Intermediates(HashMap::new())
     }
 
-    fn from_ccadb_csv(bytes: &[u8]) -> Result<Self, CRLiteDBError> {
-        // XXX: The CCADB report is a CSV file where the last entry in each logical line is a PEM
-        //      encoded cert. Unfortunately the newlines in the PEM encoding are not escaped, so
-        //      the logical line is split over several actual lines. Fortunately the pem crate is
-        //      happy to ignore content surrounding PEM data.
-        let list = pem::parse_many(bytes)
-            .map_err(|_| CRLiteDBError::from("error reading CCADB report"))?;
-
+    fn from_enrolled_json(records: &[EnrolledRecord]) -> Self {
         let mut intermediates = Intermediates::new();
-        for der in list {
+        for record in records {
+            let der = match pem::parse(&record.pem) {
+                Ok(der) => der,
+                Err(_) => {
+                    trace!("Could not parse PEM in enrolled.json entry with uniqueID {}", record.unique_id);
+                    continue;
+                }
+            };
             if let Ok((_, cert)) = X509Certificate::from_der(&der.contents) {
                 let name = cert.tbs_certificate.subject.as_raw();
                 intermediates
@@ -389,10 +426,10 @@ impl Intermediates {
                     .or_default()
                     .push(der.contents);
             } else {
-                return Err(CRLiteDBError::from("error reading CCADB report"));
+                trace!("Could not parse certificate in enrolled.json entry with uniqueID {}", record.unique_id);
             }
         }
-        Ok(intermediates)
+        intermediates
     }
 
     fn from_bincode(bytes: &[u8]) -> Result<Intermediates, CRLiteDBError> {
@@ -700,6 +737,11 @@ fn main() {
         };
 
         if let Err(e) = update_db(&args.db, attachment_url, base_url, &args.channel) {
+            error!("{}", e.message);
+            std::process::exit(1);
+        }
+
+        if let Err(e) = update_intermediates(&args.db) {
             error!("{}", e.message);
             std::process::exit(1);
         }
