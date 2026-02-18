@@ -37,7 +37,7 @@ use base64::engine::general_purpose::URL_SAFE;
 use base64::prelude::*;
 
 const ICA_LIST_URL: &str =
-    "https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport";
+    "https://ccadb.my.salesforce-sites.com/ccadb/Report?Name=MozillaAllUnexpiredPEMs";
 
 const STAGE_ATTACH_URL: &str = "https://firefox-settings-attachments.cdn.allizom.org/";
 const STAGE_URL: &str =
@@ -388,8 +388,6 @@ impl Intermediates {
                     .entry(name.to_vec())
                     .or_default()
                     .push(der.contents);
-            } else {
-                return Err(CRLiteDBError::from("error reading CCADB report"));
             }
         }
         Ok(intermediates)
@@ -700,6 +698,11 @@ fn main() {
         };
 
         if let Err(e) = update_db(&args.db, attachment_url, base_url, &args.channel) {
+            error!("{}", e.message);
+            std::process::exit(1);
+        }
+
+        if let Err(e) = update_intermediates(&args.db) {
             error!("{}", e.message);
             std::process::exit(1);
         }
