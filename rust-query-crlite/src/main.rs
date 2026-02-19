@@ -102,17 +102,13 @@ struct EnrolledRecord {
     pem: String,
 }
 
-fn extract_filter_prefix(path: &Path) -> Option<String> {
+fn extract_run_id(path: &Path) -> Option<(String, u32)> {
     let filename = path.file_name()?.to_str()?;
     let mut parts = filename.splitn(3, '-');
     let date = parts.next()?;
-    let revision = parts.next()?;
-    if date.len() == 8
-        && date.chars().all(|c| c.is_ascii_digit())
-        && !revision.is_empty()
-        && revision.chars().all(|c| c.is_ascii_digit())
-    {
-        Some(format!("{}-{}", date, revision))
+    let revision: u32 = parts.next()?.parse().ok()?;
+    if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
+        Some((date.to_string(), revision))
     } else {
         None
     }
@@ -122,22 +118,22 @@ fn update_intermediates(db_dir: &Path) -> Result<(), CRLiteDBError> {
     let intermediates_path = db_dir.join("crlite.intermediates");
 
     // Find the lexicographically largest "yyyymmdd-r" prefix among downloaded filter files.
-    let mut latest_prefix: Option<String> = None;
+    let mut latest_run_id: Option<(String, u32)> = None;
     for dir_entry in std::fs::read_dir(db_dir)? {
         let Ok(dir_entry) = dir_entry else { continue };
-        if let Some(prefix) = extract_filter_prefix(&dir_entry.path()) {
-            latest_prefix = Some(match latest_prefix {
-                None => prefix,
-                Some(current) => current.max(prefix),
+        if let Some(run_id) = extract_run_id(&dir_entry.path()) {
+            latest_run_id = Some(match latest_run_id {
+                None => run_id,
+                Some(current) => current.max(run_id),
             });
         }
     }
 
-    let prefix = latest_prefix.ok_or_else(|| {
+    let (date, revision) = latest_run_id.ok_or_else(|| {
         CRLiteDBError::from("no filter files found; cannot determine enrolled.json URL")
     })?;
 
-    let enrolled_url = ENROLLED_JSON_URL_TEMPLATE.replace("{}", &prefix);
+    let enrolled_url = ENROLLED_JSON_URL_TEMPLATE.replace("{}", &format!("{}-{}", date, revision));
     debug!("Fetching {}", enrolled_url);
     let records: Vec<EnrolledRecord> = reqwest::blocking::get(&enrolled_url)
         .map_err(|_| CRLiteDBError::from("could not fetch enrolled.json"))?
@@ -414,7 +410,10 @@ impl Intermediates {
             let der = match pem::parse(&record.pem) {
                 Ok(der) => der,
                 Err(_) => {
-                    trace!("Could not parse PEM in enrolled.json entry with uniqueID {}", record.unique_id);
+                    trace!(
+                        "Could not parse PEM in enrolled.json entry with uniqueID {}",
+                        record.unique_id
+                    );
                     continue;
                 }
             };
@@ -426,7 +425,10 @@ impl Intermediates {
                     .or_default()
                     .push(der.contents);
             } else {
-                trace!("Could not parse certificate in enrolled.json entry with uniqueID {}", record.unique_id);
+                trace!(
+                    "Could not parse certificate in enrolled.json entry with uniqueID {}",
+                    record.unique_id
+                );
             }
         }
         intermediates
