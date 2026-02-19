@@ -751,9 +751,9 @@ def publish_crlite_record(
     #   await FilterExpressions.eval(expression, context)
     # See https://remote-settings.readthedocs.io/en/latest/target-filters.html
     # for the expression syntax and the definition of env.
-    attributes[
-        "filter_expression"
-    ] = f"env.version|versionCompare('{channel.supported_version}.!') >= 0 && '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    attributes["filter_expression"] = (
+        f"env.version|versionCompare('{channel.supported_version}.!') >= 0 && '{channel.slug}' == 'security.pki.crlite_channel'|preferenceValue('none')"
+    )
 
     record = rw_client.create_record(
         collection=settings.KINTO_CRLITE_COLLECTION,
