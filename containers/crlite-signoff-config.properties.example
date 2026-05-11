@@ -9,18 +9,3 @@ KINTO_AUTH_PASSWORD=kinto_signer_example_password
 # If the variable KINTO_NOOP is set to anything at all, then the signoff will
 # operate as a no-op and simply print what it's doing.
 # KINTO_NOOP=dont_publish_if_this_is_set_to_anything
-
-
-# Hosts to verify as being unrevoked in the filter in the `crlite_filter_bucket`
-# config. The pod will connect to each, obtain the certificate in-use, and
-# evaluate the CRLite filter to ensure it's not revoked.
-#
-# Syntax: comma delimited list of accessible urls, containing lines of hosts as
-#         host[:port]
-# and prefixing lines with # or ; to indicate comments. E.g.:
-#
-#   example.com:8443
-#   ; also the following, port 443 assumed
-#   example.net
-#
-crlite_verify_host_file_urls=https://storage.googleapis.com/crlite-verification-domains/mozilla-services-domains.txt, https://storage.googleapis.com/crlite-verification-domains/moz-top500.txt
