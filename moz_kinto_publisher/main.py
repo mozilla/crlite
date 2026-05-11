@@ -125,14 +125,14 @@ class PublishedRunDB:
                 self.filter_bucket, f"{run_id}/ct-logs.json"
             )
         )
-        log.debug("%s %s", run_id, 'Is Valid' if is_valid else 'Is Not Valid')
+        log.debug("%s %s", run_id, "Is Valid" if is_valid else "Is Not Valid")
         return is_valid
 
     def is_run_ready(self, run_id):
         is_ready = workflow.google_cloud_file_exists(
             self.filter_bucket, f"{run_id}/completed"
         )
-        log.debug("%s/completed %s", run_id, 'is ready' if is_ready else 'is not ready')
+        log.debug("%s/completed %s", run_id, "is ready" if is_ready else "is not ready")
         return is_ready
 
     def await_most_recent_run(self, *, timeout=timedelta(minutes=5)):
@@ -634,7 +634,7 @@ def publish_intermediates(*, args, rw_client):
                 id=raw_record["id"],
             )
         except KintoException as ke:
-            log.error("Couldn't delete record id %s: %s", raw_record['id'], ke)
+            log.error("Couldn't delete record id %s: %s", raw_record["id"], ke)
         except KeyError:  # raw_record doesn't have "id"
             log.error("Couldn't delete record: %s", raw_record)
 
@@ -702,7 +702,7 @@ def clear_crlite_filters(*, rw_client, noop, channel):
     ]
     existing_filters = filter(lambda x: x["incremental"] is False, existing_records)
     for filter_record in existing_filters:
-        log.info("Cleaning up stale filter record %s.", filter_record['id'])
+        log.info("Cleaning up stale filter record %s.", filter_record["id"])
         rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION,
             id=filter_record["id"],
@@ -721,7 +721,7 @@ def clear_crlite_deltas(*, rw_client, noop, channel):
     ]
     existing_deltas = filter(lambda x: x["incremental"] is True, existing_records)
     for delta in existing_deltas:
-        log.info("Cleaning up stale delta record %s.", delta['id'])
+        log.info("Cleaning up stale delta record %s.", delta["id"])
         rw_client.delete_record(
             collection=settings.KINTO_CRLITE_COLLECTION,
             id=delta["id"],
@@ -1171,7 +1171,7 @@ def publish_ctlogs(*, args, rw_client):
 
         if args.noop:
             log.info(
-                "Noop enabled, skipping upload of \"%s\".", upstream_log['description']
+                'Noop enabled, skipping upload of "%s".', upstream_log["description"]
             )
             continue
 
