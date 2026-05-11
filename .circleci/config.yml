@@ -40,7 +40,9 @@ commands:
 
 jobs:
   python-build-and-test:
-    executor: python/default
+    executor:
+      name: python/default
+      tag: "3.12"
     steps:
       - checkout
       - run: pip install pytest
