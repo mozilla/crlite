@@ -13,5 +13,6 @@ setup(
         "kinto-http>=10.9",
         "python-decouple>=3.1",
         "requests[socks]>=2.10.0",
+        "statsd>=4.0",
     ],
 )

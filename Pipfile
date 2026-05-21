@@ -12,6 +12,7 @@ glog = ">=0.3"
 kinto-http = ">=10.9"
 python-decouple = ">=3.1"
 requests = {extras = ["socks"],version = ">=2.10.0"}
+statsd = ">=4.0"
 
 [requires]
 python_version = "3.7"
