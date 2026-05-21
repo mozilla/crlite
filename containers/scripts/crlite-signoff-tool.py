@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import requests
+import statsd
 import glog as log
 
 from decouple import config
@@ -28,6 +29,9 @@ KINTO_INTERMEDIATES_COLLECTION = config(
 )
 KINTO_NOOP = config("KINTO_NOOP", default=False, cast=lambda x: bool(x))
 
+STATSD_HOST = config("statsdHost", default="")
+STATSD_PORT = config("statsdPort", default=8125, cast=int)
+
 
 class SignoffClient(Client):
     def sign_collection(self, *, collection=None):
@@ -47,7 +51,7 @@ class SignoffClient(Client):
 
         if status != "to-review":
             log.info("Collection is not marked for review. Skipping.")
-            return
+            return False
 
         try:
             resp = self.patch_collection(
@@ -56,6 +60,8 @@ class SignoffClient(Client):
         except KintoException as e:
             log.error(f"Couldn't sign {collection}")
             raise e
+
+        return True
 
 
 if __name__ == "__main__":
@@ -93,9 +99,15 @@ if __name__ == "__main__":
     )
 
     try:
-        rw_client.sign_collection(collection=collection)
+        signed = rw_client.sign_collection(collection=collection)
     except KintoException as e:
         log.error(f"Kinto exception: {e}")
         sys.exit(ERROR)
+
+    if signed and args.collection == "cert-revocations" and STATSD_HOST:
+        statsd_client = statsd.StatsClient(
+            STATSD_HOST, STATSD_PORT, prefix="crlite.signoff"
+        )
+        statsd_client.incr("cert_revocations")
 
     sys.exit(OK)
