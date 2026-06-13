@@ -682,6 +682,25 @@ enum FilterType {
     Clubcard,
 }
 
+/// Serialization format for clubcard filters. Ignored for cascade filters.
+///
+/// `bincode` is the legacy V3 encoding; `tls` is the V4 encoding that uses a
+/// TLS-presentation-language-style codec.
+#[derive(clap::ValueEnum, Copy, Clone, PartialEq)]
+enum ClubcardEncoding {
+    Bincode,
+    Tls,
+}
+
+impl From<ClubcardEncoding> for clubcard_crlite::Encoding {
+    fn from(encoding: ClubcardEncoding) -> clubcard_crlite::Encoding {
+        match encoding {
+            ClubcardEncoding::Bincode => clubcard_crlite::Encoding::V3,
+            ClubcardEncoding::Tls => clubcard_crlite::Encoding::V4,
+        }
+    }
+}
+
 #[derive(Parser)]
 struct Cli {
     #[clap(long, parse(from_os_str), default_value = "./known/")]
@@ -704,6 +723,8 @@ struct Cli {
     murmurhash3: bool,
     #[clap(long, value_enum, default_value = "cascade")]
     filter_type: FilterType,
+    #[clap(long, value_enum, default_value = "bincode")]
+    encoding: ClubcardEncoding,
     #[clap(long)]
     clobber: bool,
     #[clap(short = 'v', parse(from_occurrences))]
@@ -727,6 +748,7 @@ fn main() {
     let reason_set = args.reason_set;
     let delta_reason_set = args.delta_reason_set;
     let filter_type = args.filter_type;
+    let encoding = args.encoding;
     let ct_logs_json = &args.ct_logs_json;
 
     let out_dir = &args.outdir;
@@ -848,6 +870,7 @@ fn main() {
                 known_dir,
                 ct_logs_json,
                 reason_set,
+                encoding.into(),
             )
         }
         FilterType::Cascade => {
@@ -915,6 +938,7 @@ fn main() {
                 known_dir,
                 ct_logs_json,
                 delta_reason_set,
+                encoding.into(),
             )
         }
         FilterType::Cascade => {
@@ -1006,7 +1030,7 @@ mod tests {
         decode_issuer, decode_serial, write_revset_and_delta, write_stash, CheckableFilter, Reason,
         ReasonSet,
     };
-    use clubcard_crlite::CRLiteClubcard;
+    use clubcard_crlite::{CRLiteClubcard, Encoding};
     use rand::rngs::OsRng;
     use rand::RngCore;
     use rust_cascade::{Cascade, HashAlgorithm};
@@ -1352,6 +1376,7 @@ mod tests {
             &env.known_dir(),
             &env.ct_logs_path(),
             ReasonSet::All,
+            Encoding::V4,
         );
         assert!(
             Cascade::from_bytes(clubcard_bytes).is_err(),
