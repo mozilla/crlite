@@ -20,26 +20,93 @@ use std::io::prelude::Write;
 use std::io::BufReader;
 use std::path::Path;
 
+/// `estimated_block_bits` estimates the size of the pair of ribbons that encodes a
+/// `subset_size` element subset of a `universe_size` element universe.
+///
+/// This mirrors the sizing rules in clubcard's builder: the approximate ribbon is `rank`
+/// columns of (1+epsilon)*subset_size rows, and the exact ribbon is one column with a row
+/// for each item that survives the approximate filter, i.e. the subset itself plus a
+/// 2^-rank fraction of its complement.
+fn estimated_block_bits(subset_size: usize, universe_size: usize) -> f64 {
+    const EPSILON: f64 = 0.02;
+    if subset_size == 0 || universe_size == 0 {
+        return 0.0;
+    }
+    let subset = subset_size as f64;
+    let universe = universe_size as f64;
+    let rank = if 2 * subset_size >= universe_size {
+        0.0
+    } else {
+        ((universe - subset) / subset).log2().floor()
+    };
+    let survivors = subset + (universe - subset) * (-rank).exp2();
+    (1.0 + EPSILON) * (rank * subset + survivors)
+}
+
 fn clubcard_do_one_issuer(
     clubcard: &ClubcardBuilder<4, CRLiteBuilderItem>,
     issuer: &[u8; 32],
     revoked_serials_and_reasons: RevokedSerialAndReasonIterator,
-    known_serials: KnownSerialIterator,
+    known_file: &Path,
 ) -> ApproximateRibbon<4, CRLiteBuilderItem> {
     let mut revoked_serial_set: HashSet<Serial> = revoked_serials_and_reasons.into();
 
-    let mut ribbon_builder = clubcard.new_approx_builder(issuer.as_ref());
+    // First pass. Size the universe and pick out the revoked serials that are in it. We
+    // buffer these rather than the (larger) known set.
     let mut universe_size = 0;
-    for (_expiry, serial) in known_serials {
+    let mut revoked_in_universe = vec![];
+    for (_expiry, serial) in KnownSerialIterator::new(known_file) {
         universe_size += 1;
-        if revoked_serial_set.contains(&serial) {
-            let key = CRLiteBuilderItem::revoked(IssuerSpkiHash(*issuer), decode_serial(&serial));
-            ribbon_builder.insert(key);
-            // Ensure that we do not attempt to include this issuer+serial again.
-            revoked_serial_set.remove(&serial);
+        // remove() ensures that we do not include this issuer+serial again.
+        if revoked_serial_set.remove(&serial) {
+            revoked_in_universe.push(serial);
         }
     }
+    drop(revoked_serial_set);
+
+    let revoked_count = revoked_in_universe.len();
+    let not_revoked_count = universe_size - revoked_count;
+    // A ribbon's size is proportional to the size of the set that it encodes, so when most
+    // of this issuer's certificates are revoked we encode the non-revoked ones instead and
+    // let the client negate the result of its queries. The sizes are equal until the
+    // revoked set is about 2/3 of the universe, as both encodings give rank 0 below that.
+    let inverted = estimated_block_bits(not_revoked_count, universe_size)
+        < estimated_block_bits(revoked_count, universe_size);
+
+    let mut ribbon_builder = clubcard.new_approx_builder(issuer.as_ref());
     ribbon_builder.set_universe_size(universe_size);
+    ribbon_builder.set_inverted(inverted);
+
+    if !inverted {
+        for serial in revoked_in_universe {
+            ribbon_builder.insert(CRLiteBuilderItem::revoked(
+                IssuerSpkiHash(*issuer),
+                decode_serial(&serial),
+            ));
+        }
+    } else {
+        debug!(
+            "Inverting block {}: {} of {} known serials are revoked",
+            base64::encode_config(issuer, base64::URL_SAFE),
+            revoked_count,
+            universe_size
+        );
+        // We buffered the revoked serials rather than the (larger) known set, so we have to
+        // re-read the known file to enumerate its complement. This only happens for the few
+        // issuers that we invert. Note that a serial listed twice in the known file yields a
+        // duplicate equation, which is redundant rather than exceptional, so there's no need
+        // to deduplicate the non-revoked serials here.
+        let revoked_set: HashSet<Serial> = revoked_in_universe.into_iter().collect();
+        for (_expiry, serial) in KnownSerialIterator::new(known_file) {
+            if !revoked_set.contains(&serial) {
+                ribbon_builder.insert(CRLiteBuilderItem::not_revoked(
+                    IssuerSpkiHash(*issuer),
+                    decode_serial(&serial),
+                ));
+            }
+        }
+    }
+
     ribbon_builder.into()
 }
 
@@ -77,7 +144,7 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
                         self,
                         &issuer_bytes,
                         revoked_serials_and_reasons,
-                        KnownSerialIterator::new(known_file),
+                        known_file,
                     )
                 })
                 .collect();
@@ -168,8 +235,17 @@ pub fn create_clubcard(
 
     info!("Generated {}", clubcard);
 
+    let index = clubcard.as_ref().index();
+    info!(
+        "{} of {} blocks encode the complement of their revocation set",
+        index.values().filter(|entry| entry.inverted).count(),
+        index.len()
+    );
+
     info!("Testing serialization");
-    let clubcard_bytes = clubcard.to_bytes(encoding).expect("cannot serialize clubcard");
+    let clubcard_bytes = clubcard
+        .to_bytes(encoding)
+        .expect("cannot serialize clubcard");
     info!("Clubcard is {} bytes", clubcard_bytes.len());
 
     let clubcard =

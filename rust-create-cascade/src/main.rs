@@ -835,7 +835,7 @@ fn main() {
     };
 
     if args.statsd_host.is_some() && statsd_client.is_none() {
-        info!("Could not connect to statsd {}", args.statsd_host.unwrap());
+        info!("Could not connect to statsd");
     }
 
     info!("Counting serials");
@@ -1378,9 +1378,39 @@ mod tests {
             ReasonSet::All,
             Encoding::V4,
         );
-        assert!(
-            Cascade::from_bytes(clubcard_bytes).is_err(),
-            "A Clubcard should not deserialize as a Cascade"
+
+        let clubcard =
+            CRLiteClubcard::from_bytes(&clubcard_bytes).expect("cannot deserialize clubcard");
+        let issuer_bytes = decode_issuer(&issuer);
+        assert!(!clubcard.as_ref().index()[issuer_bytes.as_slice()].inverted);
+    }
+
+    #[test]
+    fn test_clubcard_inverted_issuer() {
+        // An issuer with 3/4 of its certificates revoked should be encoded as an inverted
+        // block. create_clubcard checks that every known serial is classified correctly.
+        let env = TestEnv::new();
+        let issuer = env.add_issuer();
+        for _ in 1..=(1 << 10) {
+            env.add_serial(&issuer);
+        }
+        for _ in 1..=(3 << 10) {
+            env.add_revoked_serial(&issuer, Reason::Unspecified);
+        }
+
+        let filter_file = env.dir.path().join("filter");
+        let clubcard_bytes = create_clubcard(
+            &filter_file,
+            &env.revoked_dir(),
+            &env.known_dir(),
+            &env.ct_logs_path(),
+            ReasonSet::All,
+            Encoding::V4,
         );
+
+        let clubcard =
+            CRLiteClubcard::from_bytes(&clubcard_bytes).expect("cannot deserialize clubcard");
+        let issuer_bytes = decode_issuer(&issuer);
+        assert!(clubcard.as_ref().index()[issuer_bytes.as_slice()].inverted);
     }
 }
