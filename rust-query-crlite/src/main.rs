@@ -19,7 +19,7 @@ extern crate stderrlog;
 extern crate x509_parser;
 
 use clap::Parser;
-use clubcard_crlite::{CRLiteClubcard, CRLiteStatus};
+use clubcard_crlite::{CRLiteClubcard, CRLiteStatus, IssuerSpkiHash, LogId, Timestamp};
 use der_parser::oid;
 use log::*;
 use serde::Deserialize;
@@ -272,8 +272,12 @@ impl Filter {
     ) -> Status {
         match self {
             Filter::Clubcard((_, clubcard)) => {
-                let crlite_key = clubcard_crlite::CRLiteKey::new(issuer_spki_hash, serial);
-                match clubcard.contains(&crlite_key, timestamps.iter().map(|(x, y)| (x, *y))) {
+                let issuer_spki_hash = IssuerSpkiHash(issuer_spki_hash.clone());
+                let crlite_key = clubcard_crlite::CRLiteKey::new(&issuer_spki_hash, serial);
+                match clubcard.contains(
+                    &crlite_key,
+                    timestamps.iter().map(|(x, y)| (LogId(*x), Timestamp(*y))),
+                ) {
                     CRLiteStatus::Good => Status::Good,
                     CRLiteStatus::NotCovered => Status::NotCovered,
                     CRLiteStatus::NotEnrolled => Status::NotEnrolled,

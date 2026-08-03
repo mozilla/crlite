@@ -103,6 +103,25 @@ def main():
     log.info(f"Running {cmdline}")
     subprocess.run(cmdline, check=True)
 
+    if filter_type == "clubcard":
+        # rust-create-cascade writes the V3 encoding. Derive a V4 copy of each clubcard and
+        # write it alongside.
+        transcode_exe = os.path.expanduser("~/transcode-clubcard")
+        for name in ("filter", "filter.delta"):
+            transcode_cmdline = [
+                transcode_exe,
+                "-vv",
+                "--input",
+                os.path.join(outdir, name),
+                "--output",
+                os.path.join(outdir, f"{name}.v4"),
+                "--encoding",
+                "tls",
+                "--clobber",
+            ]
+            log.info(f"Running {transcode_cmdline}")
+            subprocess.run(transcode_cmdline, check=True)
+
 
 if __name__ == "__main__":
     main()

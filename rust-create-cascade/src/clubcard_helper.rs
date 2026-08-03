@@ -8,7 +8,9 @@ use crate::{
 };
 use clubcard::{builder::*, Clubcard};
 
-use clubcard_crlite::{builder::*, CRLiteClubcard, CRLiteCoverage, CRLiteKey, CRLiteQuery};
+use clubcard_crlite::{
+    builder::*, CRLiteClubcard, CRLiteCoverage, CRLiteKey, CRLiteQuery, Encoding, IssuerSpkiHash,
+};
 
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -31,7 +33,7 @@ fn clubcard_do_one_issuer(
     for (_expiry, serial) in known_serials {
         universe_size += 1;
         if revoked_serial_set.contains(&serial) {
-            let key = CRLiteBuilderItem::revoked(*issuer, decode_serial(&serial));
+            let key = CRLiteBuilderItem::revoked(IssuerSpkiHash(*issuer), decode_serial(&serial));
             ribbon_builder.insert(key);
             // Ensure that we do not attempt to include this issuer+serial again.
             revoked_serial_set.remove(&serial);
@@ -98,9 +100,9 @@ impl FilterBuilder for ClubcardBuilder<4, CRLiteBuilderItem> {
         for (_expiry, serial) in known_serials {
             let serial_bytes = decode_serial(&serial);
             let key = if revoked_serial_set.contains(&serial) {
-                CRLiteBuilderItem::revoked(*issuer, serial_bytes)
+                CRLiteBuilderItem::revoked(IssuerSpkiHash(*issuer), serial_bytes)
             } else {
-                CRLiteBuilderItem::not_revoked(*issuer, serial_bytes)
+                CRLiteBuilderItem::not_revoked(IssuerSpkiHash(*issuer), serial_bytes)
             };
             ribbon_builder.insert(key);
         }
@@ -128,9 +130,10 @@ impl CheckableFilter for CRLiteClubcard {
             .map(|iter| iter.into())
             .unwrap_or_default();
 
+        let issuer_hash = IssuerSpkiHash(*issuer);
         for (_expiry, serial) in known_serials {
             let decoded_serial = decode_serial(&serial);
-            let key = CRLiteKey::new(issuer, &decoded_serial);
+            let key = CRLiteKey::new(&issuer_hash, &decoded_serial);
             let query = CRLiteQuery::new(&key, None);
             assert!(
                 Clubcard::unchecked_contains(self.as_ref(), &query)
@@ -146,6 +149,7 @@ pub fn create_clubcard(
     known_dir: &Path,
     coverage_path: &Path,
     reason_set: ReasonSet,
+    encoding: Encoding,
 ) -> Vec<u8> {
     let coverage = CRLiteCoverage::from_mozilla_ct_logs_json(BufReader::new(
         std::fs::File::open(coverage_path).unwrap(),
@@ -165,7 +169,7 @@ pub fn create_clubcard(
     info!("Generated {}", clubcard);
 
     info!("Testing serialization");
-    let clubcard_bytes = clubcard.to_bytes().expect("cannot serialize clubcard");
+    let clubcard_bytes = clubcard.to_bytes(encoding).expect("cannot serialize clubcard");
     info!("Clubcard is {} bytes", clubcard_bytes.len());
 
     let clubcard =

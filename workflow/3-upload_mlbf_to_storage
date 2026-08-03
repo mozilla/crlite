@@ -69,6 +69,7 @@ def main():
     runIdPath = args.results_path[0].resolve()
 
     ensureFileOrAbort(runIdPath, Path("clubcard-all/filter"))
+    ensureFileOrAbort(runIdPath, Path("clubcard-all/filter.v4"))
 
     for path, dirs, files in os.walk(runIdPath / "clubcard-all"):
         localFolder = Path(path)

@@ -120,7 +120,7 @@ jobs:
           command: rustc --version; cargo --version; rustup --version
       - run:
           name: rustfmt
-          command: rustfmt --check src/*.rs
+          command: rustfmt --check src/*.rs src/bin/*.rs
       - run:
           name: Run Tests
           command: cargo test -r

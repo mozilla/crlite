@@ -44,6 +44,7 @@ VOLUME /var/log /processing /persistent
 
 COPY --from=go-builder /build/bin /app/
 COPY --from=rust-builder /build/release/rust-create-cascade /app/
+COPY --from=rust-builder /build/release/transcode-clubcard /app/
 COPY --from=rust-builder /build/release/rust-query-crlite /app/
 
 COPY moz_kinto_publisher /app/moz_kinto_publisher
