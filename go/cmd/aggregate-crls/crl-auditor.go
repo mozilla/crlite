@@ -19,7 +19,6 @@ var (
 	AuditKindFailedDownload     CrlAuditEntryKind = "Failed Download"
 	AuditKindFailedProcessLocal CrlAuditEntryKind = "Failed Process Local"
 	AuditKindFailedVerify       CrlAuditEntryKind = "Failed Verify"
-	AuditKindOlderThanLast      CrlAuditEntryKind = "Older Than Previous"
 	AuditKindNoRevocations      CrlAuditEntryKind = "Empty Revocation List"
 	AuditKindOld                CrlAuditEntryKind = "Not Fresh, Warning"
 	AuditKindExpired            CrlAuditEntryKind = "Expired, Allowed"
@@ -107,23 +106,6 @@ func (auditor *CrlAuditor) FailedVerifyUrl(issuer downloader.DownloadIdentifier,
 		Issuer:        issuer,
 		IssuerSubject: auditor.getSubject(issuer),
 		Errors:        append(dlTracer.Errors(), err.Error()),
-		DNSResults:    dlTracer.DNSResults(),
-	})
-}
-
-func (auditor *CrlAuditor) FailedOlderThanPrevious(issuer downloader.DownloadIdentifier, crlUrl *url.URL, dlTracer *downloader.DownloadTracer, previous time.Time, this time.Time) {
-	auditor.mutex.Lock()
-	defer auditor.mutex.Unlock()
-
-	err := fmt.Sprintf("Previous: %s, This Run: %s", previous, this)
-
-	auditor.Entries = append(auditor.Entries, CrlAuditEntry{
-		Timestamp:     time.Now().UTC(),
-		Kind:          AuditKindOlderThanLast,
-		Url:           crlUrl.String(),
-		Issuer:        issuer,
-		IssuerSubject: auditor.getSubject(issuer),
-		Errors:        append(dlTracer.Errors(), err),
 		DNSResults:    dlTracer.DNSResults(),
 	})
 }

@@ -270,38 +270,6 @@ func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl *url.URL,
 	return false, fmt.Errorf("Did not find matching URL in %v", urls)
 }
 
-func (ae *AggregateEngine) verifyCRL(aIssuer types.Issuer, dlTracer *downloader.DownloadTracer, crlUrl *url.URL, aPath string, aIssuerCert *x509.Certificate, aPreviousPath string) (*pkix.CertificateList, error) {
-	glog.V(1).Infof("[%s] Verifying CRL from URL %s", aPath, crlUrl)
-
-	crl, _, err := loadAndCheckSignatureOfCRL(aPath, aIssuerCert)
-	if err != nil {
-		ae.auditor.FailedVerifyUrl(&aIssuer, crlUrl, dlTracer, err)
-		return nil, err
-	}
-
-	if _, err = os.Stat(aPreviousPath); err == nil {
-		previousCrl, _, err := loadAndCheckSignatureOfCRL(aPreviousPath, aIssuerCert)
-		if err != nil {
-			ae.auditor.FailedVerifyPath(&aIssuer, crlUrl, aPreviousPath, err)
-			return nil, err
-		}
-
-		if previousCrl.TBSCertList.ThisUpdate.After(crl.TBSCertList.ThisUpdate) {
-			ae.auditor.FailedOlderThanPrevious(&aIssuer, crlUrl, dlTracer, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
-			return previousCrl, fmt.Errorf("[%s] CRL is older than the previous CRL (previous=%s, this=%s)",
-				aPath, previousCrl.TBSCertList.ThisUpdate, crl.TBSCertList.ThisUpdate)
-		}
-	}
-
-	if crl.HasExpired(time.Now()) {
-		ae.auditor.Expired(&aIssuer, crlUrl, crl.TBSCertList.NextUpdate)
-		glog.Warningf("[%s] CRL is expired, but proceeding anyway. (ThisUpdate=%s,"+
-			" NextUpdate=%s)", aPath, crl.TBSCertList.ThisUpdate, crl.TBSCertList.NextUpdate)
-	}
-
-	return crl, nil
-}
-
 func processCRL(aCRL *pkix.CertificateList) ([]types.SerialAndReason, error) {
 	revokedList, err := types.DecodeRawTBSCertList(aCRL.TBSCertList.Raw)
 	if err != nil {

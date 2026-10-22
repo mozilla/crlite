@@ -22,7 +22,6 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/google/certificate-transparency-go/x509/pkix"
 	"github.com/mozilla/crlite/go"
-	"github.com/mozilla/crlite/go/downloader"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
 
@@ -332,100 +331,6 @@ func Test_loadAndCheckSignatureOfCRL(t *testing.T) {
 
 	otherCa, _ := makeCA(t)
 	_, _, err = loadAndCheckSignatureOfCRL(crlPath.Name(), otherCa)
-	if !strings.Contains(err.Error(), "verification failure") {
-		t.Error(err)
-	}
-}
-
-func Test_verifyCRL(t *testing.T) {
-	issuersObj := rootprogram.NewMozillaIssuers()
-	dlTracer := downloader.NewDownloadTracer()
-	auditor := NewCrlAuditor(issuersObj)
-	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
-	url, _ := url.Parse("http://test/crl")
-
-	rootPath, err := ioutil.TempDir("", t.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(rootPath)
-
-	ae := AggregateEngine{
-		rootPath: rootPath,
-		issuers:  issuersObj,
-		auditor:  auditor,
-	}
-
-	todayThisUpdate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
-	todayNextUpdate := time.Date(2020, time.February, 1, 0, 0, 0, 0, time.UTC)
-
-	ca, caPrivKey := makeCA(t)
-
-	todayCrlBytes := makeCRL(t, ca, caPrivKey, todayThisUpdate, todayNextUpdate)
-	todayCrlPath, err := ioutil.TempFile("", "todays_crl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(todayCrlPath.Name())
-	if _, err := todayCrlPath.Write(todayCrlBytes); err != nil {
-		t.Fatal(err)
-	}
-	if err := todayCrlPath.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Prompt the case where yesterday's was newer than today's
-	yesterdayThisUpdate := time.Date(2020, time.January, 2, 0, 0, 0, 0, time.UTC)
-	yesterdayNextUpdate := time.Date(2020, time.February, 2, 0, 0, 0, 0, time.UTC)
-
-	yesterdayCrlBytes := makeCRL(t, ca, caPrivKey, yesterdayThisUpdate, yesterdayNextUpdate)
-	yesterdayCrlPath, err := ioutil.TempFile("", "yesterdays_crl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(yesterdayCrlPath.Name())
-	if _, err := yesterdayCrlPath.Write(yesterdayCrlBytes); err != nil {
-		t.Fatal(err)
-	}
-	if err := yesterdayCrlPath.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ae.verifyCRL(issuer, dlTracer, url, todayCrlPath.Name(), ca, yesterdayCrlPath.Name())
-	if !strings.Contains(err.Error(), "CRL is older than the previous CRL") {
-		t.Error(err)
-	}
-
-	// Should work fine this orientation
-	list, err := ae.verifyCRL(issuer, dlTracer, url, yesterdayCrlPath.Name(), ca, todayCrlPath.Name())
-	if err != nil {
-		t.Error(err)
-	}
-	if list.TBSCertList.ThisUpdate != yesterdayThisUpdate {
-		t.Error("This Update didn't match")
-	}
-
-	if list.TBSCertList.NextUpdate != yesterdayNextUpdate {
-		t.Error("This Update didn't match")
-	}
-
-	_, otherCaPrivKey := makeCA(t)
-
-	// Prompt the case where yesterday's is OK but today's is mis-signed
-	todayOtherSignerCrlBytes := makeCRL(t, ca, otherCaPrivKey, todayThisUpdate, todayNextUpdate)
-	todayOtherSignerCrlPath, err := ioutil.TempFile("", "todays_other_signer_crl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(todayOtherSignerCrlPath.Name())
-	if _, err := todayOtherSignerCrlPath.Write(todayOtherSignerCrlBytes); err != nil {
-		t.Fatal(err)
-	}
-	if err := todayOtherSignerCrlPath.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = ae.verifyCRL(issuer, dlTracer, url, todayOtherSignerCrlPath.Name(), ca, yesterdayCrlPath.Name())
 	if !strings.Contains(err.Error(), "verification failure") {
 		t.Error(err)
 	}
