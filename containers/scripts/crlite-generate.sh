@@ -21,6 +21,7 @@ ${crlite_bin:-~/go/bin}/aggregate-crls -crlpath ${CRLS} \
               -revokedpath ${ID}/revoked \
               -enrolledpath ${ID}/enrolled.json \
               -auditpath ${ID}/crl-audit.json \
+              -badcrlpath ${ID}/bad-crls \
               -ccadb ${crlite_persistent:-/ct}/ccadb-intermediates.csv \
               -stderrthreshold=INFO -alsologtostderr \
               -log_dir ${ID}/log

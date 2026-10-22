@@ -41,6 +41,7 @@ var (
 	revokedpath  = flag.String("revokedpath", "<path>", "output folder of revoked serial files of the form <issuer>")
 	enrolledpath = flag.String("enrolledpath", "<path>", "output JSON file of issuers with their enrollment status")
 	auditpath    = flag.String("auditpath", "<path>", "output JSON audit report")
+	badcrlpath   = flag.String("badcrlpath", "", "optional output folder of the form /<path>/<issuer> for copies of CRLs that failed verification or processing")
 	ctconfig     = config.NewCTConfig()
 
 	illegalPath = regexp.MustCompile(`[^[:alnum:]\~\-\.]`)
@@ -62,6 +63,7 @@ type AggregateEngine struct {
 
 	issuers *rootprogram.MozIssuers
 	auditor *CrlAuditor
+	badCrls *BadCrlSaver
 }
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
@@ -81,10 +83,23 @@ func makeFilenameFromUrl(crlUrl url.URL) string {
 
 type CrlVerifier struct {
 	expectedIssuerCert *x509.Certificate
+	issuer             types.Issuer
+	crlUrl             url.URL
+	finalPath          string
+	badCrls            *BadCrlSaver
 }
 
 func (cv *CrlVerifier) IsValid(path string) error {
 	_, _, err := loadAndCheckSignatureOfCRL(path, cv.expectedIssuerCert)
+	if err != nil {
+		// The downloader verifies the new download at a temporary path, and
+		// then, if that fails, the existing file at finalPath.
+		kind := BadCrlKindFailedVerifyDownload
+		if path == cv.finalPath {
+			kind = BadCrlKindFailedVerifyLocal
+		}
+		cv.badCrls.Save(cv.issuer, &cv.crlUrl, path, kind, err)
+	}
 	return err
 }
 
@@ -107,6 +122,10 @@ func (ae *AggregateEngine) crlFetchWorkerProcessOne(ctx context.Context, crlUrl 
 
 	verifyFunc := &CrlVerifier{
 		expectedIssuerCert: cert,
+		issuer:             issuer,
+		crlUrl:             crlUrl,
+		finalPath:          finalPath,
+		badCrls:            ae.badCrls,
 	}
 
 	fileOnDiskIsAcceptable, dlErr := downloader.DownloadAndVerifyFileSync(ctx, verifyFunc, ae.auditor,
@@ -345,6 +364,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 				if err != nil {
 					anyCrlFailed = true
 					ae.auditor.FailedVerifyPath(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedVerifyLocal, err)
 					glog.Errorf("[%+v] Failed to verify: %s", crlUrlPath, err)
 					continue
 				}
@@ -359,6 +379,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					if err != nil || !foundMatch {
 						fetchUrl := normalizedUrlString(&crlUrlPath.Url)
 						ae.auditor.WrongIssuingDistributionPoint(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+						ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindWrongIssuingDP, err)
 						glog.Errorf("[%s] CRL shard at %s does not list that URL in its issuing DP extension", tuple.Issuer.ID(), fetchUrl)
 					}
 				}
@@ -367,6 +388,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 				if err != nil {
 					anyCrlFailed = true
 					ae.auditor.FailedProcessLocal(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
+					ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedProcess, err)
 					glog.Errorf("[%+v] Failed to process: %s", crlUrlPath, err)
 					continue
 				}
@@ -549,10 +571,16 @@ func main() {
 
 	auditor := NewCrlAuditor(mozIssuers)
 
+	var badCrls *BadCrlSaver
+	if *badcrlpath != "" {
+		badCrls = NewBadCrlSaver(*badcrlpath, mozIssuers)
+	}
+
 	ae := AggregateEngine{
 		rootPath: *revokedpath,
 		issuers:  mozIssuers,
 		auditor:  auditor,
+		badCrls:  badCrls,
 	}
 
 	crlPaths, count := ae.downloadCRLs(ctx, mozIssuers)
