@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	stdx509 "crypto/x509"
+	stdpkix "crypto/x509/pkix"
 	"encoding/asn1"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -14,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -99,8 +104,9 @@ func makeCA(t *testing.T) (*x509.Certificate, interface{}) {
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
+		SubjectKeyId:          []byte{1, 2, 3, 4},
 	}
 
 	caPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -374,7 +380,7 @@ func Test_crlFetchWorker(t *testing.T) {
 	resultChan := make(chan types.IssuerCrlUrlPaths, 16)
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuer(ca, nil, false)
+	issuer := issuersObj.InsertIssuer(ca, nil, nil, false)
 
 	thisUpdate := time.Now().UTC()
 	nextUpdate := thisUpdate.AddDate(0, 0, 1)
@@ -474,7 +480,7 @@ func Test_crlFetchWorkerProcessOne(t *testing.T) {
 	}
 
 	ca, caPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuer(ca, nil, false)
+	issuer := issuersObj.InsertIssuer(ca, nil, nil, false)
 
 	unavailableUrl, _ := url.Parse("http://localhost:1/file")
 
@@ -611,76 +617,164 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 		t.Fatal(err)
 	}
 
-	// The fetch URL is not listed in the partitioned CRL URL set
-	partitionCrlUrl1, _ := url.Parse("http://example.com/1.crl")
-	partitionCrlUrl1Str := normalizedUrlString(partitionCrlUrl1)
-	partionedCrlUrls := map[string]bool{}
-	match, err := loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
-	if err == nil || match {
-		t.Fatal("Expected 'Did not find matching URL' error")
-	}
-
-	// The fetch URL is listed in the partitioned CRL URL set and matches the issuingDP.
-	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl1Str: true,
-	}
-	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
+	idpUrls, err := loadIssuingDistributionPointOfCRL(crlPath.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !match {
-		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
-	}
 
-	// The fetch URL is listed in the partitioned CRL URL set but does not match the issuing DP.
-	otherUrl, _ := url.Parse("http://other.example.com")
-	otherUrlStr := normalizedUrlString(otherUrl)
-	partionedCrlUrls = map[string]bool{
-		otherUrlStr: true,
+	normalized := func(u string) string {
+		parsed, err := url.Parse(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return normalizedUrlString(parsed)
 	}
-	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), otherUrl, partionedCrlUrls)
-	if err == nil || match {
-		t.Fatal("Expected 'Did not find matching URL' error")
-	}
+	url1 := normalized("http://example.com/1.crl")
+	url2 := normalized("http://example.com/2.crl")
+	url3 := normalized("http://example.com/2%20final.crl")
+	url4 := normalized("http://example.com/?q=2%20final%20final.crl")
+	otherUrl := normalized("http://other.example.com")
+	reversedIdpUrls := slices.Clone(idpUrls)
+	slices.Reverse(reversedIdpUrls)
 
-	// The fetch URL is listed in the partition list and matches the issuing DP, but another URL in
-	// the partition list also matches the issuingDP.
-	partitionCrlUrl2, _ := url.Parse("http://example.com/2.crl")
-	partitionCrlUrl2Str := normalizedUrlString(partitionCrlUrl2)
-	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl1Str: true,
-		partitionCrlUrl2Str: true,
+	for _, tc := range []struct {
+		name        string
+		fetchUrl    string
+		idps        map[string][]string
+		partitioned []string
+		expectErr   string
+	}{
+		{"fetch URL not in the partitioned CRL URL set", url1,
+			map[string][]string{url1: idpUrls}, []string{}, "Did not find matching URL"},
+		{"fetch URL matches", url1,
+			map[string][]string{url1: idpUrls}, []string{url1}, ""},
+		{"fetch URL does not match", otherUrl,
+			map[string][]string{otherUrl: idpUrls}, []string{otherUrl}, "Did not find matching URL"},
+		{"fetch URL path is equivalent but not equal", url3,
+			map[string][]string{url3: idpUrls}, []string{url3}, ""},
+		{"fetch URL query is equivalent but not equal", url4,
+			map[string][]string{url4: idpUrls}, []string{url4}, ""},
+		{"another listed known CRL could not be loaded", url1,
+			map[string][]string{url1: idpUrls}, []string{url1, url2}, ""},
+		{"another listed known CRL is a mirror", url1,
+			map[string][]string{url1: idpUrls, url2: reversedIdpUrls}, []string{url1, url2}, ""},
+		{"another listed known CRL is a different partition", url1,
+			map[string][]string{url1: idpUrls, url2: []string{url2}}, []string{url1, url2},
+			"lists a different known CRL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			partitioned := map[string]bool{}
+			for _, u := range tc.partitioned {
+				partitioned[u] = true
+			}
+			err := checkIssuingDistributionPoint(tc.fetchUrl, tc.idps, partitioned)
+			if tc.expectErr == "" && err != nil {
+				t.Fatal(err)
+			}
+			if tc.expectErr != "" && (err == nil || !strings.Contains(err.Error(), tc.expectErr)) {
+				t.Fatalf("Expected %q error, got %v", tc.expectErr, err)
+			}
+		})
 	}
-	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl1, partionedCrlUrls)
-	if err == nil {
-		t.Fatalf("CRL with multiple known partition urls should be rejected")
-	}
+}
 
-	// The fetch URL path component is equivalent but not equal to a URL in the CRL DP extension
-	partitionCrlUrl3, _ := url.Parse("http://example.com/2%20final.crl")
-	partitionCrlUrl3Str := normalizedUrlString(partitionCrlUrl3)
-	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl3Str: true,
+func makeCRLWithIssuingDP(t *testing.T, ca *x509.Certificate, caPrivKey interface{}, uris []string) []byte {
+	t.Helper()
+
+	// IssuingDistributionPoint ::= SEQUENCE { distributionPoint [0] { fullName [0] GeneralNames } }
+	var names []byte
+	for _, uri := range uris {
+		name, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 6, Bytes: []byte(uri)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name...)
 	}
-	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl3, partionedCrlUrls)
+	fullName, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: names})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !match {
-		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
-	}
-
-	// The fetch URL query component is equivalent but not equal to a URL in the CRL DP extension
-	partitionCrlUrl4, _ := url.Parse("http://example.com/?q=2%20final%20final.crl")
-	partitionCrlUrl4Str := normalizedUrlString(partitionCrlUrl4)
-	partionedCrlUrls = map[string]bool{
-		partitionCrlUrl4Str: true,
-	}
-	match, err = loadAndCheckIssuingDistributionPointOfCRL(crlPath.Name(), partitionCrlUrl4, partionedCrlUrls)
+	dpName, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: fullName})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !match {
-		t.Fatalf("CRL IDP should match %s", partitionCrlUrl1Str)
+	idp, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: dpName})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The certificate-transparency-go fork can't add CRL extensions, so use the standard library.
+	stdCa, err := stdx509.ParseCertificate(ca.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thisUpdate := time.Now().UTC()
+	template := &stdx509.RevocationList{
+		Number:          big.NewInt(1),
+		ThisUpdate:      thisUpdate,
+		NextUpdate:      thisUpdate.AddDate(0, 0, 1),
+		ExtraExtensions: []stdpkix.Extension{{Id: []int{2, 5, 29, 28}, Critical: true, Value: idp}},
+	}
+	crlBytes, err := stdx509.CreateRevocationList(rand.Reader, template, stdCa, caPrivKey.(crypto.Signer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return crlBytes
+}
+
+func Test_aggregateCRLWorkerIssuingDPMirrors(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	issuersObj := rootprogram.NewMozillaIssuers()
+	auditor := NewCrlAuditor(issuersObj)
+	ae := AggregateEngine{
+		rootPath: filepath.Join(tmpDir, "revoked"),
+		issuers:  issuersObj,
+		auditor:  auditor,
+	}
+
+	ca, caPrivKey := makeCA(t)
+
+	// Partition 1 is mirrored on two hosts, and its CRL lists both URLs. The CRL for
+	// partition 2 lists the URL of partition 1 too, which is an error. The full CRL
+	// has no issuingDistributionPoint, which is fine.
+	p1a := "http://a.example.com/1.crl"
+	p1b := "http://b.example.com/1.crl"
+	p2 := "http://a.example.com/2.crl"
+	full := "http://a.example.com/full.crl"
+	thisUpdate := time.Now().UTC()
+	crls := map[string][]byte{
+		p1a:  makeCRLWithIssuingDP(t, ca, caPrivKey, []string{p1a, p1b}),
+		p1b:  makeCRLWithIssuingDP(t, ca, caPrivKey, []string{p1a, p1b}),
+		p2:   makeCRLWithIssuingDP(t, ca, caPrivKey, []string{p2, p1a}),
+		full: makeCRL(t, ca, caPrivKey, thisUpdate, thisUpdate.AddDate(0, 0, 1)),
+	}
+	issuer := issuersObj.InsertIssuer(ca, []string{p1a, p1b, p2, full}, []string{p1a, p1b, p2}, true)
+
+	tuple := types.IssuerCrlUrlPaths{Issuer: issuer}
+	for i, u := range []string{p1a, p1b, p2, full} {
+		crlUrl, _ := url.Parse(u)
+		path := filepath.Join(tmpDir, fmt.Sprintf("%d.crl", i))
+		if err := os.WriteFile(path, crls[u], 0644); err != nil {
+			t.Fatal(err)
+		}
+		tuple.CrlUrlPaths = append(tuple.CrlUrlPaths, types.UrlPath{Url: *crlUrl, Path: path})
+	}
+	workChan := make(chan types.IssuerCrlUrlPaths, 1)
+	workChan <- tuple
+	close(workChan)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	ae.aggregateCRLWorker(context.TODO(), &wg, workChan)
+
+	wrongDP := []string{}
+	for _, e := range auditor.GetEntries() {
+		if e.Kind == AuditKindWrongDP {
+			wrongDP = append(wrongDP, e.Url)
+		}
+	}
+	if !slices.Equal(wrongDP, []string{p2}) {
+		t.Errorf("Expected only %s to have a wrong issuing DP, got %v", p2, wrongDP)
 	}
 }

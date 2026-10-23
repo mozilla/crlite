@@ -85,7 +85,7 @@ func Test_crlFetchWorkerProcessOneSavesBadCrls(t *testing.T) {
 
 	ca, _ := makeCA(t)
 	_, otherCaPrivKey := makeCA(t)
-	issuer := issuersObj.InsertIssuer(ca, nil, false)
+	issuer := issuersObj.InsertIssuer(ca, nil, nil, false)
 
 	thisUpdate := time.Now().UTC()
 	nextUpdate := thisUpdate.AddDate(0, 0, 1)
@@ -131,7 +131,8 @@ func Test_aggregateCRLWorkerSavesBadCrls(t *testing.T) {
 
 	ca, caPrivKey := makeCA(t)
 	// Partitioned, so the CRL must have a matching issuingDistributionPoint
-	issuer := issuersObj.InsertIssuer(ca, nil, true)
+	crlUrlStr := "http://example.com/1.crl"
+	issuer := issuersObj.InsertIssuer(ca, []string{crlUrlStr}, []string{crlUrlStr}, true)
 
 	keyCompromise, err := asn1.Marshal(asn1.Enumerated(1))
 	if err != nil {
@@ -158,7 +159,7 @@ func Test_aggregateCRLWorkerSavesBadCrls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	crlUrl, _ := url.Parse("http://example.com/1.crl")
+	crlUrl, _ := url.Parse(crlUrlStr)
 	workChan := make(chan types.IssuerCrlUrlPaths, 1)
 	workChan <- types.IssuerCrlUrlPaths{
 		Issuer:      issuer,

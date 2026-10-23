@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -221,15 +222,11 @@ func loadAndCheckSignatureOfCRL(aPath string, aIssuerCert *x509.Certificate) (*p
 	return crl, shasum[:], err
 }
 
-func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl *url.URL, aPartitionedCrlUrlSet map[string]bool) (bool, error) {
-	// If a CA uses partitioned CRLs, then the fetch URL must appear as a fullName in the
-	// issuingDistributionPoints extension. Moreover, it must be the only URL from the
-	// collection of partitioned CRL URLs that appears in the issuingDistributionPoints
-	// extension.
-	//
+// Returns the normalized URIs in the fullName of the CRL's issuingDistributionPoint extension.
+func loadIssuingDistributionPointOfCRL(aPath string) ([]string, error) {
 	crlBytes, err := ioutil.ReadFile(aPath)
 	if err != nil {
-		return false, fmt.Errorf("Error reading CRL, will not process revocations: %s", err)
+		return nil, fmt.Errorf("Error reading CRL: %s", err)
 	}
 
 	block, _ := pem.Decode(crlBytes)
@@ -242,32 +239,72 @@ func loadAndCheckIssuingDistributionPointOfCRL(aPath string, aFetchUrl *url.URL,
 	// standard x509 parser.
 	crl, err := x509.ParseCertificateListDER(crlBytes)
 	if err != nil {
-		return false, fmt.Errorf("Error parsing, will not process revocations: %s", err)
+		return nil, fmt.Errorf("Error parsing issuingDistributionPoint: %s", err)
 	}
 
-	normalizedFetchUrl := normalizedUrlString(aFetchUrl)
 	urls := []string{}
-	found := false
 	for _, urlStr := range crl.TBSCertList.IssuingDPFullNames.URIs {
 		parsedUrl, err := url.Parse(urlStr)
 		if err != nil {
 			continue
 		}
-		normalizedUrl := normalizedUrlString(parsedUrl)
-		urls = append(urls, normalizedUrl)
-		_, exists := aPartitionedCrlUrlSet[normalizedUrl]
-		if exists {
-			if normalizedFetchUrl == normalizedUrl {
-				found = true
-			} else {
-				return false, fmt.Errorf("The issuingDistributionPoints extension lists a different known CRL %s", normalizedUrl)
-			}
+		urls = append(urls, normalizedUrlString(parsedUrl))
+	}
+	return urls, nil
+}
+
+func sameUrlSet(a []string, b []string) bool {
+	aSet := make(map[string]bool, len(a))
+	for _, u := range a {
+		aSet[u] = true
+	}
+	bSet := make(map[string]bool, len(b))
+	for _, u := range b {
+		if !aSet[u] {
+			return false
+		}
+		bSet[u] = true
+	}
+	return len(aSet) == len(bSet)
+}
+
+// Checks the issuingDistributionPoint of the CRL fetched from aFetchUrl. The
+// issuingDistributionPoint URIs of each of the issuer's CRLs are given in
+// aIdpUrlsByFetchUrl, keyed by normalized fetch URL.
+func checkIssuingDistributionPoint(aFetchUrl string, aIdpUrlsByFetchUrl map[string][]string, aPartitionedCrlUrlSet map[string]bool) error {
+	// If a CA uses partitioned CRLs, then the fetch URL must appear as a fullName in the
+	// issuingDistributionPoint extension. The fullName may also list other known CRL URLs,
+	// but only as alternative locations of the same CRL (RFC 5280 Section 4.2.1.13), e.g.
+	// mirrors on another host. So the CRLs fetched from those URLs must have the same
+	// issuingDistributionPoint as this one. Otherwise this CRL claims the scope of a
+	// different partition.
+	urls := aIdpUrlsByFetchUrl[aFetchUrl]
+	if !aPartitionedCrlUrlSet[aFetchUrl] || !slices.Contains(urls, aFetchUrl) {
+		return fmt.Errorf("Did not find matching URL in %v", urls)
+	}
+	for _, otherUrl := range urls {
+		if otherUrl == aFetchUrl || !aPartitionedCrlUrlSet[otherUrl] {
+			continue
+		}
+		otherUrls, ok := aIdpUrlsByFetchUrl[otherUrl]
+		if !ok {
+			// The CRL from otherUrl couldn't be loaded, so we can't compare. That failure
+			// is reported separately.
+			continue
+		}
+		if !sameUrlSet(urls, otherUrls) {
+			return fmt.Errorf("The issuingDistributionPoint extension lists a different known CRL %s, "+
+				"whose issuingDistributionPoint lists %v", otherUrl, otherUrls)
 		}
 	}
-	if found {
-		return true, nil
-	}
-	return false, fmt.Errorf("Did not find matching URL in %v", urls)
+	return nil
+}
+
+func (ae *AggregateEngine) wrongIssuingDistributionPoint(aIssuer types.Issuer, aCrlUrlPath types.UrlPath, err error) {
+	ae.auditor.WrongIssuingDistributionPoint(&aIssuer, &aCrlUrlPath.Url, aCrlUrlPath.Path, err)
+	ae.badCrls.Save(aIssuer, &aCrlUrlPath.Url, aCrlUrlPath.Path, BadCrlKindWrongIssuingDP, err)
+	glog.Errorf("[%s] CRL shard at %s has an invalid issuing DP extension: %s", aIssuer.ID(),
+		normalizedUrlString(&aCrlUrlPath.Url), err)
 }
 
 func processCRL(aCRL *pkix.CertificateList) ([]types.SerialAndReason, error) {
@@ -300,21 +337,25 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			glog.Fatalf("[%s] Could not find certificate for issuer: %s", tuple.Issuer.ID(), err)
 		}
 
-		usesPartitionedCrls, err := ae.issuers.GetUsesPartitionedCrlsForIssuer(tuple.Issuer)
-		if err != nil {
-			glog.Warningf("[%s] Assuming that this issuer uses partitioned CRLs.", tuple.Issuer.ID())
-			usesPartitionedCrls = true
-		}
-
-		partitionedCrlUrls := make(map[string]bool, len(tuple.CrlUrlPaths))
-		if usesPartitionedCrls {
-			for _, url := range tuple.CrlUrlPaths {
-				partitionedCrlUrls[normalizedUrlString(&url.Url)] = true
+		// The issuer's full CRL, if it has one, covers every partition and
+		// need not have an issuingDistributionPoint extension.
+		partitionedCrls := ae.issuers.GetPartitionedCrlsForIssuer(tuple.Issuer)
+		partitionedCrlUrls := make(map[string]bool, len(partitionedCrls))
+		for crl := range partitionedCrls {
+			crlUrl, err := url.Parse(strings.TrimSpace(crl))
+			if err != nil {
+				continue
 			}
+			partitionedCrlUrls[normalizedUrlString(crlUrl)] = true
 		}
 
 		serialCount := 0
 		serials := make([]types.SerialAndReason, 0, 128*1024)
+
+		// The issuingDistributionPoint check compares CRLs from the same issuer, so
+		// it runs once they have all been loaded.
+		idpUrlsByFetchUrl := make(map[string][]string, len(tuple.CrlUrlPaths))
+		idpCrlUrlPaths := make([]types.UrlPath, 0, len(tuple.CrlUrlPaths))
 
 		for _, crlUrlPath := range tuple.CrlUrlPaths {
 			select {
@@ -337,18 +378,18 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 					continue
 				}
 
-				if usesPartitionedCrls {
+				if partitionedCrlUrls[normalizedUrlString(&crlUrlPath.Url)] {
 					// Per TLS BR Section 7.2.2.1 (version 2.1.5) and MRSP
-					// Section 6.1.2 (version 3.0), each of its CRLs must
+					// Section 6.1.2 (version 3.0), each partitioned CRL must
 					// include an issuingDP extension with a fullName of URI
 					// type that matches, byte-for-byte, a URL in the "JSON
 					// Array of Partitioned CRLs" in CCADB.
-					foundMatch, err := loadAndCheckIssuingDistributionPointOfCRL(crlUrlPath.Path, &crlUrlPath.Url, partitionedCrlUrls)
-					if err != nil || !foundMatch {
-						fetchUrl := normalizedUrlString(&crlUrlPath.Url)
-						ae.auditor.WrongIssuingDistributionPoint(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
-						ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindWrongIssuingDP, err)
-						glog.Errorf("[%s] CRL shard at %s does not list that URL in its issuing DP extension", tuple.Issuer.ID(), fetchUrl)
+					idpUrls, err := loadIssuingDistributionPointOfCRL(crlUrlPath.Path)
+					if err != nil {
+						ae.wrongIssuingDistributionPoint(tuple.Issuer, crlUrlPath, err)
+					} else {
+						idpUrlsByFetchUrl[normalizedUrlString(&crlUrlPath.Url)] = idpUrls
+						idpCrlUrlPaths = append(idpCrlUrlPaths, crlUrlPath)
 					}
 				}
 
@@ -372,6 +413,13 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 				ae.auditor.ValidAndProcessed(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, revokedCount, age, sha256sum)
 				serials = append(serials, revokedSerials...)
 				serialCount += revokedCount
+			}
+		}
+
+		for _, crlUrlPath := range idpCrlUrlPaths {
+			err := checkIssuingDistributionPoint(normalizedUrlString(&crlUrlPath.Url), idpUrlsByFetchUrl, partitionedCrlUrls)
+			if err != nil {
+				ae.wrongIssuingDistributionPoint(tuple.Issuer, crlUrlPath, err)
 			}
 		}
 

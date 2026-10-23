@@ -265,7 +265,7 @@ func Test_SaveLoadIssuersList(t *testing.T) {
 	notEnrolledIssuer := types.NewIssuer(notEnrolledCert)
 
 	mi := NewMozillaIssuers()
-	mi.InsertIssuer(enrolledCert, nil, false)
+	mi.InsertIssuer(enrolledCert, nil, nil, false)
 
 	if !mi.IsIssuerInProgram(enrolledIssuer) {
 		t.Error("enrolledIssuer should be in program")
@@ -580,4 +580,30 @@ func Test_PartitionedCRLFormat(t *testing.T) {
 		t.Fatalf("Should ignored malformed url")
 	}
 
+}
+
+func Test_PartitionedCRLsTrackedSeparately(t *testing.T) {
+	// kFirstTwoLines ends with an empty "Full CRL Issued By This CA" field followed by a comma.
+	mi, err := loadSampleIssuers(strings.TrimSuffix(kFirstTwoLines, ",") +
+		"http://example.org/full.crl,\"[http://example.org/1.crl, http://example.org/2.crl]\"")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	issuer := types.NewIssuerFromString(kFirstTwoLinesIssuerID)
+	if len(mi.CrlMap[issuer.ID()]) != 3 {
+		t.Errorf("Expected all three CRLs, got %v", mi.CrlMap[issuer.ID()])
+	}
+	partitioned := mi.GetPartitionedCrlsForIssuer(issuer)
+	if len(partitioned) != 2 || !partitioned["http://example.org/1.crl"] || !partitioned["http://example.org/2.crl"] {
+		t.Errorf("Expected only the two partitioned CRLs, got %v", partitioned)
+	}
+
+	mi, err = loadSampleIssuers(strings.TrimSuffix(kFirstTwoLines, ",") + "http://example.org/full.crl,")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mi.GetPartitionedCrlsForIssuer(issuer)) != 0 {
+		t.Errorf("Expected no partitioned CRLs, got %v", mi.GetPartitionedCrlsForIssuer(issuer))
+	}
 }
