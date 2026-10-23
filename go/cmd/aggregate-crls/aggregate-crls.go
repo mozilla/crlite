@@ -64,7 +64,7 @@ type AggregateEngine struct {
 
 	issuers *rootprogram.MozIssuers
 	auditor *CrlAuditor
-	badCrls *BadCrlSaver
+	badCrls *BadCrlReporter
 }
 
 func makeFilenameFromUrl(crlUrl url.URL) string {
@@ -87,7 +87,7 @@ type CrlVerifier struct {
 	issuer             types.Issuer
 	crlUrl             url.URL
 	finalPath          string
-	badCrls            *BadCrlSaver
+	badCrls            *BadCrlReporter
 }
 
 func (cv *CrlVerifier) IsValid(path string) error {
@@ -99,7 +99,7 @@ func (cv *CrlVerifier) IsValid(path string) error {
 		if path == cv.finalPath {
 			kind = BadCrlKindFailedVerifyLocal
 		}
-		cv.badCrls.Save(cv.issuer, &cv.crlUrl, path, kind, err)
+		cv.badCrls.Report(cv.issuer, &cv.crlUrl, path, kind, err)
 	}
 	return err
 }
@@ -302,7 +302,7 @@ func checkIssuingDistributionPoint(aFetchUrl string, aIdpUrlsByFetchUrl map[stri
 
 func (ae *AggregateEngine) wrongIssuingDistributionPoint(aIssuer types.Issuer, aCrlUrlPath types.UrlPath, err error) {
 	ae.auditor.WrongIssuingDistributionPoint(&aIssuer, &aCrlUrlPath.Url, aCrlUrlPath.Path, err)
-	ae.badCrls.Save(aIssuer, &aCrlUrlPath.Url, aCrlUrlPath.Path, BadCrlKindWrongIssuingDP, err)
+	ae.badCrls.Report(aIssuer, &aCrlUrlPath.Url, aCrlUrlPath.Path, BadCrlKindWrongIssuingDP, err)
 	glog.Errorf("[%s] CRL shard at %s has an invalid issuing DP extension: %s", aIssuer.ID(),
 		normalizedUrlString(&aCrlUrlPath.Url), err)
 }
@@ -373,7 +373,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 				if err != nil {
 					anyCrlFailed = true
 					ae.auditor.FailedVerifyPath(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
-					ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedVerifyLocal, err)
+					ae.badCrls.Report(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedVerifyLocal, err)
 					glog.Errorf("[%+v] Failed to verify: %s", crlUrlPath, err)
 					continue
 				}
@@ -397,7 +397,7 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 				if err != nil {
 					anyCrlFailed = true
 					ae.auditor.FailedProcessLocal(&tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, err)
-					ae.badCrls.Save(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedProcess, err)
+					ae.badCrls.Report(tuple.Issuer, &crlUrlPath.Url, crlUrlPath.Path, BadCrlKindFailedProcess, err)
 					glog.Errorf("[%+v] Failed to process: %s", crlUrlPath, err)
 					continue
 				}
@@ -559,6 +559,7 @@ func main() {
 	}
 
 	engine.PrepareTelemetry("aggregate-crls", ctconfig)
+	defer engine.FlushTelemetry(ctconfig)
 
 	mozIssuers := rootprogram.NewMozillaIssuers()
 	if *inccadb != "<path>" {
@@ -587,16 +588,11 @@ func main() {
 
 	auditor := NewCrlAuditor(mozIssuers)
 
-	var badCrls *BadCrlSaver
-	if *badcrlpath != "" {
-		badCrls = NewBadCrlSaver(*badcrlpath, mozIssuers)
-	}
-
 	ae := AggregateEngine{
 		rootPath: *revokedpath,
 		issuers:  mozIssuers,
 		auditor:  auditor,
-		badCrls:  badCrls,
+		badCrls:  NewBadCrlReporter(*badcrlpath, mozIssuers),
 	}
 
 	crlPaths, count := ae.downloadCRLs(ctx, mozIssuers)

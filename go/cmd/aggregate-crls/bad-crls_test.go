@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -18,7 +19,10 @@ import (
 	"time"
 
 	"github.com/google/certificate-transparency-go/x509/pkix"
+	"github.com/hashicorp/go-metrics"
 	"github.com/mozilla/crlite/go"
+	"github.com/mozilla/crlite/go/config"
+	"github.com/mozilla/crlite/go/engine"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
 
@@ -64,10 +68,10 @@ func assertBadCrlNotSaved(t *testing.T, root string, issuer types.Issuer, crlUrl
 	}
 }
 
-func Test_BadCrlSaverNil(t *testing.T) {
-	var saver *BadCrlSaver
+func Test_BadCrlReporterNil(t *testing.T) {
+	var reporter *BadCrlReporter
 	crlUrl, _ := url.Parse("http://example.com/crl")
-	saver.Save(types.NewIssuerFromString("issuer"), crlUrl, "/nonexistent", BadCrlKindFailedProcess, nil)
+	reporter.Report(types.NewIssuerFromString("issuer"), crlUrl, "/nonexistent", BadCrlKindFailedProcess, nil)
 }
 
 func Test_crlFetchWorkerProcessOneSavesBadCrls(t *testing.T) {
@@ -80,7 +84,7 @@ func Test_crlFetchWorkerProcessOneSavesBadCrls(t *testing.T) {
 		rootPath: filepath.Join(tmpDir, "revoked"),
 		issuers:  issuersObj,
 		auditor:  NewCrlAuditor(issuersObj),
-		badCrls:  NewBadCrlSaver(badDir, issuersObj),
+		badCrls:  NewBadCrlReporter(badDir, issuersObj),
 	}
 
 	ca, _ := makeCA(t)
@@ -126,7 +130,7 @@ func Test_aggregateCRLWorkerSavesBadCrls(t *testing.T) {
 		rootPath: filepath.Join(tmpDir, "revoked"),
 		issuers:  issuersObj,
 		auditor:  NewCrlAuditor(issuersObj),
-		badCrls:  NewBadCrlSaver(badDir, issuersObj),
+		badCrls:  NewBadCrlReporter(badDir, issuersObj),
 	}
 
 	ca, caPrivKey := makeCA(t)
@@ -174,4 +178,42 @@ func Test_aggregateCRLWorkerSavesBadCrls(t *testing.T) {
 	assertBadCrlSaved(t, badDir, issuer, crlUrl, BadCrlKindWrongIssuingDP, crlBytes)
 	assertBadCrlSaved(t, badDir, issuer, crlUrl, BadCrlKindFailedProcess, crlBytes)
 	assertBadCrlNotSaved(t, badDir, issuer, crlUrl, BadCrlKindFailedVerifyLocal)
+}
+
+func Test_BadCrlReporterStatsd(t *testing.T) {
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	ctconfig := config.NewCTConfig()
+	*ctconfig.StatsDHost = "127.0.0.1"
+	*ctconfig.StatsDPort = conn.LocalAddr().(*net.UDPAddr).Port
+	engine.PrepareTelemetry("aggregate-crls", ctconfig)
+
+	crlPath := filepath.Join(t.TempDir(), "test.crl")
+	if err := os.WriteFile(crlPath, []byte("not a CRL"), permMode); err != nil {
+		t.Fatal(err)
+	}
+	crlUrl, _ := url.Parse("http://example.com/crl")
+	// Metrics are counted even when bad CRLs aren't saved
+	reporter := NewBadCrlReporter("", nil)
+	reporter.Report(types.NewIssuerFromString("issuer"), crlUrl, crlPath, BadCrlKindFailedProcess, nil)
+	// Shutting down drops unsent metrics, as happens when aggregate-crls exits
+	engine.FlushTelemetry(ctconfig)
+	metrics.Shutdown()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 1500)
+	n, _, err := conn.ReadFrom(buf)
+	if err != nil {
+		t.Fatalf("Expected a statsd packet: %s", err)
+	}
+	expected := "aggregate-crls.bad_crl:1.000000|c"
+	if !strings.Contains(string(buf[:n]), expected) {
+		t.Errorf("Expected %q in statsd packet %q", expected, string(buf[:n]))
+	}
 }

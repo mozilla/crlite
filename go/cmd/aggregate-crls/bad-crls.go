@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/hashicorp/go-metrics"
 	"github.com/mozilla/crlite/go"
 	"github.com/mozilla/crlite/go/rootprogram"
 )
@@ -44,36 +45,43 @@ type BadCrlMetadata struct {
 	Size          int
 }
 
-// BadCrlSaver keeps copies of CRLs that failed verification or processing,
-// along with a JSON file describing the failure, for later investigation.
-// A nil *BadCrlSaver is valid and saves nothing.
-type BadCrlSaver struct {
+// BadCrlReporter records CRLs that failed verification or processing. Each one
+// is counted in the bad_crl metric. If rootPath is set, a copy of the
+// CRL is also kept, along with a JSON file describing the failure, for later
+// investigation. A nil *BadCrlReporter is valid and does nothing.
+type BadCrlReporter struct {
 	rootPath string
 	issuers  *rootprogram.MozIssuers
 }
 
-func NewBadCrlSaver(rootPath string, issuers *rootprogram.MozIssuers) *BadCrlSaver {
-	return &BadCrlSaver{
+func NewBadCrlReporter(rootPath string, issuers *rootprogram.MozIssuers) *BadCrlReporter {
+	return &BadCrlReporter{
 		rootPath: rootPath,
 		issuers:  issuers,
 	}
 }
 
-// Save copies the CRL at srcPath to <rootPath>/<issuer>/<name>-<kind>.crl and
-// writes the failure details to <rootPath>/<issuer>/<name>-<kind>.json. Errors
-// are logged rather than returned, since saving is only a diagnostic aid.
-func (s *BadCrlSaver) Save(issuer types.Issuer, crlUrl *url.URL, srcPath string, kind BadCrlKind, cause error) {
-	if s == nil {
+func (r *BadCrlReporter) Report(issuer types.Issuer, crlUrl *url.URL, srcPath string, kind BadCrlKind, cause error) {
+	if r == nil {
 		return
 	}
+	metrics.IncrCounter([]string{"bad_crl"}, 1)
+	if r.rootPath != "" {
+		r.save(issuer, crlUrl, srcPath, kind, cause)
+	}
+}
 
+// Copies the CRL at srcPath to <rootPath>/<issuer>/<name>-<kind>.crl and
+// writes the failure details to <rootPath>/<issuer>/<name>-<kind>.json. Errors
+// are logged rather than returned, since saving is only a diagnostic aid.
+func (r *BadCrlReporter) save(issuer types.Issuer, crlUrl *url.URL, srcPath string, kind BadCrlKind, cause error) {
 	crlBytes, err := os.ReadFile(srcPath)
 	if err != nil {
 		glog.Warningf("[%s] Could not read bad CRL %s for saving: %s", issuer.ID(), srcPath, err)
 		return
 	}
 
-	dir := filepath.Join(s.rootPath, issuer.ID())
+	dir := filepath.Join(r.rootPath, issuer.ID())
 	if err := os.MkdirAll(dir, permModeDir); err != nil {
 		glog.Warningf("[%s] Could not make bad CRL directory: %s", issuer.ID(), err)
 		return
@@ -89,8 +97,8 @@ func (s *BadCrlSaver) Save(issuer types.Issuer, crlUrl *url.URL, srcPath string,
 	}
 
 	subject := ""
-	if s.issuers != nil {
-		subject, _ = s.issuers.GetSubjectForIssuer(issuer)
+	if r.issuers != nil {
+		subject, _ = r.issuers.GetSubjectForIssuer(issuer)
 	}
 	errStr := ""
 	if cause != nil {

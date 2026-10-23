@@ -38,6 +38,15 @@ func GetConfiguredStorage(ctx context.Context, ctconfig *config.CTConfig, roStor
 	return storageDB, remoteCache
 }
 
+// The go-metrics statsd sink sends buffered metrics every 100ms, and drops
+// whatever is still buffered when it shuts down. Short-lived programs should
+// call this before exiting so that their last metrics are sent.
+func FlushTelemetry(ctconfig *config.CTConfig) {
+	if len(*ctconfig.StatsDHost) > 0 {
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func PrepareTelemetry(utilName string, ctconfig *config.CTConfig) {
 	metricsConf := metrics.DefaultConfig(utilName)
 	metricsConf.EnableHostname = false
