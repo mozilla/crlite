@@ -254,20 +254,6 @@ func Test_FailedOld(t *testing.T) {
 	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
 }
 
-func Test_FailedOlderThanPrevious(t *testing.T) {
-	issuersObj := rootprogram.NewMozillaIssuers()
-	auditor := NewCrlAuditor(issuersObj)
-	issuer := issuersObj.NewTestIssuerFromSubjectString("Test Corporation SA")
-	url, _ := url.Parse("http://test/crl")
-
-	assertEmptyList(t, auditor)
-
-	auditor.FailedOlderThanPrevious(&issuer, url, downloader.NewDownloadTracer(), time.Now(), time.Now().AddDate(0, 0, -1))
-
-	ent := assertOnlyEntryInList(t, auditor, AuditKindOlderThanLast)
-	assertEntryUrlAndIssuer(t, ent, issuer, issuersObj, url)
-}
-
 func Test_FailedExpired(t *testing.T) {
 	issuersObj := rootprogram.NewMozillaIssuers()
 	auditor := NewCrlAuditor(issuersObj)

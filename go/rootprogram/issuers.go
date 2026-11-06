@@ -50,19 +50,22 @@ type EnrolledIssuer struct {
 type MozIssuers struct {
 	issuerMap map[string]IssuerData
 	CrlMap    types.IssuerCrlMap
-	mutex     *sync.Mutex
-	DiskPath  string
-	ReportUrl string
-	modTime   time.Time
+	// The subset of CrlMap that is from the "JSON Array of Partitioned CRLs" field in CCADB.
+	partitionedCrlMap types.IssuerCrlMap
+	mutex             *sync.Mutex
+	DiskPath          string
+	ReportUrl         string
+	modTime           time.Time
 }
 
 func NewMozillaIssuers() *MozIssuers {
 	return &MozIssuers{
-		issuerMap: make(map[string]IssuerData, 0),
-		CrlMap:    make(types.IssuerCrlMap, 0),
-		mutex:     &sync.Mutex{},
-		DiskPath:  fmt.Sprintf("%s/mozilla_all_unexpired_pems.csv", os.TempDir()),
-		ReportUrl: kMozCCADBReport,
+		issuerMap:         make(map[string]IssuerData, 0),
+		CrlMap:            make(types.IssuerCrlMap, 0),
+		partitionedCrlMap: make(types.IssuerCrlMap, 0),
+		mutex:             &sync.Mutex{},
+		DiskPath:          fmt.Sprintf("%s/mozilla_all_unexpired_pems.csv", os.TempDir()),
+		ReportUrl:         kMozCCADBReport,
 	}
 }
 
@@ -138,9 +141,11 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 	// Reset maps to prevent duplicates on reload
 	mi.issuerMap = make(map[string]IssuerData)
 	mi.CrlMap = make(types.IssuerCrlMap)
+	mi.partitionedCrlMap = make(types.IssuerCrlMap)
 
 	intermediateCerts := make(map[string]*zcx509.Certificate)
 	intermediateCRLs := make(map[string][]string)
+	intermediatePartitionedCRLs := make(map[string][]string)
 	usesPartitioned := make(map[string]bool)
 
 	mozillaRootPool := zcx509.NewCertPool()
@@ -188,9 +193,10 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 			intermediateCerts[fp] = cert
 			intermediateCount += 1
 
-			crls, partitioned, err := decodeCrls(fullCrl, jsonArrayOfCrls)
+			crls, partitionedCrls, partitioned, err := decodeCrls(fullCrl, jsonArrayOfCrls)
 			if err == nil {
 				intermediateCRLs[fp] = crls
+				intermediatePartitionedCRLs[fp] = partitionedCrls
 				usesPartitioned[fp] = partitioned
 			}
 		}
@@ -216,8 +222,9 @@ func (mi *MozIssuers) LoadFromDisk(aPath string) error {
 				continue
 			}
 			crls := intermediateCRLs[fp]
+			partitionedCrls := intermediatePartitionedCRLs[fp]
 			partitioned := usesPartitioned[fp]
-			mi.InsertIssuer(ctCert, crls, partitioned)
+			mi.InsertIssuer(ctCert, crls, partitionedCrls, partitioned)
 			validCount++
 		}
 	}
@@ -363,7 +370,7 @@ func (mi *MozIssuers) LoadEnrolledIssuers(filePath string) error {
 		if err != nil {
 			return err
 		}
-		mi.InsertIssuer(cert, nil, ei.UsesPartitionedCrls)
+		mi.InsertIssuer(cert, nil, nil, ei.UsesPartitionedCrls)
 	}
 
 	return nil
@@ -396,20 +403,21 @@ func (mi *MozIssuers) GetSubjectForIssuer(aIssuer types.Issuer) (string, error) 
 	return entry.certs[0].subjectDN, nil
 }
 
-func (mi *MozIssuers) GetUsesPartitionedCrlsForIssuer(aIssuer types.Issuer) (bool, error) {
+// Returns the set of CRL URLs that the issuer lists in the "JSON Array of
+// Partitioned CRLs" field in CCADB.
+func (mi *MozIssuers) GetPartitionedCrlsForIssuer(aIssuer types.Issuer) map[string]bool {
 	mi.mutex.Lock()
 	defer mi.mutex.Unlock()
 
-	entry, ok := mi.issuerMap[aIssuer.ID()]
-	if !ok {
-		return false, fmt.Errorf("Unknown issuer: %s", aIssuer.ID())
-	}
-	return entry.usesPartitionedCrls, nil
+	return mi.partitionedCrlMap[aIssuer.ID()]
 }
 
-func decodeCrls(fullCrlStr string, partCrlJson string) ([]string, bool, error) {
+// Returns all of the CRL URLs, the subset of those that are partitioned CRLs,
+// and whether the issuer uses partitioned CRLs.
+func decodeCrls(fullCrlStr string, partCrlJson string) ([]string, []string, bool, error) {
 	usesPartitionedCrls := false
 	crls := []string{}
+	partitionedCrls := []string{}
 	fullCrlStr = strings.Trim(strings.TrimSpace(fullCrlStr), `"`)
 	if fullCrlStr != "" {
 		fullCrlUrl, err := url.Parse(fullCrlStr)
@@ -444,13 +452,16 @@ func decodeCrls(fullCrlStr string, partCrlJson string) ([]string, bool, error) {
 			glog.Warningf("decodeCrls: Unknown URL scheme in %q", crlUrl.String())
 		} else {
 			crls = append(crls, crlUrl.String())
+			partitionedCrls = append(partitionedCrls, crlUrl.String())
 		}
 	}
 
-	return crls, usesPartitionedCrls, nil
+	return crls, partitionedCrls, usesPartitionedCrls, nil
 }
 
-func (mi *MozIssuers) InsertIssuer(aCert *ctx509.Certificate, aCrls []string, aUsesPartitionedCrls bool) types.Issuer {
+// aPartitionedCrls should be the subset of aCrls that are partitioned CRLs.
+func (mi *MozIssuers) InsertIssuer(aCert *ctx509.Certificate, aCrls []string, aPartitionedCrls []string,
+	aUsesPartitionedCrls bool) types.Issuer {
 	issuer := types.NewIssuer(aCert)
 	ic := issuerCert{
 		cert:      aCert,
@@ -466,6 +477,17 @@ func (mi *MozIssuers) InsertIssuer(aCert *ctx509.Certificate, aCrls []string, aU
 		crlSet[crl] = true
 	}
 	mi.CrlMap[issuer.ID()] = crlSet
+
+	if len(aPartitionedCrls) > 0 {
+		partitionedCrlSet, exists := mi.partitionedCrlMap[issuer.ID()]
+		if !exists {
+			partitionedCrlSet = make(map[string]bool, len(aPartitionedCrls))
+		}
+		for _, crl := range aPartitionedCrls {
+			partitionedCrlSet[crl] = true
+		}
+		mi.partitionedCrlMap[issuer.ID()] = partitionedCrlSet
+	}
 
 	v, exists := mi.issuerMap[issuer.ID()]
 	if exists {
