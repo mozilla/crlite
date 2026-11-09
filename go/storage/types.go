@@ -29,6 +29,9 @@ type RemoteCache interface {
 	NextEpoch() error
 	Restore(aEpoch uint64, aLogStates []types.CTLogState) error
 	SetInsertMany(items []SetMemberWithExpiry) error
+	// MemoryUsage returns the number of bytes the cache is using and its
+	// memory limit. A limit of 0 means there is no limit.
+	MemoryUsage() (used uint64, limit uint64, err error)
 }
 
 type SerialCacheKey struct {

@@ -22,6 +22,8 @@ type MockRemoteCache struct {
 	Duplicate   int
 	CommitLock  *string
 	Epoch       uint64
+	UsedMemory  uint64
+	MaxMemory   uint64
 }
 
 func NewMockRemoteCache() *MockRemoteCache {
@@ -294,6 +296,12 @@ func (ec *MockRemoteCache) NextEpoch() error {
 	defer ec.mu.Unlock()
 	ec.Epoch += 1
 	return nil
+}
+
+func (ec *MockRemoteCache) MemoryUsage() (uint64, uint64, error) {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	return ec.UsedMemory, ec.MaxMemory, nil
 }
 
 func (ec *MockRemoteCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) error {

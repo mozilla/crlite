@@ -195,7 +195,48 @@ func (ld *LogSyncEngine) Wait() {
 	ld.ThreadWaitGroup.Wait()
 }
 
+// cacheHasHeadroom returns false if the cache is using more than
+// redisMemoryHighWatermark percent of its memory limit. We stop inserting
+// before Redis reaches its limit because, once Redis is out of memory, it
+// rejects the writes that the commit process needs in order to acquire the
+// commit lock. Committing is the only practical way to free memory: cached
+// serials belong to recently issued certificates, so key expiry frees almost
+// nothing, and a full cache would otherwise stay full. Note that Google Cloud
+// Memorystore can reject writes ("OOM prevention") before used_memory reaches
+// maxmemory, so the high watermark must leave a margin below maxmemory.
+func (ld *LogSyncEngine) cacheHasHeadroom() bool {
+	highWatermark := *ctconfig.RedisMemoryHighWatermark
+	if highWatermark <= 0 {
+		return true
+	}
+
+	used, limit, err := ld.database.CacheMemoryUsage()
+	if err != nil {
+		// Fail open. If the cache is unreachable then the insert
+		// will fail too, and if it is out of memory then the insert
+		// will fail with an OOM error.
+		glog.Warningf("Could not determine cache memory usage: %s", err)
+		return true
+	}
+	if limit == 0 {
+		return true
+	}
+
+	metrics.SetGauge([]string{"cache", "memoryPercent"}, float32(used)*100/float32(limit))
+	if used*100 >= limit*uint64(highWatermark) {
+		glog.Warningf("Pausing inserts: cache is using %d of %d bytes (high watermark %d%%)",
+			used, limit, highWatermark)
+		metrics.IncrCounter([]string{"insert", "paused"}, 1)
+		return false
+	}
+	return true
+}
+
 func (ld *LogSyncEngine) tryUpdate(queue []storage.SetMemberWithExpiry, logState *types.CTLogState) bool {
+	if !ld.cacheHasHeadroom() {
+		return false
+	}
+
 	err := ld.database.Store(queue)
 	if err != nil {
 		glog.Errorf("Problem inserting certificates: %s", err)
@@ -251,9 +292,10 @@ func (ld *LogSyncEngine) insertCTWorker(ctx context.Context) {
 				break
 			}
 
-			// The database may be unreachable or out of memory.
-			// Both of these are recoverable (memory will become
-			// available when the cache is committed to disk by
+			// The database may be unreachable, out of memory, or
+			// above the memory high watermark. All of these are
+			// recoverable (memory will become available when the
+			// cache is committed to disk by commit or
 			// aggregate-known and/or as entries expire). We'll
 			// wait until the next health status clock tick and try
 			// again. Meanwhile entryChan will likely reach

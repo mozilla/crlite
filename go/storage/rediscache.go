@@ -71,6 +71,37 @@ func (rc *RedisCache) MemoryPolicyCorrect() error {
 		confr.Val())
 }
 
+// parseInfoUint returns the value of an integer field from the output of the
+// Redis INFO command, which consists of "field:value" lines.
+func parseInfoUint(info string, field string) (uint64, error) {
+	prefix := field + ":"
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strconv.ParseUint(strings.TrimPrefix(line, prefix), 10, 64)
+		}
+	}
+	return 0, fmt.Errorf("Field %s not found in Redis INFO output", field)
+}
+
+// MemoryUsage returns Redis' used_memory and maxmemory values. A maxmemory of
+// 0 means that Redis has no memory limit.
+func (rc *RedisCache) MemoryUsage() (uint64, uint64, error) {
+	info, err := rc.client.Info("memory").Result()
+	if err != nil {
+		return 0, 0, err
+	}
+	used, err := parseInfoUint(info, "used_memory")
+	if err != nil {
+		return 0, 0, err
+	}
+	limit, err := parseInfoUint(info, "maxmemory")
+	if err != nil {
+		return 0, 0, err
+	}
+	return used, limit, nil
+}
+
 func (rc *RedisCache) SetInsert(key string, entry string) (bool, error) {
 	ir := rc.client.SAdd(key, entry)
 	added, err := ir.Result()
