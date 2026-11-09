@@ -27,6 +27,36 @@ func getRedisCache(tb testing.TB) *RedisCache {
 	return rc
 }
 
+func Test_ParseInfoUint(t *testing.T) {
+	info := "# Memory\r\nused_memory:1048576\r\nused_memory_human:1.00M\r\nmaxmemory:2097152\r\nmaxmemory_policy:noeviction\r\n"
+	used, err := parseInfoUint(info, "used_memory")
+	if err != nil || used != 1048576 {
+		t.Errorf("Expected used_memory 1048576, got %d (err=%v)", used, err)
+	}
+	limit, err := parseInfoUint(info, "maxmemory")
+	if err != nil || limit != 2097152 {
+		t.Errorf("Expected maxmemory 2097152, got %d (err=%v)", limit, err)
+	}
+	if _, err := parseInfoUint(info, "missing"); err == nil {
+		t.Error("Expected an error for a missing field")
+	}
+	if _, err := parseInfoUint(info, "used_memory_human"); err == nil {
+		t.Error("Expected an error for a non-integer field")
+	}
+}
+
+func Test_RedisMemoryUsage(t *testing.T) {
+	t.Parallel()
+	rc := getRedisCache(t)
+	used, _, err := rc.MemoryUsage()
+	if err != nil {
+		t.Error(err)
+	}
+	if used == 0 {
+		t.Error("Expected nonzero used_memory")
+	}
+}
+
 func Test_RedisPoicy(t *testing.T) {
 	t.Parallel()
 	rc := getRedisCache(t)

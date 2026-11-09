@@ -22,6 +22,7 @@ type CTConfig struct {
 	GoogleProjectId              *string
 	RedisHost                    *string
 	RedisTimeout                 *string
+	RedisMemoryHighWatermark     *int
 	BatchSize                    *uint64
 	NumThreads                   *int
 	RunForever                   *bool
@@ -135,6 +136,7 @@ func NewCTConfig() *CTConfig {
 		HealthAddr:                   new(string),
 		RedisHost:                    new(string),
 		RedisTimeout:                 new(string),
+		RedisMemoryHighWatermark:     new(int),
 		SavePeriod:                   new(string),
 		StatsRefreshPeriod:           new(string),
 		PollingDelay:                 new(uint64),
@@ -186,6 +188,7 @@ func (c *CTConfig) Init() {
 	confString(c.GoogleProjectId, section, "googleProjectId", "")
 	confString(c.RedisHost, section, "redisHost", "")
 	confString(c.RedisTimeout, section, "redisTimeout", "5s")
+	confInt(c.RedisMemoryHighWatermark, section, "redisMemoryHighWatermark", 85)
 	confString(c.StatsRefreshPeriod, section, "statsRefreshPeriod", "10m")
 	confString(c.StatsDHost, section, "statsdHost", "")
 	confInt(c.StatsDPort, section, "statsdPort", 8125)
@@ -220,5 +223,6 @@ func (c *CTConfig) Usage() {
 	fmt.Println("statsdHost = host for StatsD information")
 	fmt.Println("statsdPort = port for StatsD information")
 	fmt.Println("redisTimeout = Timeout for operations from Redis, e.g. 10s")
+	fmt.Println("redisMemoryHighWatermark = ct-fetch pauses inserts while Redis is using more than this percent of maxmemory. 0 disables.")
 	fmt.Println("healthAddr = Address to host the /health information http endpoint, e.g. localhost:8080")
 }

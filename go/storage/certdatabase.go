@@ -311,6 +311,12 @@ func (db *CertDatabase) Store(items []SetMemberWithExpiry) error {
 	return nil
 }
 
+// CacheMemoryUsage returns the number of bytes used by the cache and the
+// cache's memory limit. A limit of 0 means there is no limit.
+func (db *CertDatabase) CacheMemoryUsage() (uint64, uint64, error) {
+	return db.cache.MemoryUsage()
+}
+
 func (db *CertDatabase) serialsDir() string {
 	return filepath.Join(db.storageDir, "serials")
 }
