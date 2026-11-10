@@ -317,6 +317,35 @@ func Test_RedisCommitLock(t *testing.T) {
 	expectLocked(t, rc, token4, false)
 }
 
+func Test_RedisCommitLockLostReply(t *testing.T) {
+	rc := getRedisCache(t)
+
+	// Simulate a SET NX whose reply was lost: the key holds our token
+	// before we try to acquire the lock.
+	token := "lost reply token"
+	err := rc.client.Set(COMMIT_LOCK_KEY, token, COMMIT_LOCK_EXPIRATION).Err()
+	if err != nil {
+		t.Fatalf("Couldn't set commit lock: %v", err)
+	}
+	acquired, err := rc.acquireCommitLockWithToken(token)
+	if err != nil || acquired == nil || *acquired != token {
+		t.Errorf("Should have recognized our own lock, got %v (err=%v)", acquired, err)
+	}
+
+	// Another token should not acquire the lock.
+	other, err := rc.acquireCommitLockWithToken("other token")
+	if err != nil || other != nil {
+		t.Errorf("Lock should be exclusive, got %v (err=%v)", other, err)
+	}
+
+	// Releasing with the wrong token should not release the lock.
+	rc.ReleaseCommitLock("other token")
+	expectLocked(t, rc, &token, true)
+
+	rc.ReleaseCommitLock(token)
+	expectLocked(t, rc, &token, false)
+}
+
 func Test_RedisEpoch(t *testing.T) {
 	rc := getRedisCache(t)
 
@@ -325,9 +354,15 @@ func Test_RedisEpoch(t *testing.T) {
 		t.Error("Should have gotten epoch")
 	}
 
-	err = rc.NextEpoch()
+	err = rc.AdvanceEpoch(epoch)
 	if err != nil {
-		t.Error("Should have incremented epoch")
+		t.Errorf("Should have incremented epoch: %v", err)
+	}
+
+	// Repeating the same request (e.g. a client retry) is a no-op.
+	err = rc.AdvanceEpoch(epoch)
+	if err != nil {
+		t.Errorf("Repeated AdvanceEpoch should succeed: %v", err)
 	}
 
 	nextEpoch, err := rc.GetEpoch()
@@ -337,6 +372,11 @@ func Test_RedisEpoch(t *testing.T) {
 
 	if nextEpoch != epoch+1 {
 		t.Error("Epoch should have been incremented by 1")
+	}
+
+	err = rc.AdvanceEpoch(epoch + 5)
+	if err == nil {
+		t.Error("AdvanceEpoch from the wrong epoch should fail")
 	}
 }
 

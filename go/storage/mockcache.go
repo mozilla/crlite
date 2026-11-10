@@ -289,11 +289,17 @@ func (ec *MockRemoteCache) GetEpoch() (uint64, error) {
 	return ec.Epoch, nil
 }
 
-func (ec *MockRemoteCache) NextEpoch() error {
+func (ec *MockRemoteCache) AdvanceEpoch(aFrom uint64) error {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
-	ec.Epoch += 1
-	return nil
+	if ec.Epoch == aFrom {
+		ec.Epoch += 1
+		return nil
+	}
+	if ec.Epoch == aFrom+1 {
+		return nil
+	}
+	return fmt.Errorf("Cannot advance epoch from %d, epoch is %d", aFrom, ec.Epoch)
 }
 
 func (ec *MockRemoteCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) error {

@@ -43,12 +43,21 @@ func work() error {
 
 	glog.Infof("Committing DB changes since last run")
 	commitToken, err := cache.AcquireCommitLock()
-	if err != nil || commitToken == nil {
+	if err != nil {
 		return fmt.Errorf("Failed to acquire commit lock: %s", err)
+	}
+	if commitToken == nil {
+		// The lock is usually held by aggregate-known, which commits
+		// before it reads serials from storage, so there's nothing
+		// for us to do. If this happens on every run then the lock
+		// may have been orphaned; it expires after
+		// storage.COMMIT_LOCK_EXPIRATION.
+		glog.Warningf("Skipping commit: the commit lock is held by another process")
+		return nil
 	}
 	defer cache.ReleaseCommitLock(*commitToken)
 
-	err = certDB.Commit(*commitToken)
+	err = certDB.Commit(ctx, *commitToken)
 	if err != nil {
 		return fmt.Errorf("Error in commit: %s", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -249,25 +250,38 @@ func (ec *RedisCache) LoadLogState(shortUrl string) (*types.CTLogState, error) {
 func (ec *RedisCache) LoadAllLogStates() ([]types.CTLogState, error) {
 	ctLogList := make([]types.CTLogState, 0)
 	keyChan := make(chan string)
+	scanErr := make(chan error, 1)
 	go func() {
-		err := ec.KeysToChan("log::*", keyChan)
-		if err != nil {
-			glog.Fatalf("Couldn't list CT logs from cache: %s", err)
-		}
+		scanErr <- ec.KeysToChan("log::*", keyChan)
 	}()
 
+	var loadErr error
 	for entry := range keyChan {
+		if loadErr != nil {
+			// Drain the channel so that KeysToChan can finish.
+			continue
+		}
+
 		data, err := ec.client.Get(entry).Bytes()
 		if err != nil {
-			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
+			loadErr = fmt.Errorf("Couldn't load CT log state %s: %s", entry, err)
+			continue
 		}
 
-		ctLogList = append(ctLogList, types.CTLogState{})
-		if err := json.Unmarshal(data, &ctLogList[len(ctLogList)-1]); err != nil {
-			return nil, fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
+		var log types.CTLogState
+		if err := json.Unmarshal(data, &log); err != nil {
+			loadErr = fmt.Errorf("Couldn't parse CT logs metadata: %s", err)
+			continue
 		}
+		ctLogList = append(ctLogList, log)
 	}
 
+	if err := <-scanErr; err != nil {
+		return nil, fmt.Errorf("Couldn't list CT logs from cache: %s", err)
+	}
+	if loadErr != nil {
+		return nil, loadErr
+	}
 	return ctLogList, nil
 }
 
@@ -276,22 +290,49 @@ func (ec *RedisCache) AcquireCommitLock() (*string, error) {
 	if _, err := rand.Read(randomBytes); err != nil {
 		return nil, err
 	}
-	commitLockToken := base64.URLEncoding.EncodeToString(randomBytes)
+	return ec.acquireCommitLockWithToken(base64.URLEncoding.EncodeToString(randomBytes))
+}
 
-	// SETNX is a set-if-not-set primitive. Returns true if commitLockToken
+func (ec *RedisCache) acquireCommitLockWithToken(commitLockToken string) (*string, error) {
+	// SET NX is a set-if-not-set primitive. Returns true if commitLockToken
 	// is the new value associated with COMMIT_LOCK_KEY. Returns false or
 	// an error otherwise.
 	set, err := ec.client.SetNX(COMMIT_LOCK_KEY, commitLockToken, COMMIT_LOCK_EXPIRATION).Result()
-	if err != nil || !set {
+	if err != nil {
 		return nil, err
 	}
-	return &commitLockToken, err
+	if set {
+		return &commitLockToken, nil
+	}
+
+	// The client retries commands that time out. If an earlier attempt
+	// set the key but its reply was lost, then the retry returns false
+	// even though we hold the lock. Check for this so that we don't
+	// leave an orphaned lock in place until it expires.
+	hasLock, err := ec.HasCommitLock(commitLockToken)
+	if err != nil {
+		return nil, err
+	}
+	if hasLock {
+		return &commitLockToken, nil
+	}
+	return nil, nil
 }
 
+// Deletes KEYS[1] if its value is ARGV[1]. The check and the delete must be
+// atomic, otherwise we could delete a lock that was acquired by another
+// process after ours expired.
+var releaseCommitLockScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
 func (ec *RedisCache) ReleaseCommitLock(aToken string) {
-	hasLock, err := ec.HasCommitLock(aToken)
-	if err == nil && hasLock {
-		ec.client.Del(COMMIT_LOCK_KEY)
+	err := releaseCommitLockScript.Run(ec.client, []string{COMMIT_LOCK_KEY}, aToken).Err()
+	if err != nil {
+		glog.Warningf("Failed to release commit lock, it will be held until it expires: %s", err)
 	}
 }
 
@@ -317,14 +358,46 @@ func (ec *RedisCache) GetEpoch() (uint64, error) {
 	return strconv.ParseUint(epochStr, 10, 64)
 }
 
-func (ec *RedisCache) NextEpoch() error {
-	return ec.client.Incr(EPOCH_KEY).Err()
+// Sets KEYS[1] to ARGV[2] if its current value is ARGV[1] (or if it is unset
+// and ARGV[1] is "0"). Also succeeds if the value is already ARGV[2], which
+// happens when the client retries after an attempt whose reply was lost.
+// Returns 1 on success and the current value otherwise.
+var advanceEpochScript = redis.NewScript(`
+local cur = redis.call("GET", KEYS[1])
+if cur == false then
+	cur = "0"
+end
+if cur == ARGV[1] then
+	redis.call("SET", KEYS[1], ARGV[2])
+	return 1
+end
+if cur == ARGV[2] then
+	return 1
+end
+return cur
+`)
+
+// AdvanceEpoch changes the cache epoch from aFrom to aFrom+1. Unlike INCR,
+// this is safe to retry.
+func (ec *RedisCache) AdvanceEpoch(aFrom uint64) error {
+	res, err := advanceEpochScript.Run(ec.client, []string{EPOCH_KEY},
+		strconv.FormatUint(aFrom, 10), strconv.FormatUint(aFrom+1, 10)).Result()
+	if err != nil {
+		return err
+	}
+	if res != int64(1) {
+		return fmt.Errorf("Cannot advance epoch from %d, epoch is %v", aFrom, res)
+	}
+	return nil
 }
 
 func (ec *RedisCache) Restore(aEpoch uint64, aLogStates []types.CTLogState) error {
 	commitToken, err := ec.AcquireCommitLock()
-	if err != nil || commitToken == nil {
+	if err != nil {
 		return fmt.Errorf("Failed to acquire commit lock: %s", err)
+	}
+	if commitToken == nil {
+		return errors.New("Failed to acquire commit lock: held by another process")
 	}
 	defer ec.ReleaseCommitLock(*commitToken)
 

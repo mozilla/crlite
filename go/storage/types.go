@@ -26,7 +26,7 @@ type RemoteCache interface {
 	ReleaseCommitLock(aToken string)
 	HasCommitLock(aToken string) (bool, error)
 	GetEpoch() (uint64, error)
-	NextEpoch() error
+	AdvanceEpoch(aFrom uint64) error
 	Restore(aEpoch uint64, aLogStates []types.CTLogState) error
 	SetInsertMany(items []SetMemberWithExpiry) error
 }
