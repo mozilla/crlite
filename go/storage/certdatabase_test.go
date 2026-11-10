@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/base64"
 	"io/ioutil"
 	"net/url"
@@ -416,7 +417,7 @@ func Test_MoveCachedSerialsToStorage(t *testing.T) {
 		t.Errorf("Could not get issuer-dates from cache: %s", err)
 	}
 
-	err = certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err = certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Could not move cached serials to storage: %s", err)
 	}
@@ -460,7 +461,7 @@ func Test_MoveCachedSerialsToStorageIdempotent(t *testing.T) {
 		expectCached(t, certDB, kDate1, kIssuer1, "01", 0, true)
 		expectStored(t, certDB, kDate1, kIssuer1, "01", i > 0)
 
-		err := certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+		err := certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 		if err != nil {
 			t.Errorf("Failed to move cached serials to storage: %s", err)
 		}
@@ -487,7 +488,7 @@ func Test_MoveManyCachedSerialsToStorage(t *testing.T) {
 		cacheSerial(t, certDB, &logState, expiry.Format(kExpirationFormat), kIssuer1, "01", 0)
 	}
 
-	err := certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err := certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Could not move cached serials to storage: %s", err)
 	}
@@ -521,7 +522,7 @@ func Test_MoveCachedSerialsToStorageOldFormat(t *testing.T) {
 		t.Error("Expected raw serial to be cached")
 	}
 
-	err := certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err := certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Could not move cached serials to storage: %s", err)
 	}
@@ -551,7 +552,7 @@ func Test_MoveCachedSerialsToStorageOnlyMovesCovered(t *testing.T) {
 	expectCached(t, certDB, kDate1, kIssuer1, "01", entryTimestamp, true)
 	expectStored(t, certDB, kDate1, kIssuer1, "01", false)
 
-	err := certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err := certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Could not move cached serials to storage: %s", err)
 	}
@@ -565,7 +566,7 @@ func Test_MoveCachedSerialsToStorageOnlyMovesCovered(t *testing.T) {
 		t.Errorf("Expected coverage cutoff to include entry")
 	}
 
-	err = certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err = certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Could not move cached serials to storage: %s", err)
 	}
@@ -588,7 +589,7 @@ func Test_Commit(t *testing.T) {
 		t.Error("Unexpected epoch")
 	}
 
-	err = certDB.Commit("bad token")
+	err = certDB.Commit(context.Background(), "bad token")
 	if err == nil {
 		t.Error("Commit should require the commit lock")
 	}
@@ -598,7 +599,7 @@ func Test_Commit(t *testing.T) {
 		t.Error("Should have acquired commit lock")
 	}
 
-	err = certDB.Commit(*token)
+	err = certDB.Commit(context.Background(), *token)
 	if err != nil {
 		t.Errorf("Commit should have succeeded %v", err)
 	}
@@ -614,7 +615,7 @@ func Test_Commit(t *testing.T) {
 	cacheSerial(t, certDB, &logState, kDate1, kIssuer1, "02", 0)
 	cacheSerial(t, certDB, &logState, kDate2, kIssuer1, "02", 0)
 
-	err = certDB.Commit(*token)
+	err = certDB.Commit(context.Background(), *token)
 	if err != nil {
 		t.Errorf("Commit should have succeeded %v", err)
 	}
@@ -629,17 +630,71 @@ func Test_Commit(t *testing.T) {
 		t.Error("Unexpected epoch")
 	}
 
-	err = cache.NextEpoch()
+	err = cache.AdvanceEpoch(2)
 	if err != nil {
 		t.Error("Should have incremented cache epoch")
 	}
 
-	err = certDB.Commit(*token)
+	err = certDB.Commit(context.Background(), *token)
 	if err == nil {
 		t.Error("Should have failed with epoch error")
 	}
 
 	cache.ReleaseCommitLock(*token)
+}
+
+func Test_CommitCancelled(t *testing.T) {
+	cache, certDB := getTestHarness(t)
+
+	logState := getInitialLogState()
+	cacheSerial(t, certDB, &logState, kDate1, kIssuer1, "01", 0)
+
+	token, err := cache.AcquireCommitLock()
+	if err != nil || token == nil {
+		t.Fatal("Should have acquired commit lock")
+	}
+	defer cache.ReleaseCommitLock(*token)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = certDB.Commit(ctx, *token)
+	if err == nil {
+		t.Error("Commit should fail when its context is cancelled")
+	}
+
+	expectStored(t, certDB, kDate1, kIssuer1, "01", false)
+	epoch, err := cache.GetEpoch()
+	if err != nil || epoch != 0 {
+		t.Error("Cancelled commit should not advance the epoch")
+	}
+
+	// A subsequent commit should succeed.
+	err = certDB.Commit(context.Background(), *token)
+	if err != nil {
+		t.Errorf("Commit should have succeeded %v", err)
+	}
+	expectStored(t, certDB, kDate1, kIssuer1, "01", true)
+	epoch, err = cache.GetEpoch()
+	if err != nil || epoch != 1 {
+		t.Error("Unexpected epoch")
+	}
+}
+
+func Test_MockAdvanceEpoch(t *testing.T) {
+	cache := NewMockRemoteCache()
+	if err := cache.AdvanceEpoch(0); err != nil {
+		t.Errorf("Should have advanced epoch from 0: %v", err)
+	}
+	// Repeating the same request (e.g. a client retry) is a no-op.
+	if err := cache.AdvanceEpoch(0); err != nil {
+		t.Errorf("Repeated AdvanceEpoch should succeed: %v", err)
+	}
+	if epoch, _ := cache.GetEpoch(); epoch != 1 {
+		t.Errorf("Expected epoch 1, got %d", epoch)
+	}
+	if err := cache.AdvanceEpoch(5); err == nil {
+		t.Error("AdvanceEpoch from the wrong epoch should fail")
+	}
 }
 
 func Test_RemoveExpiredSerialsFromStorage(t *testing.T) {
@@ -656,7 +711,7 @@ func Test_RemoveExpiredSerialsFromStorage(t *testing.T) {
 	cacheSerial(t, certDB, &logState, before, kIssuer1, "01", 0)
 	cacheSerial(t, certDB, &logState, after, kIssuer2, "02", 0)
 
-	err := certDB.moveCachedSerialsToStorage([]types.CTLogState{logState})
+	err := certDB.moveCachedSerialsToStorage(context.Background(), []types.CTLogState{logState})
 	if err != nil {
 		t.Errorf("Failed to move cached serials to storage: %s", err)
 	}
@@ -699,7 +754,7 @@ func Test_EnsureCacheIsConsistent(t *testing.T) {
 	if err != nil || token == nil {
 		t.Error("Should have acquired commit lock")
 	}
-	err = certDB.Commit(*token)
+	err = certDB.Commit(context.Background(), *token)
 	if err != nil {
 		t.Errorf("Commit should have succeeded %v", err)
 	}

@@ -122,16 +122,32 @@ func checkPathArg(strObj string, confOptionName string, ctconfig *config.CTConfi
 	}
 }
 
-func waitForCommitLock(cache storage.RemoteCache) (*string, error) {
+// waitForCommitLock waits for the commit lock while it is held by another
+// process. It returns immediately if acquiring the lock fails for any other
+// reason, e.g. because the cache is unreachable or out of memory.
+func waitForCommitLock(ctx context.Context, cache storage.RemoteCache) (*string, error) {
+	const timeout = 15 * time.Minute
 	start := time.Now()
-	for time.Since(start) < 15*time.Minute {
+	var lastLog time.Time
+	for time.Since(start) < timeout {
 		commitToken, err := cache.AcquireCommitLock()
-		if err == nil && commitToken != nil {
-			return commitToken, err
+		if err != nil {
+			return nil, err
 		}
-		time.Sleep(1 * time.Second)
+		if commitToken != nil {
+			return commitToken, nil
+		}
+		if time.Since(lastLog) >= time.Minute {
+			glog.Infof("Waiting for the commit lock, which is held by another process")
+			lastLog = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
 	}
-	return nil, fmt.Errorf("Timed out waiting for commit lock")
+	return nil, fmt.Errorf("Timed out after %s waiting for the commit lock, which is held by another process", timeout)
 }
 
 func work() error {
@@ -172,13 +188,13 @@ func work() error {
 	glog.Infof("%d issuers loaded", len(mozIssuers.GetIssuers()))
 
 	glog.Infof("Committing DB changes since last run")
-	commitToken, err := waitForCommitLock(cache)
-	if err != nil || commitToken == nil {
+	commitToken, err := waitForCommitLock(ctx, cache)
+	if err != nil {
 		return fmt.Errorf("Failed to acquire commit lock: %s", err)
 	}
 	defer cache.ReleaseCommitLock(*commitToken)
 
-	err = certDB.Commit(*commitToken)
+	err = certDB.Commit(ctx, *commitToken)
 	if err != nil {
 		return fmt.Errorf("Error in commit: %s", err)
 	}

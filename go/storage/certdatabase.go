@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,18 +152,39 @@ func (db *CertDatabase) GetIssuerAndDatesFromChannel(reader <-chan string) ([]ty
 	return issuerList, nil
 }
 
+// getIssuerAndDatesFromProducer runs aProducer, which must write
+// "serials::<date>::<issuer id>" strings to the channel it is given and close
+// the channel when it is done, and returns the issuers and dates.
+func (db *CertDatabase) getIssuerAndDatesFromProducer(aProducer func(chan<- string) error) ([]types.IssuerDate, error) {
+	c := make(chan string)
+	producerErr := make(chan error, 1)
+	go func() {
+		producerErr <- aProducer(c)
+	}()
+
+	issuerList, err := db.GetIssuerAndDatesFromChannel(c)
+
+	// GetIssuerAndDatesFromChannel may return before reading everything.
+	// Drain the channel so that the producer can finish.
+	for range c {
+	}
+
+	if pErr := <-producerErr; pErr != nil {
+		return nil, pErr
+	}
+	return issuerList, err
+}
+
 func (db *CertDatabase) GetIssuerAndDatesFromCache() ([]types.IssuerDate, error) {
 	// The cache stores sets of serial numbers in bins that are keyed by strings
 	// of the form "serials::<date>::<issuer id>".
-	allChan := make(chan string)
-	go func() {
-		err := db.cache.KeysToChan("serials::*", allChan)
+	return db.getIssuerAndDatesFromProducer(func(c chan<- string) error {
+		err := db.cache.KeysToChan("serials::*", c)
 		if err != nil {
-			glog.Fatalf("Couldn't list from cache")
+			return fmt.Errorf("Couldn't list serials from cache: %s", err)
 		}
-	}()
-
-	return db.GetIssuerAndDatesFromChannel(allChan)
+		return nil
+	})
 }
 
 func (db *CertDatabase) GetIssuerAndDatesFromStorage() ([]types.IssuerDate, error) {
@@ -179,12 +201,11 @@ func (db *CertDatabase) GetIssuerAndDatesFromStorage() ([]types.IssuerDate, erro
 	//          ...
 	//      ...
 	//
-	allChan := make(chan string)
-	go func() {
-		defer close(allChan)
+	return db.getIssuerAndDatesFromProducer(func(c chan<- string) error {
+		defer close(c)
 		issuerDirs, err := os.ReadDir(db.serialsDir())
 		if err != nil {
-			glog.Fatal(err)
+			return err
 		}
 		for _, issuerDir := range issuerDirs {
 			issuerName := issuerDir.Name()
@@ -194,18 +215,17 @@ func (db *CertDatabase) GetIssuerAndDatesFromStorage() ([]types.IssuerDate, erro
 			}
 			serialFiles, err := os.ReadDir(issuerDirFull)
 			if err != nil {
-				glog.Fatal(err)
+				return err
 			}
 			for _, file := range serialFiles {
 				name := file.Name()
 				if strings.HasPrefix(name, "serials::") {
-					allChan <- name
+					c <- name
 				}
 			}
 		}
-	}()
-
-	return db.GetIssuerAndDatesFromChannel(allChan)
+		return nil
+	})
 }
 
 func (db *CertDatabase) removeExpiredSerialsFromStorage(t time.Time) error {
@@ -358,7 +378,7 @@ func (db *CertDatabase) GetSerialCacheKey(aExpDate types.ExpDate, aIssuer types.
 	return kc
 }
 
-func (db *CertDatabase) ReadEntriesFromCache(aExpDate types.ExpDate, aIssuer types.Issuer) map[string]struct{} {
+func (db *CertDatabase) ReadEntriesFromCache(aExpDate types.ExpDate, aIssuer types.Issuer) (map[string]struct{}, error) {
 	return db.List(db.GetSerialCacheKey(aExpDate, aIssuer))
 }
 
@@ -399,7 +419,10 @@ func (db *CertDatabase) ReadSerialsFromStorage(aExpDate types.ExpDate, aIssuer t
 }
 
 func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpDate types.ExpDate, aIssuer types.Issuer, aCoverageCutoffMap *types.CoverageCutoffMap) error {
-	cachedEntries := db.ReadEntriesFromCache(aExpDate, aIssuer)
+	cachedEntries, err := db.ReadEntriesFromCache(aExpDate, aIssuer)
+	if err != nil {
+		return err
+	}
 	if len(cachedEntries) == 0 {
 		return nil
 	}
@@ -461,7 +484,7 @@ func (db *CertDatabase) moveOneBinOfCachedSerialsToStorage(aTmpDir string, aExpD
 	return nil
 }
 
-func (db *CertDatabase) moveCachedSerialsToStorage(aLogData []types.CTLogState) error {
+func (db *CertDatabase) moveCachedSerialsToStorage(ctx context.Context, aLogData []types.CTLogState) error {
 	issuerList, err := db.GetIssuerAndDatesFromCache()
 	if err != nil {
 		return err
@@ -481,14 +504,23 @@ func (db *CertDatabase) moveCachedSerialsToStorage(aLogData []types.CTLogState) 
 			if start+batchSize > len(issuerDate.ExpDates) {
 				batchSize = len(issuerDate.ExpDates) - start
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			glog.Infof("[%s] Moving %d expiry bins to storage.", issuer.ID(), batchSize)
 			errChan := make(chan error, batchSize)
 			var wg sync.WaitGroup
 			wg.Add(batchSize)
 			for i := start; i < start+batchSize; i++ {
 				go func(expDate types.ExpDate) {
+					defer wg.Done()
+					// Skip the remaining bins promptly if
+					// we're asked to stop.
+					if err := ctx.Err(); err != nil {
+						errChan <- err
+						return
+					}
 					errChan <- db.moveOneBinOfCachedSerialsToStorage(tmpDir, expDate, issuer, &coverageCutoffMap)
-					wg.Done()
 				}(issuerDate.ExpDates[i])
 			}
 			wg.Wait()
@@ -523,7 +555,7 @@ func (db *CertDatabase) getStorageEpoch() (uint64, error) {
 	return 0, nil
 }
 
-func (db *CertDatabase) Commit(aProofOfLock string) error {
+func (db *CertDatabase) Commit(ctx context.Context, aProofOfLock string) error {
 	// Commit() moves serials from cache to storage, removes expired serial
 	// numbers from storage, and updates the coverage metadata file. This is
 	// done in four steps:
@@ -545,6 +577,10 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 	// The epoch value in storage must be one less than the epoch value in
 	// cache (unless this is the first time that Commit() has been called,
 	// in which case both epochs will be equal to 0).
+	//
+	// If ctx is cancelled while serials are being moved, Commit() stops
+	// and returns an error. The serials that were moved stay in storage,
+	// and the next call to Commit() picks up where this one left off.
 
 	if db.readOnlyStorage {
 		return fmt.Errorf("Cannot commit serials to read-only storage")
@@ -588,7 +624,7 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 		return err
 	}
 
-	err = db.moveCachedSerialsToStorage(logList)
+	err = db.moveCachedSerialsToStorage(ctx, logList)
 	if err != nil {
 		return err
 	}
@@ -621,7 +657,7 @@ func (db *CertDatabase) Commit(aProofOfLock string) error {
 	}
 	writer.Flush()
 
-	err = db.cache.NextEpoch()
+	err = db.cache.AdvanceEpoch(cacheEpoch)
 	if err != nil {
 		glog.Warningf("Failed to increment epochs: %s", err)
 		return nil
@@ -661,23 +697,24 @@ func (db *CertDatabase) RemoveMany(k *SerialCacheKey, aEntries []string) error {
 	return db.cache.SetRemove(k.ID(), aEntries)
 }
 
-func (db *CertDatabase) List(k *SerialCacheKey) map[string]struct{} {
+func (db *CertDatabase) List(k *SerialCacheKey) (map[string]struct{}, error) {
 	// Redis' scan methods regularly provide duplicates. The duplication
 	// happens at this level, pulling from SetToChan, so we make a hash-set
 	// here to de-duplicate when the memory impacts are the most minimal.
 	uniqueEntries := make(map[string]struct{})
 
 	strChan := make(chan string)
+	scanErr := make(chan error, 1)
 	go func() {
-		err := db.cache.SetToChan(k.ID(), strChan)
-		if err != nil {
-			glog.Fatalf("Error obtaining list of known certificates: %v", err)
-		}
+		scanErr <- db.cache.SetToChan(k.ID(), strChan)
 	}()
 
 	for str := range strChan {
 		uniqueEntries[str] = struct{}{}
 	}
 
-	return uniqueEntries
+	if err := <-scanErr; err != nil {
+		return nil, fmt.Errorf("Error obtaining list of known certificates: %v", err)
+	}
+	return uniqueEntries, nil
 }
