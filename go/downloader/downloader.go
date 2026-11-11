@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -87,6 +88,25 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 	return Create, szOnDisk, szOnServer
 }
 
+// contentRangeStart returns the first byte position of a 206 response's
+// Content-Range header, for example 4 for "bytes 4-99/100".
+func contentRangeStart(header string) (int64, error) {
+	malformed := fmt.Errorf("malformed Content-Range header %q", header)
+	rest, ok := strings.CutPrefix(header, "bytes ")
+	if !ok {
+		return 0, malformed
+	}
+	first, _, ok := strings.Cut(rest, "-")
+	if !ok {
+		return 0, malformed
+	}
+	start, err := strconv.ParseInt(strings.TrimSpace(first), 10, 64)
+	if err != nil {
+		return 0, malformed
+	}
+	return start, nil
+}
+
 func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Duration) error {
 	client := &http.Client{Timeout: timeout}
 
@@ -103,7 +123,9 @@ func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Dur
 
 	req.Header.Add("X-Automated-Tool", "https://github.com/mozilla/crlite")
 	if action == Resume {
-		req.Header.Add("Content-Range", fmt.Sprintf("bytes: %d-%d/%d", offset, size, offset-size))
+		// Ask for the bytes that are not on disk yet. `Content-Range` is a
+		// response header; a range request is a `Range` header.
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
 
 	resp, err := client.Do(req)
@@ -115,7 +137,17 @@ func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Dur
 	var outFileParams int
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
-		// Depending on what the server responds with, we may have to go back to Create
+		// The bytes are appended to what is already on disk, so the server has
+		// to start exactly where the local copy ends. A server that starts
+		// anywhere else, or that omits `Content-Range`, would silently corrupt
+		// the file; fail instead.
+		start, err := contentRangeStart(resp.Header.Get("Content-Range"))
+		if err != nil {
+			return err
+		}
+		if start != offset {
+			return fmt.Errorf("Partial content starts at byte %d, expected %d", start, offset)
+		}
 		outFileParams = os.O_APPEND | os.O_WRONLY
 		action = Resume
 		glog.V(1).Infof("[%s] Successfully resumed download at offset %d", crlUrl.String(), offset)
@@ -135,8 +167,6 @@ func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Dur
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-
-	defer resp.Body.Close()
 
 	// and copy from reader, propagating errors
 	totalBytes, err := io.Copy(outFile, resp.Body)
