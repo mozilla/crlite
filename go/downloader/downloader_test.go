@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -283,5 +284,62 @@ func Test_GetSizeAndDateOfFile(t *testing.T) {
 
 	if time.Since(date) > time.Second {
 		t.Error("Timestamp more than a second ago")
+	}
+}
+
+// closingTransport records whether the response body was closed, and serves a
+// minimal HEAD response so determineAction can inspect its headers.
+type closingTransport struct {
+	bodyClosed bool
+}
+
+func (t *closingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		Status:        "200 OK",
+		StatusCode:    http.StatusOK,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        http.Header{"Content-Length": []string{"0"}},
+		Body:          &closingBody{closed: &t.bodyClosed},
+		ContentLength: 0,
+		Request:       req,
+	}, nil
+}
+
+type closingBody struct {
+	closed *bool
+}
+
+func (b *closingBody) Read(_ []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (b *closingBody) Close() error {
+	*b.closed = true
+	return nil
+}
+
+// determineAction performs a HEAD request for every CRL on every run. Not
+// closing that response body leaks the underlying connection.
+func Test_DetermineActionClosesResponseBody(t *testing.T) {
+	tmpfile, err := ioutil.TempFile("", "Test_DetermineActionClosesResponseBody")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	transport := &closingTransport{}
+	client := &http.Client{Transport: transport}
+
+	crlURL, err := url.Parse("http://example.com/test.crl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	determineAction(client, *crlURL, tmpfile.Name())
+
+	if !transport.bodyClosed {
+		t.Error("determineAction left the response body open")
 	}
 }

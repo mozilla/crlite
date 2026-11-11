@@ -51,6 +51,10 @@ func determineAction(client *http.Client, crlUrl url.URL, path string) (Download
 	if err != nil {
 		return Create, szOnDisk, 0
 	}
+	// Only the headers of this HEAD response are read, but the body must still
+	// be closed: an unclosed body leaks the connection instead of returning it
+	// to the pool, and this runs for every CRL on every aggregation run.
+	defer resp.Body.Close()
 
 	eTag := resp.Header.Get("Etag")
 	lastMod, err := http.ParseTime(resp.Header.Get("Last-Modified"))
