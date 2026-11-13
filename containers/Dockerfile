@@ -14,11 +14,11 @@ RUN mkdir /build
 
 ADD rust-create-cascade /build/rust-create-cascade/
 WORKDIR /build/rust-create-cascade
-RUN cargo build --release --target-dir /build
+RUN cargo build --release --locked --target-dir /build
 
 ADD rust-query-crlite /build/rust-query-crlite/
 WORKDIR /build/rust-query-crlite
-RUN cargo build --release --target-dir /build
+RUN cargo build --release --locked --target-dir /build
 
 
 FROM python:3.12.2-slim-bookworm
