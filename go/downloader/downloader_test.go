@@ -132,6 +132,64 @@ func Test_DownloadFailureWithRetry(t *testing.T) {
 	}
 }
 
+func Test_DownloadEmptyBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	path := filepath.Join(t.TempDir(), "crl")
+	url, _ := url.Parse(ts.URL)
+
+	err := DownloadFileSync(context.TODO(), *url, path, 1, 0)
+	if err == nil || err.Error() != "Empty response body: 200 OK" {
+		t.Errorf("Expected empty body error, got %v", err)
+	}
+}
+
+type SingleEmptyBodyHandler struct {
+	mu        sync.Mutex // guards emptyOnce
+	emptyOnce bool
+}
+
+func (h *SingleEmptyBodyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.emptyOnce {
+		h.emptyOnce = true
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	fmt.Fprintln(w, "Hello, client")
+}
+
+func Test_DownloadEmptyBodyWithRetry(t *testing.T) {
+	ts := httptest.NewServer(http.Handler(&SingleEmptyBodyHandler{}))
+	defer ts.Close()
+
+	path := filepath.Join(t.TempDir(), "crl")
+	url, _ := url.Parse(ts.URL)
+
+	err := DownloadFileSync(context.TODO(), *url, path, 1, 0)
+	if err != nil {
+		t.Error(err)
+	}
+
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if string(content) != "Hello, client\n" {
+		t.Logf("File contents: %s", content)
+		t.Error("File contents not correct")
+	}
+}
+
 func Test_DownloadResumeNotSupported(t *testing.T) {
 	testcontent := []byte("download resume not supported test file's content\n")
 

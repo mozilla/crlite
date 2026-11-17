@@ -148,6 +148,13 @@ func download(ctx context.Context, crlUrl url.URL, path string, timeout time.Dur
 		return err
 	}
 
+	// A 200 with an empty body is a serving failure (e.g. a CDN or origin
+	// briefly serving a zero-length object), not a CRL. Treat it like a
+	// network error so that it is retried and audited as a failed download.
+	if action == Create && totalBytes == 0 {
+		return fmt.Errorf("Empty response body: %s", resp.Status)
+	}
+
 	if action == Create && size != 0 && totalBytes != size {
 		glog.Warningf("[%s] Didn't seem to download the right number of bytes, expected=%d got %d",
 			crlUrl.String(), size, totalBytes)
