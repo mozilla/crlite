@@ -106,21 +106,25 @@ func (ld *LogSyncEngine) SyncLog(ctx context.Context, enrolledLogs *EnrolledLogs
 	// many TiledLogWorker jobs.
 	issuerMap := map[string]*types.Certificate{}
 
+	logUrlObj, err := url.Parse(logMeta.URL)
+	if err != nil {
+		glog.Errorf("[%s] Unable to parse CT Log URL: %s", logMeta.URL, err)
+		return err
+	}
+
+	// Load the log state once. Workers update logObj in place and send
+	// copies to insertCTWorker, which saves them asynchronously. Reloading
+	// between jobs could return a not-yet-saved (stale) state and cause us
+	// to re-download the previous job's entries.
+	logObj, err := ld.database.GetLogState(logUrlObj)
+	if err != nil {
+		glog.Errorf("[%s] Unable to get cached CT Log state: %s", logMeta.URL, err)
+		return err
+	}
+
 	for {
 		if !enrolledLogs.IsEnrolled(logMeta.LogID) {
 			return nil
-		}
-
-		logUrlObj, err := url.Parse(logMeta.URL)
-		if err != nil {
-			glog.Errorf("[%s] Unable to parse CT Log URL: %s", logMeta.URL, err)
-			return err
-		}
-
-		logObj, err := ld.database.GetLogState(logUrlObj)
-		if err != nil {
-			glog.Errorf("[%s] Unable to get cached CT Log state: %s", logMeta.URL, err)
-			return err
 		}
 
 		if logMeta.Tiled {
