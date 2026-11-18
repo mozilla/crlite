@@ -32,7 +32,11 @@ import (
 var (
 	ctconfig   = config.NewCTConfig()
 	httpClient = http.Client{
-		Timeout: 10 * time.Second,
+		// The timeout covers reading the response body. Some logs
+		// take more than 10 seconds to send a get-entries response,
+		// so this needs to be generous. ResponseHeaderTimeout catches
+		// unresponsive servers.
+		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
 			TLSHandshakeTimeout:   30 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
