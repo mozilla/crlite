@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"errors"
 	"fmt"
 	"math/bits"
 	"math/rand"
+	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -401,7 +402,11 @@ func (lw *LogWorker) Run(ctx context.Context, entryChan chan<- LogSyncMessage) e
 		// worker its job, so we can use oldSize = 3.
 		oldSize = 3
 	}
-	proof, err := lw.Client.GetSTHConsistency(ctx, oldSize, newSize)
+	var proof [][]byte
+	err := lw.retryRequest(ctx, "get-sth-consistency", func() (err error) {
+		proof, err = lw.Client.GetSTHConsistency(ctx, oldSize, newSize)
+		return err
+	})
 	if err != nil {
 		glog.Errorf("[%s] Unable to fetch consistency proof: %s", lw.Name(), err)
 		lw.sleep(ctx) // Assume this is a temporary outage and wait
@@ -616,37 +621,70 @@ func (lw *LogWorker) storeLogEntry(ctx context.Context, rawLogEntry *ct.RawLogEn
 	return nil
 }
 
+// Retry policy for requests to RFC 6962 logs.
+const (
+	requestMinBackoff = 5 * time.Second
+	requestMaxBackoff = 10 * time.Minute
+	// Number of times to retry a request that fails for a reason other
+	// than rate limiting before giving up.
+	requestMaxTransientRetries = 4
+)
+
+// retryRequest calls f until it succeeds, backing off exponentially between
+// attempts. It retries rate limited (429) requests indefinitely, other 4xx
+// responses never, and anything else (network errors, timeouts, 5xx) up to
+// requestMaxTransientRetries times.
+func (lw *LogWorker) retryRequest(ctx context.Context, desc string, f func() error) error {
+	backoff := requestMinBackoff
+	transientFailures := 0
+	for {
+		err := f()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		var rspErr jsonclient.RspError
+		isRspErr := errors.As(err, &rspErr)
+		switch {
+		case isRspErr && rspErr.StatusCode == http.StatusTooManyRequests:
+			glog.Infof("[%s] %s: received status code 429, retrying in %s", lw.Name(), desc, backoff)
+		case isRspErr && rspErr.StatusCode >= 400 && rspErr.StatusCode < 500:
+			return err
+		default:
+			transientFailures++
+			if transientFailures > requestMaxTransientRetries {
+				return err
+			}
+			glog.Warningf("[%s] %s: failed (retry %d of %d in %s): %v",
+				lw.Name(), desc, transientFailures, requestMaxTransientRetries, backoff, err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, requestMaxBackoff)
+	}
+}
+
 func (lw *LogWorker) downloadCTRangeToChannel(ctx context.Context, verifier *CtLogSubtreeVerifier, entryChan chan<- LogSyncMessage) (uint64, uint64, error) {
 	var minTimestamp uint64
 	var maxTimestamp uint64
 
-	const minBackoff = 5 * time.Second
-	const maxBackoff = 10 * time.Minute
-	backoffDuration := minBackoff
-
 	index := verifier.Subtree.First
 	last := verifier.Subtree.Last
 	for index <= last {
-		resp, err := lw.Client.GetRawEntries(ctx, int64(index), int64(last))
+		var resp *ct.GetEntriesResponse
+		err := lw.retryRequest(ctx, fmt.Sprintf("get-entries at index=%d", index), func() (err error) {
+			resp, err = lw.Client.GetRawEntries(ctx, int64(index), int64(last))
+			return err
+		})
 		if err != nil {
-			if strings.Contains(err.Error(), "HTTP Status") &&
-				(strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "Too Many Requests")) {
-				glog.Infof("[%s] received status code 429 at index=%d, retrying in %s: %v", lw.Name(), index, backoffDuration, err)
-
-				select {
-				case <-ctx.Done():
-					return minTimestamp, maxTimestamp, ctx.Err()
-				case <-time.After(backoffDuration):
-				}
-
-				backoffDuration *= 2
-				if backoffDuration > maxBackoff {
-					backoffDuration = maxBackoff
-				}
-				continue
-			}
-
-			glog.Warningf("Failed to get entries: %v", err)
+			glog.Warningf("[%s] Failed to get entries: %v", lw.Name(), err)
 			return minTimestamp, maxTimestamp, err
 		}
 
