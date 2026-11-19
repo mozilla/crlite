@@ -781,3 +781,88 @@ fn main() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Remote Settings names an attachment `<run id>-<channel>.filter`, where
+    /// the run id is an eight digit date and a revision, so the channel slug
+    /// that follows the second dash is what keeps the revision parseable.
+    #[test]
+    fn extract_run_id_reads_remote_settings_filenames() {
+        for (name, expected) in [
+            ("20240101-0-default.filter", Some(("20240101", 0))),
+            ("20240101-12-default.filter", Some(("20240101", 12))),
+            ("20240101-3-default.filter.delta", Some(("20240101", 3))),
+            // No channel slug: the revision picks up the extension and fails.
+            ("20240101-0.filter", None),
+        ] {
+            let path = Path::new("/db").join(name);
+            let expected = expected.map(|(date, revision)| (date.to_string(), revision));
+            assert_eq!(extract_run_id(&path), expected, "for {name}");
+        }
+    }
+
+    #[test]
+    fn extract_run_id_rejects_anything_that_is_not_a_run_id() {
+        for name in [
+            "enrolled.json",
+            "crlite.intermediates",
+            // Seven digit date.
+            "2024011-0-default.filter",
+            // A letter in the date.
+            "2024O101-0-default.filter",
+            // Non-numeric revision.
+            "20240101-x-default.filter",
+        ] {
+            let path = Path::new("/db").join(name);
+            assert_eq!(extract_run_id(&path), None, "for {name}");
+        }
+
+        // A path with no final component.
+        assert_eq!(extract_run_id(Path::new("/")), None);
+    }
+
+    #[test]
+    fn enrolled_entries_with_unparseable_pem_are_skipped() {
+        let records = vec![
+            EnrolledRecord {
+                unique_id: "broken".to_string(),
+                pem: "this is not a PEM document".to_string(),
+            },
+            EnrolledRecord {
+                unique_id: "empty".to_string(),
+                pem: String::new(),
+            },
+        ];
+
+        // One unusable entry must not stop the rest of the file being read, and
+        // here there is no usable entry at all.
+        let intermediates = Intermediates::from_enrolled_json(&records);
+        assert!(intermediates.0.is_empty());
+    }
+
+    #[test]
+    fn intermediates_survive_a_bincode_round_trip() {
+        let mut original = Intermediates::new();
+        original
+            .0
+            .insert(b"issuer dn".to_vec(), vec![b"der cert".to_vec()]);
+
+        let encoded = original.encode().expect("encode");
+        let decoded = Intermediates::from_bincode(&encoded).expect("decode");
+        assert_eq!(decoded.0, original.0);
+    }
+
+    #[test]
+    fn intermediates_reject_bytes_that_are_not_bincode() {
+        assert!(Intermediates::from_bincode(b"not bincode at all").is_err());
+    }
+
+    #[test]
+    fn crlite_db_error_keeps_the_source_message() {
+        let err = CRLiteDBError::from("could not fetch filter");
+        assert_eq!(err.message, "could not fetch filter");
+    }
+}
