@@ -423,16 +423,17 @@ func (ae *AggregateEngine) aggregateCRLWorker(ctx context.Context, wg *sync.Wait
 			}
 		}
 
-		if anyCrlFailed == false {
-			if err := ae.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
-				glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
-			}
-
-			glog.Infof("[%s] %d total revoked serials for %s (len=%d, cap=%d)", tuple.Issuer.ID(),
-				serialCount, tuple.IssuerDN, len(serials), cap(serials))
-		} else {
-			glog.Infof("May not have all revoked certificates for issuer %s", tuple.Issuer.ID())
+		if anyCrlFailed {
+			glog.Warningf("[%s] May not have all revoked certificates for issuer %s; using the %d "+
+				"revoked serials from the CRLs that were processed", tuple.Issuer.ID(), tuple.IssuerDN, serialCount)
 		}
+
+		if err := ae.StoreRevokedCertificateList(ctx, tuple.Issuer, serials); err != nil {
+			glog.Fatalf("[%s] Could not save revoked certificates file: %s", tuple.Issuer.ID(), err)
+		}
+
+		glog.Infof("[%s] %d total revoked serials for %s (len=%d, cap=%d)", tuple.Issuer.ID(),
+			serialCount, tuple.IssuerDN, len(serials), cap(serials))
 	}
 }
 
