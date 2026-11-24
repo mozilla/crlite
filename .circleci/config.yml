@@ -111,7 +111,7 @@ jobs:
       - image: cimg/rust:1.99.1
     environment:
       RUSTFLAGS: '-D warnings'
-    working_directory: ~/crlite/rust-create-cascade
+    working_directory: ~/crlite
     steps:
       - checkout:
           path: ~/crlite/
@@ -120,10 +120,10 @@ jobs:
           command: rustc --version; cargo --version; rustup --version
       - run:
           name: rustfmt
-          command: rustfmt --check src/*.rs src/bin/*.rs
+          command: cargo fmt --all --check
       - run:
           name: Run Tests
-          command: cargo test -r --locked
+          command: cargo test -r --locked --workspace
 
   publish-dev-image:
     executor: docker/docker

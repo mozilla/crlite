@@ -6,6 +6,8 @@ use crate::{
     decode_issuer, decode_serial, list_issuer_file_pairs, CheckableFilter, FilterBuilder,
     KnownSerialIterator, ReasonSet, RevokedSerialAndReasonIterator, Serial,
 };
+use base64::engine::general_purpose::URL_SAFE;
+use base64::Engine;
 use clubcard::{builder::*, Clubcard};
 
 use clubcard_crlite::{
@@ -87,7 +89,7 @@ fn clubcard_do_one_issuer(
     } else {
         debug!(
             "Inverting block {}: {} of {} known serials are revoked",
-            base64::encode_config(issuer, base64::URL_SAFE),
+            URL_SAFE.encode(issuer),
             revoked_count,
             universe_size
         );

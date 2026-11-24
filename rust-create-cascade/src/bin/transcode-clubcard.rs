@@ -43,17 +43,17 @@ impl From<ClubcardEncoding> for clubcard_crlite::Encoding {
 #[derive(Parser)]
 struct Cli {
     /// Clubcard to read. Its encoding is taken from its header, not from --encoding.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long)]
     input: PathBuf,
     /// Where to write the re-encoded clubcard.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long)]
     output: PathBuf,
     #[clap(long, value_enum, default_value = "tls")]
     encoding: ClubcardEncoding,
     #[clap(long)]
     clobber: bool,
-    #[clap(short = 'v', parse(from_occurrences))]
-    verbose: usize,
+    #[clap(short = 'v', action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 fn main() {
@@ -61,7 +61,7 @@ fn main() {
 
     stderrlog::new()
         .module(module_path!())
-        .verbosity(args.verbose)
+        .verbosity(usize::from(args.verbose))
         .init()
         .unwrap();
 

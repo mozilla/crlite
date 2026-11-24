@@ -12,13 +12,11 @@ RUN go build -o bin/ct-fetch /build/cmd/ct-fetch
 FROM rust:latest AS rust-builder
 RUN mkdir /build
 
+ADD Cargo.toml Cargo.lock /build/
 ADD rust-create-cascade /build/rust-create-cascade/
-WORKDIR /build/rust-create-cascade
-RUN cargo build --release --locked --target-dir /build
-
 ADD rust-query-crlite /build/rust-query-crlite/
-WORKDIR /build/rust-query-crlite
-RUN cargo build --release --locked --target-dir /build
+WORKDIR /build
+RUN cargo build --release --locked
 
 
 FROM python:3.12.2-slim-bookworm
@@ -43,9 +41,9 @@ RUN mkdir /processing && chown app /processing && chmod 777 /processing
 VOLUME /var/log /processing /persistent
 
 COPY --from=go-builder /build/bin /app/
-COPY --from=rust-builder /build/release/rust-create-cascade /app/
-COPY --from=rust-builder /build/release/transcode-clubcard /app/
-COPY --from=rust-builder /build/release/rust-query-crlite /app/
+COPY --from=rust-builder /build/target/release/rust-create-cascade /app/
+COPY --from=rust-builder /build/target/release/transcode-clubcard /app/
+COPY --from=rust-builder /build/target/release/rust-query-crlite /app/
 
 COPY moz_kinto_publisher /app/moz_kinto_publisher
 COPY workflow /app/workflow
