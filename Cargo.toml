@@ -1,0 +1,6 @@
+[workspace]
+members = ["rust-create-cascade", "rust-query-crlite"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"

@@ -82,3 +82,6 @@ problems
 
 # vim swap files
 .*.swp
+
+# Rust build output
+/target/
