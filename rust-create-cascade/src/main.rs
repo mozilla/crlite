@@ -26,7 +26,7 @@
 //!    { IssuerSPKIHash || Serial : "IssuerSPKIHash, Serial in /revoked/" }.
 //!
 //! The IssuerSPKIHash and Serial values in these definitions are octet strings. We obtain
-//! IssuerSPKIHash by applying `base64::decode_config(., base64::URL_SAFE)` to a file name. We
+//! IssuerSPKIHash by applying `URL_SAFE.decode(...)` (padded URL-safe base64) to a file name. We
 //! obtain Serial by applying `hex::decode(...)` to a line of a file.
 //!
 
@@ -44,6 +44,8 @@ extern crate statsd;
 extern crate stderrlog;
 extern crate tempfile;
 
+use base64::engine::general_purpose::URL_SAFE;
+use base64::Engine;
 use clap::Parser;
 use log::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -260,7 +262,8 @@ impl Iterator for KnownSerialIterator {
 }
 
 fn decode_issuer(s: &str) -> [u8; 32] {
-    base64::decode_config(s, base64::URL_SAFE)
+    URL_SAFE
+        .decode(s)
         .expect("found invalid issuer id: not url-safe base64.")
         .try_into()
         .expect("found invalid issuer id: not 32 bytes.")
@@ -703,15 +706,15 @@ impl From<ClubcardEncoding> for clubcard_crlite::Encoding {
 
 #[derive(Parser)]
 struct Cli {
-    #[clap(long, parse(from_os_str), default_value = "./known/")]
+    #[clap(long, default_value = "./known/")]
     known: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./revoked/")]
+    #[clap(long, default_value = "./revoked/")]
     revoked: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./prev_revset.bin")]
+    #[clap(long, default_value = "./prev_revset.bin")]
     prev_revset: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = "./ct-logs.json")]
+    #[clap(long, default_value = "./ct-logs.json")]
     ct_logs_json: PathBuf,
-    #[clap(long, parse(from_os_str), default_value = ".")]
+    #[clap(long, default_value = ".")]
     outdir: PathBuf,
     #[clap(long, value_enum, default_value = "all")]
     reason_set: ReasonSet,
@@ -727,8 +730,8 @@ struct Cli {
     encoding: ClubcardEncoding,
     #[clap(long)]
     clobber: bool,
-    #[clap(short = 'v', parse(from_occurrences))]
-    verbose: usize,
+    #[clap(short = 'v', action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 fn main() {
@@ -738,7 +741,7 @@ fn main() {
 
     stderrlog::new()
         .module(module_path!())
-        .verbosity(args.verbose)
+        .verbosity(usize::from(args.verbose))
         .init()
         .unwrap();
 
@@ -1030,6 +1033,8 @@ mod tests {
         decode_issuer, decode_serial, write_revset_and_delta, write_stash, CheckableFilter, Reason,
         ReasonSet,
     };
+    use base64::engine::general_purpose::URL_SAFE;
+    use base64::Engine;
     use clubcard_crlite::{CRLiteClubcard, Encoding};
     use rand::rngs::OsRng;
     use rand::RngCore;
@@ -1070,7 +1075,7 @@ mod tests {
             let mut issuer_bytes = vec![0u8; 32];
             OsRng.fill_bytes(&mut issuer_bytes);
 
-            let issuer_str = base64::encode_config(issuer_bytes, base64::URL_SAFE);
+            let issuer_str = URL_SAFE.encode(issuer_bytes);
             std::fs::File::create(self.known_dir().join(&issuer_str))
                 .expect("could not create issuer file");
             std::fs::File::create(self.revoked_dir().join(&issuer_str))
